@@ -5,7 +5,7 @@ import (
 	"io/fs"
 )
 
-//go:embed out
+//go:embed out out/_next
 var embedded embed.FS
 
 func StaticFS() (fs.FS, error) {
