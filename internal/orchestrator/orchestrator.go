@@ -26,19 +26,18 @@ type OrchestratorConfig struct {
 	Store       *store.Store
 	Queue       *jobs.Queue
 	Attempts    *attempts.Service
+	Worker      *jobs.GenericWorker
 	Logger      *slog.Logger
 }
 
 func New(cfg OrchestratorConfig) *Orchestrator {
-	worker := jobs.NewGenericWorker(cfg.Logger)
-
 	o := &Orchestrator{
 		provider:    cfg.Provider,
 		provisioner: cfg.Provisioner,
 		store:       cfg.Store,
 		queue:       cfg.Queue,
 		attempts:    cfg.Attempts,
-		worker:      worker,
+		worker:      cfg.Worker,
 		logger:      cfg.Logger,
 	}
 

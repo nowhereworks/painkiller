@@ -28,3 +28,5 @@ go.work
 
 
 .env
+public/
+.hugo_build.lock

@@ -1,0 +1,5 @@
+{{- $destination := .Destination -}}
+{{- if strings.HasSuffix $destination ".md" -}}
+  {{- $destination = strings.TrimSuffix ".md" $destination -}}
+{{- end -}}
+<a href="{{ $destination | safeURL }}"{{ with .Title }} title="{{ . }}"{{ end }}>{{ .Text | safeHTML }}</a>

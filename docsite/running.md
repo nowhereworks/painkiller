@@ -62,6 +62,20 @@ make lint
 
 This runs `go vet ./...` to check for common issues.
 
+### Preview Documentation Site
+
+Install [Hugo](https://gohugo.io/installation/) and run:
+
+```bash
+make docs-serve
+```
+
+This serves the Markdown documentation in `./docsite` as a browsable local website at `http://127.0.0.1:1313/`. Build the static site with:
+
+```bash
+make docs-build
+```
+
 ## Building
 
 ### Build Binary
@@ -184,31 +198,24 @@ sudo journalctl -u painkiller -f
 
 ### Build Image
 
-Create `Dockerfile`:
-
-```dockerfile
-FROM golang:1.26-alpine AS builder
-WORKDIR /app
-COPY go.mod go.sum ./
-RUN go mod download
-COPY . .
-RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o server ./cmd/server
-
-FROM alpine:latest
-RUN apk --no-cache add ca-certificates
-WORKDIR /root/
-COPY --from=builder /app/server .
-COPY --from=builder /app/migrations ./migrations
-EXPOSE 8080
-CMD ["./server"]
-```
-
 Build and run:
 
 ```bash
 docker build -t painkiller-shell .
 docker run -p 8080:8080 --env-file .env painkiller-shell
 ```
+
+The repository Dockerfile builds `./cmd/server` and `./cmd/migrate`, copies database migrations into the image, exposes port `8080`, and runs the server as `/app/server`. The `.dockerignore` excludes local secrets and build artifacts from the Docker build context.
+
+### Development Compose
+
+Run the full ephemeral development stack:
+
+```bash
+make run-dev
+```
+
+This builds the image, starts PostgreSQL, runs application and River queue migrations with `./migrate -direction up`, and starts the server after migrations complete successfully. The server listens on `localhost:8080`.
 
 ### Docker Compose
 

@@ -41,6 +41,12 @@ journalctl -u painkiller -n 50
    ```
    **Solution:** Set a strong `JWT_SECRET` (32+ characters)
 
+5. **Job queue startup failed**
+   ```
+   Error: failed to start job queue: at least one Worker must be added to the Workers bundle
+   ```
+   **Solution:** Use `make run-dev` for local compose testing so the image is rebuilt and migrations run before the server starts. If running manually, run `go run ./cmd/migrate -direction up` before starting `go run ./cmd/server`.
+
 ### High Memory Usage
 
 **Symptom:** Server memory usage grows over time

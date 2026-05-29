@@ -21,3 +21,4 @@
 
 - All code changes must be followed by an update to the user-facing docs in `./docsite`.
 - When adding new features, API endpoints, config options, or operational procedures, update the relevant docsite page(s) in the same change.
+- `./docsite` is a Hugo content directory. Use `make docs-serve` to preview and `make docs-build` to build the static site into ignored `./public` output.

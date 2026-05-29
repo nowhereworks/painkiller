@@ -66,9 +66,11 @@ func main() {
 	catalogHandler := catalog.NewHandler(dataStore)
 	entitlementsHandler := entitlements.NewHandler(dataStore)
 
+	worker := jobs.NewGenericWorker(logger)
 	queue, err := jobs.NewQueue(jobs.QueueConfig{
 		DBPool: pgxPool,
 		Logger: logger,
+		Worker: worker,
 	})
 	if err != nil {
 		log.Fatalf("failed to create job queue: %v", err)
@@ -86,6 +88,7 @@ func main() {
 		Store:       dataStore,
 		Queue:       queue,
 		Attempts:    attemptsService,
+		Worker:      worker,
 		Logger:      logger,
 	})
 

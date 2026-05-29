@@ -1,0 +1,56 @@
+baseURL: "https://example.org/"
+locale: "en-us"
+title: "Painkiller Shell Documentation"
+contentDir: "docsite"
+publishDir: "public"
+disableKinds:
+  - taxonomy
+  - term
+ignoreFiles:
+  - "README\\.md$"
+
+markup:
+  goldmark:
+    renderer:
+      unsafe: true
+  highlight:
+    noClasses: false
+
+params:
+  description: "Documentation for running and operating Painkiller Shell."
+
+menus:
+  docs:
+    - name: "Home"
+      pageRef: "/"
+      weight: 1
+    - name: "Getting Started"
+      pageRef: "/getting-started"
+      weight: 10
+    - name: "Configuration"
+      pageRef: "/configuration"
+      weight: 20
+    - name: "Database"
+      pageRef: "/database"
+      weight: 30
+    - name: "Running"
+      pageRef: "/running"
+      weight: 40
+    - name: "Admin"
+      pageRef: "/admin"
+      weight: 50
+    - name: "Proxmox"
+      pageRef: "/proxmox"
+      weight: 60
+    - name: "Proxy"
+      pageRef: "/proxy"
+      weight: 70
+    - name: "Scenarios"
+      pageRef: "/scenarios"
+      weight: 80
+    - name: "Troubleshooting"
+      pageRef: "/troubleshooting"
+      weight: 90
+    - name: "License"
+      pageRef: "/license"
+      weight: 100

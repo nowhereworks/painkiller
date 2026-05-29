@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="description" content="{{ site.Params.description }}">
+    <title>{{ if .IsHome }}{{ site.Title }}{{ else }}{{ .Title }} | {{ site.Title }}{{ end }}</title>
+    <style>
+      :root { color-scheme: light dark; --bg: #fbfaf7; --fg: #171717; --muted: #666; --line: #ded8cc; --link: #8a2d13; --panel: #fffdf8; --code: #f1ece3; }
+      @media (prefers-color-scheme: dark) { :root { --bg: #141313; --fg: #f4efe7; --muted: #b6ada1; --line: #403a33; --link: #ffad7d; --panel: #1d1b19; --code: #292521; } }
+      * { box-sizing: border-box; }
+      body { margin: 0; background: var(--bg); color: var(--fg); font: 16px/1.6 system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+      a { color: var(--link); }
+      .shell { display: grid; grid-template-columns: 18rem minmax(0, 1fr); min-height: 100vh; }
+      .sidebar { border-right: 1px solid var(--line); background: var(--panel); padding: 1.5rem; position: sticky; top: 0; height: 100vh; overflow: auto; }
+      .brand { display: block; color: var(--fg); font-size: 1.1rem; font-weight: 750; line-height: 1.2; margin-bottom: 1.5rem; text-decoration: none; }
+      .nav { display: grid; gap: .2rem; }
+      .nav a { border-radius: .45rem; color: var(--fg); padding: .35rem .5rem; text-decoration: none; }
+      .nav a:hover, .nav a[aria-current="page"] { background: var(--code); color: var(--link); }
+      main { max-width: 58rem; padding: 3rem min(6vw, 4rem); width: 100%; }
+      h1, h2, h3 { line-height: 1.2; }
+      h1 { font-size: clamp(2rem, 4vw, 3.5rem); margin: 0 0 1.25rem; }
+      h2 { border-top: 1px solid var(--line); margin-top: 2.5rem; padding-top: 1.25rem; }
+      p, li { color: var(--fg); }
+      table { border-collapse: collapse; display: block; overflow-x: auto; }
+      th, td { border: 1px solid var(--line); padding: .45rem .65rem; }
+      th { background: var(--code); text-align: left; }
+      code { background: var(--code); border-radius: .25rem; padding: .1rem .25rem; }
+      pre { background: var(--code); border: 1px solid var(--line); border-radius: .7rem; overflow-x: auto; padding: 1rem; }
+      pre code { background: transparent; padding: 0; }
+      .footer { border-top: 1px solid var(--line); color: var(--muted); font-size: .9rem; margin-top: 3rem; padding-top: 1rem; }
+      @media (max-width: 800px) { .shell { display: block; } .sidebar { height: auto; position: static; } main { padding: 2rem 1.25rem; } .nav { grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr)); } }
+    </style>
+  </head>
+  <body>
+    <div class="shell">
+      <aside class="sidebar">
+        <a class="brand" href="{{ relURL "" }}">Painkiller Shell Documentation</a>
+        <nav class="nav" aria-label="Documentation">
+          {{ $current := . }}
+          {{ range site.Menus.docs }}
+            <a href="{{ .URL | relURL }}"{{ if $current.IsMenuCurrent "docs" . }} aria-current="page"{{ end }}>{{ .Name }}</a>
+          {{ end }}
+        </nav>
+      </aside>
+      <main>
+        {{ block "main" . }}{{ end }}
+        <div class="footer">Generated from Markdown in <code>./docsite</code>.</div>
+      </main>
+    </div>
+  </body>
+</html>

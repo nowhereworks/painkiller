@@ -1,8 +1,10 @@
+---
+title: "Painkiller Shell Documentation"
+---
+
 # Painkiller Shell Documentation
 
 Painkiller Shell is a Killer.sh-style Kubernetes training platform. Students purchase tests, receive time-limited access with a fixed number of attempts, and train in live kubeadm-based environments running on Proxmox VMs.
-
-Serve this documentation as a local website with `make docs-serve`. Build static output with `make docs-build`.
 
 ## Documentation Index
 
@@ -32,7 +34,7 @@ Serve this documentation as a local website with `make docs-serve`. Build static
 
 Painkiller Shell follows a modular monolith architecture:
 
-```
+```text
 Next.js Frontend
   ↓
 Go API Server

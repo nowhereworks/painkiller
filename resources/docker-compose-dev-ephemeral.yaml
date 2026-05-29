@@ -1,0 +1,63 @@
+services:
+  painkiller-postgres:
+    image: postgres:17
+    environment:
+      POSTGRES_USER: painkiller
+      POSTGRES_PASSWORD: painkiller
+      POSTGRES_DB: painkiller
+    networks:
+      - painkiller-dev
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U painkiller -d painkiller"]
+      interval: 2s
+      timeout: 5s
+      retries: 20
+
+  painkiller-migrate:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    depends_on:
+      painkiller-postgres:
+        condition: service_healthy
+    command: ["./migrate", "-direction", "up"]
+    networks:
+      - painkiller-dev
+    environment:
+      - DATABASE_URL=postgres://painkiller:painkiller@painkiller-postgres:5432/painkiller?sslmode=disable
+
+  painkiller-server:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    depends_on:
+      painkiller-postgres:
+        condition: service_healthy
+      painkiller-migrate:
+        condition: service_completed_successfully
+    # command: ["server"]
+    # volumes:
+    #   - ./config-ephemeral.yaml:/etc/painkiller/config.yaml:ro
+    ports:
+      - "8080:8080"
+    networks:
+      - painkiller-dev
+    environment:
+      - DATABASE_URL=postgres://painkiller:painkiller@painkiller-postgres:5432/painkiller?sslmode=disable
+      - HTTP_ADDR=:8080
+      - JWT_SECRET=63c2c2b15b3a5acf1c3bb35fa5fe8c416bffd8e4611d6ff626a6b08d561f62a4
+      - JWT_EXPIRY=86400
+      - STRIPE_SECRET_KEY=sk_test_...
+      - STRIPE_WEBHOOK_SECRET=whsec_...
+      - STRIPE_SUCCESS_URL=http://localhost:3000/success
+      - STRIPE_CANCEL_URL=http://localhost:3000/cancel
+      - PROXMOX_URL=https://proxmox.example.com:8006
+      - PROXMOX_TOKEN_ID=user@pam!token
+      - PROXMOX_TOKEN_SECRET=secret
+      - PROXMOX_NODE=pve1
+      - SCENARIO_REPO_PATH=sample/scenarios
+      - LOG_LEVEL=DEBUG
+
+networks:
+  painkiller-dev:
+    driver: bridge

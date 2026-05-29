@@ -12,20 +12,53 @@ Core product concepts include products, tests, purchased access windows, attempt
 
 ## Repo Layout
 
-- `cmd/` contains executable entrypoints, including the API server and database migration runner.
-- `internal/` contains private Go application packages for auth, billing, catalog, entitlements, attempts, terminal access, grading, jobs, providers, provisioning, storage, and shared HTTP utilities.
-- `migrations/` contains PostgreSQL schema migrations used by the migration command.
-- `infra/` contains operational infrastructure files, including proxy configuration and workstation network setup scripts.
-- `testdata/` contains test fixtures, including sample scenario definitions used by Go tests.
-- `sample/` is reserved for sample scenario content.
-- `docs/` contains architecture notes, implementation planning, and project assets.
-- `docsite/` contains user-facing documentation for setup, configuration, operations, infrastructure, scenario authoring, and troubleshooting.
+| Path | Purpose |
+| --- | --- |
+| `cmd/` | Executable entrypoints, including the API server and database migration runner. |
+| `internal/` | Private Go application packages for auth, billing, catalog, entitlements, attempts, terminal access, grading, jobs, providers, provisioning, storage, and shared HTTP utilities. |
+| `migrations/` | PostgreSQL schema migrations used by the migration command. |
+| `infra/` | Operational infrastructure files, including proxy configuration and workstation network setup scripts. |
+| `testdata/` | Test fixtures, including sample scenario definitions used by Go tests. |
+| `sample/` | Reserved for sample scenario content. |
+| `docs/` | Architecture notes, implementation planning, and project assets. |
+| `docsite/` | User-facing documentation for setup, configuration, operations, infrastructure, scenario authoring, and troubleshooting. |
 
 ## How to Get Started
 
-Start by installing the required dependencies, copying `.env.example` to `.env`, configuring PostgreSQL and application secrets, running migrations, and starting the Go API server with `make run`.
+Painkiller is a full training-platform stack, so the first setup step is making sure you have the local application pieces and, when you are ready for real lab provisioning, the infrastructure pieces.
+
+For local development you need:
+
+- **Go 1.26.1 or later** for the API server and migration tooling.
+- **PostgreSQL 14+** for application state, attempts, jobs, and scenario metadata.
+- **Make** for the project command shortcuts.
+- **Docker** if you prefer to run PostgreSQL locally in a container.
+- **Stripe CLI** if you want to exercise billing webhooks during development.
+
+For production-style environments you also need:
+
+- **Proxmox VE 7+** to create the isolated workstation and Kubernetes cluster VMs.
+- **Ansible 2.9+** to provision kubeadm-based clusters inside those VMs.
+- **Squid Proxy** to provide restricted documentation access during attempts.
+- **Stripe account and API keys** to sell tests and unlock purchased access windows.
+
+Once those pieces are available, the setup path is straightforward: create your environment file from `.env.example`, point Painkiller at PostgreSQL, set application secrets, run the database migrations, and start the API server. Local development can use the mock provider while you build out catalog, entitlement, attempt, and grading flows; production deployments connect the same application flow to Proxmox, Ansible, the documentation proxy, and Stripe.
 
 For the full setup flow, see [Getting Started](docsite/getting-started.md).
+
+## Documentation Site
+
+The user-facing documentation in `docsite/` can be served as a Hugo static site:
+
+```bash
+make docs-serve
+```
+
+Build the static site into `public/`:
+
+```bash
+make docs-build
+```
 
 ## License
 

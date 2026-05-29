@@ -3,6 +3,7 @@ package jobs
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"time"
 
@@ -20,12 +21,20 @@ type Queue struct {
 type QueueConfig struct {
 	DBPool *pgxpool.Pool
 	Logger *slog.Logger
+	Worker *GenericWorker
 }
 
 func NewQueue(cfg QueueConfig) (*Queue, error) {
+	if cfg.Worker == nil {
+		return nil, fmt.Errorf("worker is required")
+	}
+
 	driver := riverpgxv5.New(cfg.DBPool)
 
 	workers := river.NewWorkers()
+	if err := river.AddWorkerSafely(workers, cfg.Worker); err != nil {
+		return nil, err
+	}
 
 	client, err := river.NewClient(driver, &river.Config{
 		Queues: map[string]river.QueueConfig{
