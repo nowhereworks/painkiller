@@ -1,9 +1,9 @@
 package httpx
 
 import (
+	"io"
 	"io/fs"
 	"net/http"
-	"net/url"
 	"path"
 	"strings"
 )
@@ -14,8 +14,6 @@ func (s *Server) ServeStatic(staticFS fs.FS) {
 }
 
 func staticHandler(staticFS fs.FS) http.HandlerFunc {
-	fileServer := http.FileServer(http.FS(staticFS))
-
 	return func(w http.ResponseWriter, r *http.Request) {
 		if strings.HasPrefix(r.URL.Path, "/api/") {
 			http.NotFound(w, r)
@@ -23,7 +21,7 @@ func staticHandler(staticFS fs.FS) http.HandlerFunc {
 		}
 
 		filePath := strings.TrimPrefix(path.Clean(r.URL.Path), "/")
-		if filePath == "." {
+		if filePath == "." || filePath == "" {
 			filePath = "index.html"
 		}
 
@@ -41,16 +39,19 @@ func staticHandler(staticFS fs.FS) http.HandlerFunc {
 			w.Header().Set("Cache-Control", "no-cache")
 		}
 
-		r2 := new(http.Request)
-		*r2 = *r
-		r2.URL = cloneURL(r.URL)
-		r2.URL.Path = "/" + filePath
+		f, err := staticFS.Open(filePath)
+		if err != nil {
+			http.NotFound(w, r)
+			return
+		}
+		defer f.Close()
 
-		fileServer.ServeHTTP(w, r2)
+		info, err := f.Stat()
+		if err != nil {
+			http.NotFound(w, r)
+			return
+		}
+
+		http.ServeContent(w, r, filePath, info.ModTime(), f.(io.ReadSeeker))
 	}
-}
-
-func cloneURL(u *url.URL) *url.URL {
-	copy := *u
-	return &copy
 }
