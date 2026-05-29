@@ -23,6 +23,9 @@ Painkiller Shell is a Killer.sh-style Kubernetes training platform. Students pur
 ### Support
 - [Troubleshooting](troubleshooting.md) - Common issues and resolutions
 
+### Legal
+- [Licensing](license.md) - Personal-use terms and commercial licensing requirements
+
 ## Architecture Overview
 
 Painkiller Shell follows a modular monolith architecture:
