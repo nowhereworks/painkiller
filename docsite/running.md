@@ -76,6 +76,8 @@ This serves the Markdown documentation in `./docsite` as a browsable local websi
 make docs-build
 ```
 
+Pushes to `main` that change `docsite/`, `layouts/`, `hugo.yaml`, or `.github/workflows/deploy-site.yml` automatically build the Hugo site and deploy `public/` to GitHub Pages. The deployment workflow also supports manual runs from the GitHub Actions tab.
+
 ## Building
 
 ### Build Binary
