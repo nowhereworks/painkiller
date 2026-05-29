@@ -10,7 +10,7 @@ lint:
 	go vet ./...
 
 migrate-up:
-	@echo "migrate-up: not yet implemented"
+	go run ./cmd/migrate -direction up
 
 migrate-down:
-	@echo "migrate-down: not yet implemented"
+	go run ./cmd/migrate -direction down
