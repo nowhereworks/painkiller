@@ -2,7 +2,7 @@
 
 ## Project State
 
-- `go.mod` is the only project manifest; module path is `painkiller-shell` and it declares Go `1.26.1`.
+- `go.mod` is the only project manifest; module path is `painkiller-shell` (a.k.a Painkiller, Painkiller Shell) and it declares Go `1.26.1`.
 - No Go packages, entrypoints, tests, README, CI, task runner, or lockfile exist yet.
 - Product intent from repo notes: Painkiller Shell is a Killer.sh clone written in Go.
 - Architecture decisions and MVP scope are documented in `docs/architecture.md`.
@@ -16,3 +16,8 @@
 
 - Keep changes minimal; avoid broad rewrites when a targeted edit solves the task.
 - When the user asks to persist useful context for future sessions, add it to `AGENTS.md` or another discoverable `.md` file.
+
+## Documentation
+
+- All code changes must be followed by an update to the user-facing docs in `./docsite`.
+- When adding new features, API endpoints, config options, or operational procedures, update the relevant docsite page(s) in the same change.
