@@ -1,0 +1,13 @@
+checks:
+  - id: task-01-check
+    task_id: task-01
+    cluster_id: cluster-a
+    type: kubectl
+    command: "kubectl --context=cluster-a-admin get networkpolicy deny-all -n default -o jsonpath='{.spec.podSelector}'"
+    points: 8
+  - id: task-02-check
+    task_id: task-02
+    cluster_id: cluster-b
+    type: kubectl
+    command: "kubectl --context=cluster-b-admin get deployment web-app -n production -o jsonpath='{.spec.replicas}'"
+    points: 12

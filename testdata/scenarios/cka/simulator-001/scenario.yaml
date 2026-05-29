@@ -1,0 +1,43 @@
+id: cka-simulator-001
+title: CKA Simulator 1
+duration_minutes: 120
+access_window_hours: 36
+attempts_allowed: 2
+
+topology:
+  clusters:
+    - id: cluster-a
+      display_name: cluster-a
+      kube_context: cluster-a-admin
+      nodes:
+        - name: cp-1
+          role: control-plane
+          template: kubeadm-control-plane
+        - name: worker-1
+          role: worker
+          template: kubeadm-worker
+    - id: cluster-b
+      display_name: cluster-b
+      kube_context: cluster-b-admin
+      nodes:
+        - name: cp-1
+          role: control-plane
+          template: kubeadm-control-plane
+        - name: worker-1
+          role: worker
+          template: kubeadm-worker
+        - name: worker-2
+          role: worker
+          template: kubeadm-worker
+
+tasks:
+  - id: task-01
+    cluster_id: cluster-a
+    kube_context: cluster-a-admin
+    points: 8
+    prompt_file: tasks/task-01.md
+  - id: task-02
+    cluster_id: cluster-b
+    kube_context: cluster-b-admin
+    points: 12
+    prompt_file: tasks/task-02.md
