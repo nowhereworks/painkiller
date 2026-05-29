@@ -31,6 +31,7 @@ import (
 	"painkiller-shell/internal/scoring"
 	"painkiller-shell/internal/store"
 	"painkiller-shell/internal/terminal"
+	"painkiller-shell/web"
 )
 
 func main() {
@@ -122,6 +123,12 @@ func main() {
 			})
 		})
 	})
+
+	staticFS, err := web.StaticFS()
+	if err != nil {
+		log.Fatalf("failed to load embedded frontend: %v", err)
+	}
+	srv.ServeStatic(staticFS)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()

@@ -22,6 +22,7 @@ func NewHandler(service *Service, jwtManager *JWTManager) *Handler {
 func (h *Handler) RegisterRoutes(r chi.Router) {
 	r.Post("/register", h.register)
 	r.Post("/login", h.login)
+	r.Post("/logout", h.logout)
 }
 
 type registerRequest struct {
@@ -104,4 +105,18 @@ func (h *Handler) login(w http.ResponseWriter, r *http.Request) {
 	})
 
 	_ = httpx.WriteJSON(w, http.StatusOK, loginResponse{Token: token})
+}
+
+func (h *Handler) logout(w http.ResponseWriter, r *http.Request) {
+	http.SetCookie(w, &http.Cookie{
+		Name:     "auth_token",
+		Value:    "",
+		Path:     "/",
+		HttpOnly: true,
+		Secure:   true,
+		SameSite: http.SameSiteStrictMode,
+		MaxAge:   -1,
+	})
+
+	_ = httpx.WriteJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }

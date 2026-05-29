@@ -1,4 +1,4 @@
-.PHONY: run test lint migrate-up migrate-down docs-serve docs-build
+.PHONY: run test lint migrate-up migrate-down web-install web-dev web-build docs-serve docs-build
 
 run:
 	go run ./cmd/server
@@ -8,6 +8,15 @@ test:
 
 lint:
 	go vet ./...
+
+web-install:
+	npm --prefix web install
+
+web-dev:
+	npm --prefix web run dev
+
+web-build:
+	npm --prefix web run build
 
 migrate-up:
 	go run ./cmd/migrate -direction up

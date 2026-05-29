@@ -36,7 +36,7 @@ func NewGateway(store *store.Store, attemptsSvc *attempts.Service, logger *slog.
 }
 
 func (g *Gateway) RegisterRoutes(r chi.Router) {
-	r.Get("/terminal/{token}", g.handleWebSocket)
+	r.Get("/{token}", g.handleWebSocket)
 }
 
 type resizeMessage struct {

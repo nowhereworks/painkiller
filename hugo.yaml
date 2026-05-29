@@ -8,6 +8,9 @@ disableKinds:
   - term
 ignoreFiles:
   - "README\\.md$"
+  - "web/node_modules/"
+  - "web/\\.next/"
+  - "web/out/"
 
 markup:
   goldmark:

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net"
+	"strconv"
 
 	"golang.org/x/crypto/ssh"
 )
@@ -22,7 +23,7 @@ func DialSSH(ctx context.Context, host string, port int, user string, privateKey
 		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
 	}
 
-	addr := fmt.Sprintf("%s:%d", host, port)
+	addr := net.JoinHostPort(host, strconv.Itoa(port))
 	conn, err := net.DialTimeout("tcp", addr, 10_000_000_000)
 	if err != nil {
 		return nil, fmt.Errorf("failed to dial SSH: %w", err)

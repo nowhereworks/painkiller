@@ -7,3 +7,5 @@ Dockerfile
 server
 migrate
 *.log
+web/.next
+web/node_modules

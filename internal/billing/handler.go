@@ -24,7 +24,6 @@ func NewHandler(service *Service, webhookHandler *WebhookHandler) *Handler {
 
 func (h *Handler) RegisterRoutes(r chi.Router) {
 	r.Post("/checkout", h.checkout)
-	r.Post("/webhooks/stripe", h.webhookHandler.Handle)
 }
 
 type checkoutRequest struct {

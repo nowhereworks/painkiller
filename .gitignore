@@ -30,3 +30,9 @@ go.work
 .env
 public/
 .hugo_build.lock
+web/.next/
+web/node_modules/
+web/out/**
+!web/out/
+!web/out/placeholder.txt
+web/tsconfig.tsbuildinfo

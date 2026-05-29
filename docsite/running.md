@@ -28,6 +28,22 @@ make run
 
 This runs `go run ./cmd/server` directly.
 
+### Run the Frontend During Development
+
+Install the frontend dependencies once:
+
+```bash
+make web-install
+```
+
+Run the Next.js dev server:
+
+```bash
+make web-dev
+```
+
+The frontend runs at `http://127.0.0.1:3000` and proxies `/api/*` to the Go API at `http://localhost:8080` by default. Set `NEXT_PUBLIC_API_BASE_URL` when the API is on a different origin.
+
 ### Run Tests
 
 Run all tests:
@@ -82,11 +98,19 @@ Pushes to `main` that change `docsite/`, `layouts/`, `hugo.yaml`, or `.github/wo
 
 ### Build Binary
 
+Build the embedded UI first:
+
+```bash
+make web-build
+```
+
+Then build the Go server:
+
 ```bash
 go build -o server ./cmd/server
 ```
 
-The binary is created in the current directory.
+The binary is created in the current directory and embeds the static files generated under `web/out`.
 
 ### Build for Production
 
@@ -207,7 +231,7 @@ docker build -t painkiller-shell .
 docker run -p 8080:8080 --env-file .env painkiller-shell
 ```
 
-The repository Dockerfile builds `./cmd/server` and `./cmd/migrate`, copies database migrations into the image, exposes port `8080`, and runs the server as `/app/server`. The `.dockerignore` excludes local secrets and build artifacts from the Docker build context.
+The repository Dockerfile builds the embedded Next.js UI, builds `./cmd/server` and `./cmd/migrate`, copies database migrations into the image, exposes port `8080`, and runs the server as `/app/server`. The `.dockerignore` excludes local secrets and build artifacts from the Docker build context.
 
 ### Development Compose
 
