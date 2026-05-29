@@ -20,6 +20,7 @@ func NewHandler(service *Service) *Handler {
 func (h *Handler) RegisterRoutes(r chi.Router) {
 	r.Post("/", h.createAttempt)
 	r.Get("/{attemptID}", h.getAttempt)
+	r.Post("/{attemptID}/submit", h.submitAttempt)
 }
 
 type createAttemptRequest struct {
@@ -100,4 +101,34 @@ func (h *Handler) getAttempt(w http.ResponseWriter, r *http.Request) {
 	}
 
 	_ = httpx.WriteJSON(w, http.StatusOK, resp)
+}
+
+func (h *Handler) submitAttempt(w http.ResponseWriter, r *http.Request) {
+	userID, ok := auth.UserIDFromContext(r.Context())
+	if !ok {
+		httpx.Unauthorized(w, "unauthorized")
+		return
+	}
+
+	attemptIDStr := chi.URLParam(r, "attemptID")
+	attemptID, err := uuid.Parse(attemptIDStr)
+	if err != nil {
+		httpx.BadRequest(w, "invalid attempt_id")
+		return
+	}
+
+	if err := h.service.SubmitAttempt(r.Context(), userID, attemptID); err != nil {
+		if err.Error() == "attempt is not running" {
+			httpx.BadRequest(w, "attempt is not running")
+			return
+		}
+		if err.Error() == "unauthorized" {
+			httpx.Forbidden(w, "forbidden")
+			return
+		}
+		httpx.InternalError(w, "failed to submit attempt")
+		return
+	}
+
+	_ = httpx.WriteJSON(w, http.StatusOK, map[string]string{"status": "submitted"})
 }

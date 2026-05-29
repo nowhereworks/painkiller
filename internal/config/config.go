@@ -13,6 +13,8 @@ type Config struct {
 	JWTSecret           string
 	StripeSecretKey     string
 	StripeWebhookSecret string
+	StripeSuccessURL    string
+	StripeCancelURL     string
 	ProxmoxURL          string
 	ProxmoxTokenID      string
 	ProxmoxTokenSecret  string
@@ -29,6 +31,8 @@ func Load() (*Config, error) {
 		JWTSecret:           getEnv("JWT_SECRET", ""),
 		StripeSecretKey:     getEnv("STRIPE_SECRET_KEY", ""),
 		StripeWebhookSecret: getEnv("STRIPE_WEBHOOK_SECRET", ""),
+		StripeSuccessURL:    getEnv("STRIPE_SUCCESS_URL", "http://localhost:3000/success"),
+		StripeCancelURL:     getEnv("STRIPE_CANCEL_URL", "http://localhost:3000/cancel"),
 		ProxmoxURL:          getEnv("PROXMOX_URL", ""),
 		ProxmoxTokenID:      getEnv("PROXMOX_TOKEN_ID", ""),
 		ProxmoxTokenSecret:  getEnv("PROXMOX_TOKEN_SECRET", ""),
