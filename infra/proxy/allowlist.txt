@@ -1,0 +1,6 @@
+kubernetes.io
+.kubernetes.io
+helm.sh
+.helm.sh
+docs.docker.com
+.docker.com
