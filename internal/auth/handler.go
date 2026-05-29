@@ -1,0 +1,107 @@
+package auth
+
+import (
+	"net/http"
+
+	"github.com/go-chi/chi/v5"
+	"painkiller-shell/internal/httpx"
+)
+
+type Handler struct {
+	service    *Service
+	jwtManager *JWTManager
+}
+
+func NewHandler(service *Service, jwtManager *JWTManager) *Handler {
+	return &Handler{
+		service:    service,
+		jwtManager: jwtManager,
+	}
+}
+
+func (h *Handler) RegisterRoutes(r chi.Router) {
+	r.Post("/register", h.register)
+	r.Post("/login", h.login)
+}
+
+type registerRequest struct {
+	Email    string `json:"email"`
+	Password string `json:"password"`
+}
+
+type registerResponse struct {
+	ID    string `json:"id"`
+	Email string `json:"email"`
+}
+
+func (h *Handler) register(w http.ResponseWriter, r *http.Request) {
+	var req registerRequest
+	if err := httpx.ReadJSON(r, &req); err != nil {
+		httpx.BadRequest(w, "invalid request body")
+		return
+	}
+
+	if req.Email == "" || req.Password == "" {
+		httpx.BadRequest(w, "email and password are required")
+		return
+	}
+
+	user, err := h.service.Register(r.Context(), req.Email, req.Password)
+	if err != nil {
+		if err == ErrEmailExists {
+			httpx.BadRequest(w, "email already exists")
+			return
+		}
+		httpx.InternalError(w, "registration failed")
+		return
+	}
+
+	_ = httpx.WriteJSON(w, http.StatusCreated, registerResponse{
+		ID:    user.ID.String(),
+		Email: user.Email,
+	})
+}
+
+type loginRequest struct {
+	Email    string `json:"email"`
+	Password string `json:"password"`
+}
+
+type loginResponse struct {
+	Token string `json:"token"`
+}
+
+func (h *Handler) login(w http.ResponseWriter, r *http.Request) {
+	var req loginRequest
+	if err := httpx.ReadJSON(r, &req); err != nil {
+		httpx.BadRequest(w, "invalid request body")
+		return
+	}
+
+	if req.Email == "" || req.Password == "" {
+		httpx.BadRequest(w, "email and password are required")
+		return
+	}
+
+	token, err := h.service.Login(r.Context(), req.Email, req.Password)
+	if err != nil {
+		if err == ErrInvalidCredentials {
+			httpx.Unauthorized(w, "invalid credentials")
+			return
+		}
+		httpx.InternalError(w, "login failed")
+		return
+	}
+
+	http.SetCookie(w, &http.Cookie{
+		Name:     "auth_token",
+		Value:    token,
+		Path:     "/",
+		HttpOnly: true,
+		Secure:   true,
+		SameSite: http.SameSiteStrictMode,
+		MaxAge:   86400,
+	})
+
+	_ = httpx.WriteJSON(w, http.StatusOK, loginResponse{Token: token})
+}
