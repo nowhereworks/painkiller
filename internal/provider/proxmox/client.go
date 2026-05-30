@@ -185,7 +185,7 @@ func (c *Client) NextVMID(ctx context.Context) (int, error) {
 	return vmID, nil
 }
 
-func (c *Client) CloneVM(ctx context.Context, templateVMID int, name string) (int, error) {
+func (c *Client) CloneVM(ctx context.Context, templateVMID int, name string, full bool) (int, error) {
 	var lastErr error
 	for attempt := 0; attempt < cloneVMIDAttempts; attempt++ {
 		vmID, err := c.NextVMID(ctx)
@@ -193,7 +193,7 @@ func (c *Client) CloneVM(ctx context.Context, templateVMID int, name string) (in
 			return 0, fmt.Errorf("failed to get next VMID: %w", err)
 		}
 
-		if err := c.cloneVMWithID(ctx, templateVMID, vmID, name); err != nil {
+		if err := c.cloneVMWithID(ctx, templateVMID, vmID, name, full); err != nil {
 			if !isVMIDConflict(err) {
 				return 0, err
 			}
@@ -207,13 +207,17 @@ func (c *Client) CloneVM(ctx context.Context, templateVMID int, name string) (in
 	return 0, fmt.Errorf("failed to clone VM after %d VMID allocation attempts: %w", cloneVMIDAttempts, lastErr)
 }
 
-func (c *Client) cloneVMWithID(ctx context.Context, templateVMID, newVMID int, name string) error {
+func (c *Client) cloneVMWithID(ctx context.Context, templateVMID, newVMID int, name string, full bool) error {
 	path := fmt.Sprintf("/nodes/%s/qemu/%d/clone", c.config.Node, templateVMID)
+	fullVal := 0
+	if full {
+		fullVal = 1
+	}
 	body := map[string]interface{}{
 		"newid":   newVMID,
 		"name":    name,
 		"storage": c.config.StoragePool,
-		"full":    1,
+		"full":    fullVal,
 	}
 	resp, err := c.doRequest(ctx, http.MethodPost, path, body)
 	if err != nil {

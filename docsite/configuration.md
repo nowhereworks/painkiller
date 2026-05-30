@@ -62,7 +62,7 @@ Painkiller Shell uses environment variables for configuration. Copy `.env.exampl
 - Values: `mock`, `proxmox`
 - Default: `mock`
 - Example: `proxmox`
-- When set to `proxmox`, all `PROXMOX_*` fields below become required
+- When set to `proxmox`, `PROXMOX_URL`, `PROXMOX_TOKEN_ID`, `PROXMOX_TOKEN_SECRET`, `PROXMOX_NODE`, and `PROXMOX_PROFILES_FILE` are required
 
 **`PROXMOX_URL`** (required for Proxmox provider)
 - Proxmox API endpoint URL
@@ -100,11 +100,40 @@ Painkiller Shell uses environment variables for configuration. Copy `.env.exampl
 - Default: `0` (no VLAN)
 - Example: `100`
 
-**`PROXMOX_TEMPLATES`** (required for Proxmox provider)
-- Comma-separated mapping of template names to Proxmox VMIDs
-- Format: `name=vmid,name=vmid,...`
-- Example: `workstation=900,kubeadm-control-plane=901,kubeadm-worker=902`
-- Get VMIDs from `qm list | grep template`
+**`PROXMOX_PROFILES_FILE`** (required for Proxmox provider)
+- Path to a YAML file containing Proxmox clone profiles
+- Example: `/etc/painkiller/proxmox-profiles.yaml`
+- Profile names are the logical names referenced by `scenario.yaml` node `template` fields
+- The `workstation` profile is required because Painkiller creates the student workstation implicitly for every attempt
+
+Example profile file:
+
+```yaml
+profiles:
+  workstation:
+    template_vmid: 900
+    clone_mode: linked
+    config:
+      citype: nocloud
+      ipconfig0: ip=dhcp
+      sshkeys: "{{ ssh_public_key }}"
+
+  kubeadm-control-plane:
+    template_vmid: 901
+    clone_mode: linked
+    config:
+      citype: nocloud
+      ipconfig0: ip=dhcp
+      sshkeys: "{{ ssh_public_key }}"
+
+  kubeadm-worker:
+    template_vmid: 902
+    clone_mode: full
+    config:
+      citype: nocloud
+      ipconfig0: ip=dhcp
+      sshkeys: "{{ ssh_public_key }}"
+```
 
 **`PROXMOX_SKIP_TLS_VERIFY`** (optional)
 - Skip TLS certificate verification for Proxmox API
@@ -185,7 +214,7 @@ PROXMOX_NODE=pve1
 PROXMOX_STORAGE_POOL=local-lvm
 PROXMOX_NETWORK_BRIDGE=vmbr0
 PROXMOX_VLAN_ID=100
-PROXMOX_TEMPLATES=workstation=900,kubeadm-control-plane=901,kubeadm-worker=902
+PROXMOX_PROFILES_FILE=/etc/painkiller/proxmox-profiles.yaml
 
 PROXY_ADDR=10.0.0.10:3128
 

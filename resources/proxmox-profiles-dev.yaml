@@ -1,0 +1,24 @@
+profiles:
+  workstation:
+    template_vmid: 9010
+    clone_mode: linked
+    config:
+      citype: nocloud
+      ipconfig0: ip=dhcp
+      sshkeys: "{{ ssh_public_key }}"
+
+  kubeadm-control-plane:
+    template_vmid: 9010
+    clone_mode: linked
+    config:
+      citype: nocloud
+      ipconfig0: ip=dhcp
+      sshkeys: "{{ ssh_public_key }}"
+
+  kubeadm-worker:
+    template_vmid: 9010
+    clone_mode: linked
+    config:
+      citype: nocloud
+      ipconfig0: ip=dhcp
+      sshkeys: "{{ ssh_public_key }}"

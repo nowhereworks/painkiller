@@ -85,7 +85,7 @@ func TestCloneVMIncludesAllocatedNewID(t *testing.T) {
 		Node:        "pve1",
 		StoragePool: "local-lvm",
 	})
-	got, err := client.CloneVM(context.Background(), 900, "workstation-test")
+	got, err := client.CloneVM(context.Background(), 900, "workstation-test", true)
 	if err != nil {
 		t.Fatalf("CloneVM failed: %v", err)
 	}
@@ -134,7 +134,7 @@ func TestCloneVMRetriesOnVMIDConflict(t *testing.T) {
 	defer server.Close()
 
 	client := NewClient(Config{APIURL: server.URL, Node: "pve1", StoragePool: "local-lvm"})
-	got, err := client.CloneVM(context.Background(), 900, "workstation-test")
+	got, err := client.CloneVM(context.Background(), 900, "workstation-test", true)
 	if err != nil {
 		t.Fatalf("CloneVM failed: %v", err)
 	}
@@ -165,11 +165,51 @@ func TestCloneVMDoesNotRetryNonConflict(t *testing.T) {
 	defer server.Close()
 
 	client := NewClient(Config{APIURL: server.URL, Node: "pve1", StoragePool: "local-lvm"})
-	_, err := client.CloneVM(context.Background(), 900, "workstation-test")
+	_, err := client.CloneVM(context.Background(), 900, "workstation-test", true)
 	if err == nil {
 		t.Fatal("expected CloneVM error")
 	}
 	if cloneAttempts != 1 {
 		t.Fatalf("clone attempts = %d, want 1", cloneAttempts)
+	}
+}
+
+func TestCloneVMLinkedMode(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/api2/json/cluster/nextid":
+			_, _ = w.Write([]byte(`{"data":"1234"}`))
+
+		case r.Method == http.MethodPost && r.URL.Path == "/api2/json/nodes/pve1/qemu/900/clone":
+			var body map[string]interface{}
+			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+				t.Fatalf("decode clone body: %v", err)
+			}
+			full, ok := body["full"].(float64)
+			if !ok || int(full) != 0 {
+				t.Fatalf("full = %#v, want 0 for linked clone", body["full"])
+			}
+			_, _ = w.Write([]byte(`{"data":"UPID:pve1:00000000:00000000:00000000:qmclone:1234:root@pam:"}`))
+
+		case r.Method == http.MethodGet && strings.HasPrefix(r.URL.Path, "/api2/json/nodes/pve1/tasks/"):
+			_, _ = w.Write([]byte(`{"data":{"status":"stopped","exitstatus":"OK"}}`))
+
+		default:
+			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
+		}
+	}))
+	defer server.Close()
+
+	client := NewClient(Config{
+		APIURL:      server.URL,
+		Node:        "pve1",
+		StoragePool: "local-lvm",
+	})
+	got, err := client.CloneVM(context.Background(), 900, "workstation-test", false)
+	if err != nil {
+		t.Fatalf("CloneVM failed: %v", err)
+	}
+	if got != 1234 {
+		t.Fatalf("CloneVM = %d, want 1234", got)
 	}
 }

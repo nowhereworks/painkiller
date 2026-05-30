@@ -67,7 +67,7 @@ pveum aclmod /storage/local-lvm -token 'painkiller@pam!api' -role PVEDatastoreUs
 pveum aclmod /sdn/zones/localnetwork/vmbr0 -token 'painkiller@pam!api' -role PainkillerSDNUse
 ```
 
-Use the workstation template VMID from `PROXMOX_TEMPLATES` for `/vms/9010`, use the configured `PROXMOX_STORAGE_POOL` for `/storage/local-lvm`, and use the configured Proxmox SDN zone and `PROXMOX_NETWORK_BRIDGE` for `/sdn/zones/localnetwork/vmbr0`.
+Use the template VMIDs from `PROXMOX_PROFILES_FILE` for `/vms/9010`, use the configured `PROXMOX_STORAGE_POOL` for `/storage/local-lvm`, and use the configured Proxmox SDN zone and `PROXMOX_NETWORK_BRIDGE` for `/sdn/zones/localnetwork/vmbr0`.
 
 Required permissions:
 - `VM.Allocate` - Create VMs
@@ -138,7 +138,7 @@ Painkiller Shell clones VMs from pre-built templates. Create templates for each 
 All templates must include:
 
 1. **cloud-init** - For VM customization on first boot
-2. **cloud-init drive** - A cloud-init CDROM drive must be attached to the template (e.g., `ide0: cloudinit`). Painkiller Shell uses Proxmox's built-in cloud-init parameters (`citype=configdrive2`, `cipublickey`, `ciname`) which require this drive.
+2. **cloud-init drive** - A cloud-init CDROM drive must be attached to the template (e.g., `ide0: cloudinit`). Painkiller Shell applies Proxmox VM config from clone profiles, typically `citype`, `ipconfig0`, and `sshkeys`.
 3. **SSH server** - For remote management
 4. **Base packages** - Common utilities (curl, wget, vim, etc.)
 5. **QEMU guest agent** - For Proxmox integration (required for IP address retrieval)
@@ -272,18 +272,115 @@ Build template:
 packer build template.pkr.hcl
 ```
 
-### Template Configuration
+### Clone Profile Configuration
 
-Configure template mappings via the `PROXMOX_TEMPLATES` environment variable:
+Configure Proxmox clone profiles in the file referenced by `PROXMOX_PROFILES_FILE`:
 
 ```bash
-PROXMOX_TEMPLATES=workstation=900,kubeadm-control-plane=901,kubeadm-worker=902
+PROXMOX_PROFILES_FILE=/etc/painkiller/proxmox-profiles.yaml
+```
+
+Each profile maps a logical scenario/template name to the Proxmox template VMID to clone and the VM config to apply after clone:
+
+```yaml
+profiles:
+  workstation:
+    template_vmid: 900
+    clone_mode: linked
+    config:
+      citype: nocloud
+      ipconfig0: ip=dhcp
+      sshkeys: "{{ ssh_public_key }}"
+
+  kubeadm-control-plane:
+    template_vmid: 901
+    clone_mode: linked
+    config:
+      citype: nocloud
+      ipconfig0: ip=dhcp
+      sshkeys: "{{ ssh_public_key }}"
+
+  kubeadm-worker:
+    template_vmid: 902
+    clone_mode: full
+    config:
+      citype: nocloud
+      ipconfig0: ip=dhcp
+      sshkeys: "{{ ssh_public_key }}"
 ```
 
 Get template VMIDs from Proxmox UI or CLI:
 
 ```bash
 qm list | grep template
+```
+
+The `clone_mode` field controls how Proxmox clones the template:
+
+- **`linked`** (default) - Creates a linked clone that shares the base disk with the template. Faster and uses less storage, but requires the template to remain available.
+- **`full`** - Creates a full independent copy of the template disk. Slower and uses more storage, but the clone is completely independent.
+
+The profile names are important. Cluster nodes in `scenario.yaml` reference these names through their `template` field. The `workstation` profile is not written in `scenario.yaml`; Painkiller creates a workstation VM for every attempt and always resolves it through `profiles.workstation`.
+
+```mermaid
+flowchart LR
+    A[scenario.yaml] --> B[node.template]
+    B --> C[Proxmox profile name]
+    C --> D[proxmox-profiles.yaml]
+    D --> E[template_vmid]
+    D --> F[config]
+    E --> G[Clone Proxmox template VM]
+    F --> H[Configure cloned VM]
+    G --> I[Student environment VM]
+    H --> I
+```
+
+For example, this scenario node:
+
+```yaml
+topology:
+  clusters:
+    - id: cluster-a
+      nodes:
+        - name: cp-1
+          role: control-plane
+          template: kubeadm-control-plane
+```
+
+Resolves like this:
+
+```text
+template: kubeadm-control-plane
+        -> profiles.kubeadm-control-plane
+        -> clone Proxmox template VMID 901
+        -> apply profile config
+        -> VM becomes cluster-a-cp-1
+```
+
+The full environment resolution is:
+
+```mermaid
+flowchart TD
+    A[Start Attempt] --> B[Create EnvironmentSpec]
+
+    B --> C[Workstation VMRequest]
+    C --> D[profile: workstation]
+
+    B --> E[Scenario cluster nodes]
+    E --> F[node.template: kubeadm-control-plane]
+    E --> G[node.template: kubeadm-worker]
+
+    D --> H[profiles.workstation]
+    F --> I[profiles.kubeadm-control-plane]
+    G --> J[profiles.kubeadm-worker]
+
+    H --> K[Clone and configure workstation]
+    I --> L[Clone and configure control plane]
+    J --> M[Clone and configure worker]
+
+    K --> N[Provisioned environment]
+    L --> N
+    M --> N
 ```
 
 ## Network Configuration
@@ -389,12 +486,22 @@ fi
 
 Painkiller Shell uses Proxmox's built-in cloud-init parameters to customize VMs on first boot. This requires templates to have a cloud-init drive attached (e.g., `ide0: cloudinit`).
 
-The application sets these parameters via the Proxmox API:
+The profile file controls the Proxmox VM config sent to `/nodes/{node}/qemu/{vmid}/config`. Common cloud-init parameters are:
 
-- **`citype`** - Cloud-init type (`configdrive2`)
-- **`cipublickey`** - SSH public key for the ephemeral session
-- **`ciname`** - Hostname for the VM
-- **`ipconfig0`** - Network configuration (DHCP with bridge)
+- **`citype`** - Cloud-init type, usually `nocloud` for Linux guests
+- **`sshkeys`** - SSH public key for the ephemeral session; use `{{ ssh_public_key }}` to inject Painkiller's per-attempt key
+- **`ipconfig0`** - Cloud-init network configuration, for example `ip=dhcp`
+
+Painkiller supports these profile placeholders:
+
+- `{{ ssh_public_key }}` - The per-attempt SSH public key generated by Painkiller
+- `{{ hostname }}` - The VM hostname Painkiller passes to the clone operation
+
+Painkiller fails fast during startup for known-bad legacy config:
+
+- `cipublickey` is rejected; use `sshkeys` instead
+- `ciname` is rejected; the VM name/hostname is set during clone
+- `ipconfig0` values containing `bridge=` are rejected; bridge or VNet attachment belongs in the template NIC or a `net0` VM config value, not in `ipconfig0`
 
 ### Attaching a Cloud-Init Drive to a Template
 

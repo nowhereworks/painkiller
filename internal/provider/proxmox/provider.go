@@ -43,18 +43,50 @@ func (p *ProxmoxProvider) waitForIP(ctx context.Context, vmID int) (string, erro
 	return "", fmt.Errorf("timed out waiting for IP on VM %d", vmID)
 }
 
-func (p *ProxmoxProvider) cloudInitConfig(hostname, sshPublicKey string) map[string]string {
-	cfg := map[string]string{
-		"citype":    "nocloud",
-		"ipconfig0": fmt.Sprintf("ip=dhcp,bridge=%s", p.config.NetworkBridge),
-	}
-	if sshPublicKey != "" {
-		cfg["cipublickey"] = strings.TrimSpace(sshPublicKey)
-	}
-	if hostname != "" {
-		cfg["ciname"] = hostname
+func (p *ProxmoxProvider) renderProfileConfig(profile CloneProfile, vm provider.VMRequest) map[string]string {
+	cfg := make(map[string]string, len(profile.Config))
+	for key, value := range profile.Config {
+		cfg[key] = renderProfileValue(value, vm)
 	}
 	return cfg
+}
+
+func renderProfileValue(value string, vm provider.VMRequest) string {
+	var b strings.Builder
+	remaining := value
+	for {
+		start := strings.Index(remaining, "{{")
+		if start == -1 {
+			b.WriteString(remaining)
+			return b.String()
+		}
+		b.WriteString(remaining[:start])
+
+		end := strings.Index(remaining[start+2:], "}}")
+		if end == -1 {
+			b.WriteString(remaining[start:])
+			return b.String()
+		}
+
+		placeholder := strings.TrimSpace(remaining[start+2 : start+2+end])
+		switch placeholder {
+		case "ssh_public_key":
+			b.WriteString(strings.TrimSpace(vm.SSHPublicKey))
+		case "hostname":
+			b.WriteString(vm.Hostname)
+		default:
+			b.WriteString(remaining[start : start+2+end+2])
+		}
+		remaining = remaining[start+2+end+2:]
+	}
+}
+
+func (p *ProxmoxProvider) profileFor(template string) (CloneProfile, error) {
+	profile, ok := p.config.Profiles[template]
+	if !ok {
+		return CloneProfile{}, fmt.Errorf("unknown proxmox clone profile: %s", template)
+	}
+	return profile, nil
 }
 
 func (p *ProxmoxProvider) CreateEnvironment(ctx context.Context, spec provider.EnvironmentSpec) (*provider.EnvironmentResult, error) {
@@ -62,17 +94,24 @@ func (p *ProxmoxProvider) CreateEnvironment(ctx context.Context, spec provider.E
 		Clusters: make([]provider.ClusterResult, 0, len(spec.Clusters)),
 	}
 
-	templateID, ok := p.config.Templates[spec.Workstation.Template]
-	if !ok {
-		return nil, fmt.Errorf("unknown template: %s", spec.Workstation.Template)
+	workstationProfile, err := p.profileFor(spec.Workstation.Template)
+	if err != nil {
+		return nil, err
+	}
+	for _, cluster := range spec.Clusters {
+		for _, node := range cluster.Nodes {
+			if _, err := p.profileFor(node.Template); err != nil {
+				return nil, err
+			}
+		}
 	}
 
-	wsVMID, err := p.client.CloneVM(ctx, templateID, spec.Workstation.Hostname)
+	wsVMID, err := p.client.CloneVM(ctx, workstationProfile.TemplateVMID, spec.Workstation.Hostname, workstationProfile.CloneMode == "full")
 	if err != nil {
 		return nil, fmt.Errorf("failed to clone workstation: %w", err)
 	}
 
-	ciConfig := p.cloudInitConfig(spec.Workstation.Hostname, spec.Workstation.SSHPublicKey)
+	ciConfig := p.renderProfileConfig(workstationProfile, spec.Workstation)
 	if err := p.client.ConfigureVM(ctx, wsVMID, ciConfig); err != nil {
 		return nil, fmt.Errorf("failed to configure workstation: %w", err)
 	}
@@ -99,17 +138,17 @@ func (p *ProxmoxProvider) CreateEnvironment(ctx context.Context, spec provider.E
 		}
 
 		for _, node := range cluster.Nodes {
-			nodeTemplateID, ok := p.config.Templates[node.Template]
-			if !ok {
-				return nil, fmt.Errorf("unknown template: %s", node.Template)
+			nodeProfile, err := p.profileFor(node.Template)
+			if err != nil {
+				return nil, err
 			}
 
-			nodeVMID, err := p.client.CloneVM(ctx, nodeTemplateID, node.Hostname)
+			nodeVMID, err := p.client.CloneVM(ctx, nodeProfile.TemplateVMID, node.Hostname, nodeProfile.CloneMode == "full")
 			if err != nil {
 				return nil, fmt.Errorf("failed to clone node %s: %w", node.Hostname, err)
 			}
 
-			nodeCI := p.cloudInitConfig(node.Hostname, node.SSHPublicKey)
+			nodeCI := p.renderProfileConfig(nodeProfile, node)
 			if err := p.client.ConfigureVM(ctx, nodeVMID, nodeCI); err != nil {
 				return nil, fmt.Errorf("failed to configure node %s: %w", node.Hostname, err)
 			}

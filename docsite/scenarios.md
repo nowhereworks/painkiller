@@ -118,7 +118,46 @@ tasks:
 |-------|------|----------|-------------|
 | `name` | string | yes | Node hostname |
 | `role` | string | yes | `control-plane` or `worker` |
-| `template` | string | yes | Proxmox VM template name |
+| `template` | string | yes | Logical clone profile name resolved by the active provider |
+
+For the Proxmox provider, `template` does not contain a raw Proxmox VMID. It points to a profile in the YAML file configured with `PROXMOX_PROFILES_FILE`.
+
+```mermaid
+flowchart LR
+    A[scenario.yaml node] --> B[template: kubeadm-control-plane]
+    B --> C[profiles.kubeadm-control-plane]
+    C --> D[template_vmid]
+    C --> E[Proxmox VM config]
+    D --> F[Cloned VM]
+    E --> F
+```
+
+Example relationship:
+
+```yaml
+# scenario.yaml
+topology:
+  clusters:
+    - id: cluster-a
+      nodes:
+        - name: cp-1
+          role: control-plane
+          template: kubeadm-control-plane
+```
+
+```yaml
+# proxmox-profiles.yaml
+profiles:
+  kubeadm-control-plane:
+    template_vmid: 901
+    clone_mode: linked
+    config:
+      citype: nocloud
+      ipconfig0: ip=dhcp
+      sshkeys: "{{ ssh_public_key }}"
+```
+
+The student workstation is implicit. Scenario files do not declare it; Painkiller always creates it from the Proxmox profile named `workstation`.
 
 **Task**
 
