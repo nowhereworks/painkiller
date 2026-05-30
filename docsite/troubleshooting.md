@@ -322,6 +322,12 @@ journalctl -u painkiller | grep "provision_environment"
    ```
    **Solution:** Clean up old VMs or expand storage
 
+4. **Missing Proxmox clone VMID:**
+   ```
+   errors":{"newid":"property is missing and it is not optional"}
+   ```
+   **Solution:** Rebuild and redeploy the Painkiller server. Current versions call Proxmox `/cluster/nextid`, send that value as `newid` on clone requests, and retry with a fresh VMID if another process uses the same ID first.
+
 ### VM Won't Start
 
 **Symptom:** VM created but stuck in `stopped` state

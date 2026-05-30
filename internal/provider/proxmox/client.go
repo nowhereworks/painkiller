@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/tls"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -15,9 +16,19 @@ import (
 )
 
 const (
-	taskPollInterval = 2 * time.Second
-	taskPollTimeout  = 5 * time.Minute
+	taskPollInterval  = 2 * time.Second
+	taskPollTimeout   = 5 * time.Minute
+	cloneVMIDAttempts = 5
 )
+
+type APIError struct {
+	StatusCode int
+	Body       string
+}
+
+func (e *APIError) Error() string {
+	return fmt.Sprintf("proxmox API error (status %d): %s", e.StatusCode, e.Body)
+}
 
 type Client struct {
 	config Config
@@ -68,7 +79,7 @@ func (c *Client) doRequest(ctx context.Context, method, path string, body interf
 	}
 
 	if resp.StatusCode >= 400 {
-		return nil, fmt.Errorf("proxmox API error (status %d): %s", resp.StatusCode, string(respBody))
+		return nil, &APIError{StatusCode: resp.StatusCode, Body: string(respBody)}
 	}
 
 	return respBody, nil
@@ -96,7 +107,7 @@ func (c *Client) doFormRequest(ctx context.Context, method, path string, form ur
 	}
 
 	if resp.StatusCode >= 400 {
-		return nil, fmt.Errorf("proxmox API error (status %d): %s", resp.StatusCode, string(respBody))
+		return nil, &APIError{StatusCode: resp.StatusCode, Body: string(respBody)}
 	}
 
 	return respBody, nil
@@ -144,40 +155,101 @@ func (c *Client) waitForTask(ctx context.Context, upid string) error {
 	return fmt.Errorf("timed out waiting for task %s", upid)
 }
 
+func (c *Client) NextVMID(ctx context.Context) (int, error) {
+	resp, err := c.doRequest(ctx, http.MethodGet, "/cluster/nextid", nil)
+	if err != nil {
+		return 0, err
+	}
+
+	var result struct {
+		Data json.RawMessage `json:"data"`
+	}
+	if err := json.Unmarshal(resp, &result); err != nil {
+		return 0, fmt.Errorf("failed to parse next VMID response: %w", err)
+	}
+
+	var vmID int
+	if err := json.Unmarshal(result.Data, &vmID); err == nil {
+		return vmID, nil
+	}
+
+	var vmIDString string
+	if err := json.Unmarshal(result.Data, &vmIDString); err != nil {
+		return 0, fmt.Errorf("failed to parse next VMID value: %w", err)
+	}
+	vmID, err = strconv.Atoi(vmIDString)
+	if err != nil {
+		return 0, fmt.Errorf("failed to parse next VMID value: %w", err)
+	}
+
+	return vmID, nil
+}
+
 func (c *Client) CloneVM(ctx context.Context, templateVMID int, name string) (int, error) {
+	var lastErr error
+	for attempt := 0; attempt < cloneVMIDAttempts; attempt++ {
+		vmID, err := c.NextVMID(ctx)
+		if err != nil {
+			return 0, fmt.Errorf("failed to get next VMID: %w", err)
+		}
+
+		if err := c.cloneVMWithID(ctx, templateVMID, vmID, name); err != nil {
+			if !isVMIDConflict(err) {
+				return 0, err
+			}
+			lastErr = err
+			continue
+		}
+
+		return vmID, nil
+	}
+
+	return 0, fmt.Errorf("failed to clone VM after %d VMID allocation attempts: %w", cloneVMIDAttempts, lastErr)
+}
+
+func (c *Client) cloneVMWithID(ctx context.Context, templateVMID, newVMID int, name string) error {
 	path := fmt.Sprintf("/nodes/%s/qemu/%d/clone", c.config.Node, templateVMID)
 	body := map[string]interface{}{
+		"newid":   newVMID,
 		"name":    name,
 		"storage": c.config.StoragePool,
 		"full":    1,
 	}
 	resp, err := c.doRequest(ctx, http.MethodPost, path, body)
 	if err != nil {
-		return 0, err
+		return err
 	}
 
 	var result struct {
 		Data string `json:"data"`
 	}
 	if err := json.Unmarshal(resp, &result); err != nil {
-		return 0, fmt.Errorf("failed to parse clone response: %w", err)
+		return fmt.Errorf("failed to parse clone response: %w", err)
+	}
+	if result.Data == "" {
+		return fmt.Errorf("missing clone task UPID")
 	}
 
-	upid := result.Data
-	parts := strings.Split(upid, ":")
-	if len(parts) < 7 {
-		return 0, fmt.Errorf("invalid UPID from clone: %s", upid)
-	}
-	vmID, err := strconv.Atoi(parts[6])
-	if err != nil {
-		return 0, fmt.Errorf("failed to parse VMID from UPID: %w", err)
+	if err := c.waitForTask(ctx, result.Data); err != nil {
+		return fmt.Errorf("clone task failed: %w", err)
 	}
 
-	if err := c.waitForTask(ctx, upid); err != nil {
-		return 0, fmt.Errorf("clone task failed: %w", err)
+	return nil
+}
+
+func isVMIDConflict(err error) bool {
+	var apiErr *APIError
+	if errors.As(err, &apiErr) {
+		return messageLooksLikeVMIDConflict(apiErr.Body)
 	}
 
-	return vmID, nil
+	return messageLooksLikeVMIDConflict(err.Error())
+}
+
+func messageLooksLikeVMIDConflict(message string) bool {
+	message = strings.ToLower(message)
+	return strings.Contains(message, "already exists") ||
+		(strings.Contains(message, "vmid") && strings.Contains(message, "exists"))
 }
 
 func (c *Client) ConfigureVM(ctx context.Context, vmID int, config map[string]string) error {
@@ -264,8 +336,8 @@ func (c *Client) GetVMIPAddress(ctx context.Context, vmID int) (string, error) {
 	var result struct {
 		Data struct {
 			Result []struct {
-				Name            string `json:"name"`
-				IPAddresses     []struct {
+				Name        string `json:"name"`
+				IPAddresses []struct {
 					IPAddress string `json:"ip-address"`
 					Prefix    int    `json:"prefix"`
 					Type      string `json:"ip-address-type"`
