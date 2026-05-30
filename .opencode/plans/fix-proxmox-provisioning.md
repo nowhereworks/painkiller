@@ -11,7 +11,7 @@ Add missing environment variables to `painkiller-server`:
 - `PROXMOX_STORAGE_POOL=local-lvm`
 - `PROXMOX_NETWORK_BRIDGE=vmbr0`
 - `PROXMOX_SKIP_TLS_VERIFY=true`
-- `PROXMOX_TEMPLATES=workstation=900,kubeadm-control-plane=901,kubeadm-worker=902`
+- `PROXMOX_PROFILES_FILE=/etc/painkiller/proxmox-profiles.yaml`
 - `PROVISIONER_MODE=none`
 
 ### 2. App Config (`internal/config/config.go`)

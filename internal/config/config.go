@@ -4,8 +4,9 @@ import (
 	"fmt"
 	"os"
 	"strconv"
-	"strings"
 	"time"
+
+	"painkiller-shell/internal/provider/proxmox"
 )
 
 type Config struct {
@@ -24,7 +25,8 @@ type Config struct {
 	ProxmoxStoragePool   string
 	ProxmoxNetworkBridge string
 	ProxmoxVLANID        int
-	ProxmoxTemplates     map[string]int
+	ProxmoxProfilesFile  string
+	ProxmoxProfiles      map[string]proxmox.CloneProfile
 	ProxmoxSkipTLSVerify bool
 	ProvisionerMode      string
 	ProxyAddr            string
@@ -50,7 +52,7 @@ func Load() (*Config, error) {
 		ProxmoxStoragePool:   getEnv("PROXMOX_STORAGE_POOL", "local-lvm"),
 		ProxmoxNetworkBridge: getEnv("PROXMOX_NETWORK_BRIDGE", "vmbr0"),
 		ProxmoxVLANID:        getIntEnv("PROXMOX_VLAN_ID", 0),
-		ProxmoxTemplates:     parseTemplateMap(getEnv("PROXMOX_TEMPLATES", "")),
+		ProxmoxProfilesFile:  getEnv("PROXMOX_PROFILES_FILE", ""),
 		ProxmoxSkipTLSVerify: getBoolEnv("PROXMOX_SKIP_TLS_VERIFY", false),
 		ProvisionerMode:      getEnv("PROVISIONER_MODE", "ansible"),
 		ProxyAddr:            getEnv("PROXY_ADDR", ""),
@@ -68,9 +70,15 @@ func Load() (*Config, error) {
 	}
 
 	if cfg.Provider == "proxmox" {
-		if cfg.ProxmoxURL == "" || cfg.ProxmoxTokenID == "" || cfg.ProxmoxTokenSecret == "" || cfg.ProxmoxNode == "" {
-			return nil, fmt.Errorf("PROXMOX_URL, PROXMOX_TOKEN_ID, PROXMOX_TOKEN_SECRET, and PROXMOX_NODE are required when PROVIDER=proxmox")
+		if cfg.ProxmoxURL == "" || cfg.ProxmoxTokenID == "" || cfg.ProxmoxTokenSecret == "" || cfg.ProxmoxNode == "" || cfg.ProxmoxProfilesFile == "" {
+			return nil, fmt.Errorf("PROXMOX_URL, PROXMOX_TOKEN_ID, PROXMOX_TOKEN_SECRET, PROXMOX_NODE, and PROXMOX_PROFILES_FILE are required when PROVIDER=proxmox")
 		}
+
+		profiles, err := proxmox.LoadCloneProfiles(cfg.ProxmoxProfilesFile)
+		if err != nil {
+			return nil, err
+		}
+		cfg.ProxmoxProfiles = profiles
 	}
 
 	return cfg, nil
@@ -117,23 +125,4 @@ func getIntEnv(key string, fallback int) int {
 		return fallback
 	}
 	return n
-}
-
-func parseTemplateMap(s string) map[string]int {
-	result := make(map[string]int)
-	if s == "" {
-		return result
-	}
-	for _, pair := range strings.Split(s, ",") {
-		parts := strings.SplitN(strings.TrimSpace(pair), "=", 2)
-		if len(parts) != 2 {
-			continue
-		}
-		vmid, err := strconv.Atoi(strings.TrimSpace(parts[1]))
-		if err != nil {
-			continue
-		}
-		result[strings.TrimSpace(parts[0])] = vmid
-	}
-	return result
 }

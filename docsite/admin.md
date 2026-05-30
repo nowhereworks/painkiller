@@ -237,6 +237,7 @@ curl -X POST -H "Authorization: Bearer $TOKEN" \
 - Enqueues new `provision_environment` job
 - Previous environment is cleaned up automatically
 - Attempt count is automatically restored when provisioning fails, so students don't lose attempts due to infrastructure issues
+- Provisioning failures are terminal for the queue job; use this endpoint to retry after fixing the underlying provider, network, or playbook issue
 
 ### Retry Grading
 

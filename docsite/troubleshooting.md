@@ -288,7 +288,7 @@ curl -k -H "Authorization: PVEAPIToken=$PROXMOX_TOKEN_ID=$PROXMOX_TOKEN_SECRET" 
    ssh root@proxmox.example.com "pveum aclmod /storage/local-lvm -token 'painkiller@pam!api' -role PVEDatastoreUser"
    ```
 
-   Replace `9010` with the workstation template VMID from `PROXMOX_TEMPLATES`, and replace `local-lvm` with `PROXMOX_STORAGE_POOL`.
+   Replace `9010` with the relevant `template_vmid` from `PROXMOX_PROFILES_FILE`, and replace `local-lvm` with `PROXMOX_STORAGE_POOL`.
 
 4. **Grant SDN network use:**
    ```bash
@@ -321,16 +321,28 @@ journalctl -u painkiller | grep "provision_environment"
    ```
    **Solution:** Verify template exists:
    ```bash
-   ssh root@proxmox.example.com "qm list | grep 9001"
-   ```
+    ssh root@proxmox.example.com "qm list | grep 9001"
+    ```
 
-2. **Insufficient resources:**
+2. **Unknown clone profile:**
+   ```
+   Error: unknown proxmox clone profile: kubeadm-control-plane
+   ```
+   **Solution:** Add a matching profile to the file referenced by `PROXMOX_PROFILES_FILE`. Scenario node `template` values resolve to profile names, so `template: kubeadm-control-plane` requires `profiles.kubeadm-control-plane`.
+
+3. **Invalid profile cloud-init key:**
+   ```
+   Error: proxmox profile "workstation" uses unsupported config key "cipublickey"; use "sshkeys" instead
+   ```
+   **Solution:** Replace legacy keys in the profile file. Use `sshkeys`, remove `ciname`, and keep bridge or VNet configuration on the template NIC or `net0`, not inside `ipconfig0`.
+
+4. **Insufficient resources:**
    ```
    Error: not enough memory
    ```
    **Solution:** Free up resources or add more RAM
 
-3. **Storage full:**
+5. **Storage full:**
    ```
    Error: storage 'local-lvm' is full
    ```

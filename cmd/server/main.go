@@ -103,7 +103,7 @@ func main() {
 			StoragePool:   cfg.ProxmoxStoragePool,
 			NetworkBridge: cfg.ProxmoxNetworkBridge,
 			VLANID:        cfg.ProxmoxVLANID,
-			Templates:     cfg.ProxmoxTemplates,
+			Profiles:      cfg.ProxmoxProfiles,
 			SkipTLSVerify: cfg.ProxmoxSkipTLSVerify,
 		})
 		logger.Info("using proxmox provider")

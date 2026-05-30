@@ -38,8 +38,8 @@ services:
       painkiller-migrate:
         condition: service_completed_successfully
     # command: ["server"]
-    # volumes:
-    #   - ./config-ephemeral.yaml:/etc/painkiller/config.yaml:ro
+    volumes:
+      - ./proxmox-profiles-dev.yaml:/etc/painkiller/proxmox-profiles.yaml:ro
     ports:
       - "8080:8080"
     networks:
@@ -61,7 +61,7 @@ services:
       - PROXMOX_STORAGE_POOL=local-lvm
       - PROXMOX_NETWORK_BRIDGE=vmbr0
       - PROXMOX_SKIP_TLS_VERIFY=true
-      - PROXMOX_TEMPLATES=workstation=9010,kubeadm-control-plane=9010,kubeadm-worker=9010
+      - PROXMOX_PROFILES_FILE=/etc/painkiller/proxmox-profiles.yaml
       - PROVISIONER_MODE=none
       - SCENARIO_REPO_PATH=/app/scenarios
       - LOG_LEVEL=DEBUG

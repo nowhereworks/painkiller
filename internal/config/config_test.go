@@ -2,6 +2,8 @@ package config
 
 import (
 	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -11,6 +13,15 @@ func setEnvs(t *testing.T, envs map[string]string) {
 	for k, v := range envs {
 		t.Setenv(k, v)
 	}
+}
+
+func writeProfilesFile(t *testing.T, content string) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "proxmox-profiles.yaml")
+	if err := os.WriteFile(path, []byte(content), 0600); err != nil {
+		t.Fatalf("write profiles file: %v", err)
+	}
+	return path
 }
 
 func TestLoadDefaults(t *testing.T) {
@@ -70,12 +81,20 @@ func TestLoadProxmoxProviderMissingFields(t *testing.T) {
 func TestLoadProxmoxProviderValid(t *testing.T) {
 	os.Clearenv()
 	setEnvs(t, map[string]string{
-		"JWT_SECRET":         "test-secret",
-		"PROVIDER":           "proxmox",
-		"PROXMOX_URL":        "https://pve.example.com:8006",
-		"PROXMOX_TOKEN_ID":   "user@pam!tok",
+		"JWT_SECRET":           "test-secret",
+		"PROVIDER":             "proxmox",
+		"PROXMOX_URL":          "https://pve.example.com:8006",
+		"PROXMOX_TOKEN_ID":     "user@pam!tok",
 		"PROXMOX_TOKEN_SECRET": "secret",
-		"PROXMOX_NODE":       "pve1",
+		"PROXMOX_NODE":         "pve1",
+		"PROXMOX_PROFILES_FILE": writeProfilesFile(t, `profiles:
+  workstation:
+    template_vmid: 900
+    config:
+      citype: nocloud
+      ipconfig0: ip=dhcp
+      sshkeys: "{{ ssh_public_key }}"
+`),
 	})
 
 	cfg, err := Load()
@@ -88,32 +107,25 @@ func TestLoadProxmoxProviderValid(t *testing.T) {
 	if cfg.ProxmoxNode != "pve1" {
 		t.Errorf("expected node 'pve1', got %q", cfg.ProxmoxNode)
 	}
+	if cfg.ProxmoxProfiles["workstation"].TemplateVMID != 900 {
+		t.Errorf("expected workstation template VMID 900, got %d", cfg.ProxmoxProfiles["workstation"].TemplateVMID)
+	}
 }
 
-func TestParseTemplateMap(t *testing.T) {
-	cases := []struct {
-		input string
-		want  map[string]int
-	}{
-		{"", map[string]int{}},
-		{"workstation=900", map[string]int{"workstation": 900}},
-		{"ws=900,cp=901,worker=902", map[string]int{"ws": 900, "cp": 901, "worker": 902}},
-		{" ws = 900 , cp = 901 ", map[string]int{"ws": 900, "cp": 901}},
-		{"badformat", map[string]int{}},
-		{"ws=notanumber", map[string]int{}},
-	}
+func TestLoadProxmoxProviderRequiresProfilesFile(t *testing.T) {
+	os.Clearenv()
+	setEnvs(t, map[string]string{
+		"JWT_SECRET":           "test-secret",
+		"PROVIDER":             "proxmox",
+		"PROXMOX_URL":          "https://pve.example.com:8006",
+		"PROXMOX_TOKEN_ID":     "user@pam!tok",
+		"PROXMOX_TOKEN_SECRET": "secret",
+		"PROXMOX_NODE":         "pve1",
+	})
 
-	for _, tc := range cases {
-		got := parseTemplateMap(tc.input)
-		if len(got) != len(tc.want) {
-			t.Errorf("parseTemplateMap(%q): got %d entries, want %d", tc.input, len(got), len(tc.want))
-			continue
-		}
-		for k, v := range tc.want {
-			if got[k] != v {
-				t.Errorf("parseTemplateMap(%q)[%s] = %d, want %d", tc.input, k, got[k], v)
-			}
-		}
+	_, err := Load()
+	if err == nil || !strings.Contains(err.Error(), "PROXMOX_PROFILES_FILE") {
+		t.Fatalf("expected PROXMOX_PROFILES_FILE error, got %v", err)
 	}
 }
 

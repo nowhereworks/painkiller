@@ -261,12 +261,18 @@ This is not code — it's infrastructure that must be set up in Proxmox before p
 5. Add cloud-init drive: `qm set <vmid> --ide0 local-lvm:cloudinit`
 6. Convert to template: `qm template <vmid>`
 7. Clone for workstation template (add extra tools): `qm clone <vmid> <workstation-id> --full` then install bash-completion, tmux, etc., then convert back to template
-8. Record VMIDs in `PROXMOX_TEMPLATES` env var
+8. Record VMIDs in the file referenced by `PROXMOX_PROFILES_FILE`
 
 ### Template VMIDs to configure:
 
-```bash
-PROXMOX_TEMPLATES=workstation=<WS_VMID>,kubeadm-control-plane=<CP_VMID>,kubeadm-worker=<WORKER_VMID>
+```yaml
+profiles:
+  workstation:
+    template_vmid: <WS_VMID>
+  kubeadm-control-plane:
+    template_vmid: <CP_VMID>
+  kubeadm-worker:
+    template_vmid: <WORKER_VMID>
 ```
 
 ---

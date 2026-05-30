@@ -37,9 +37,15 @@ func (o *Orchestrator) handleProvisionEnvironment(ctx context.Context, payload j
 	if err != nil {
 		return fmt.Errorf("attempt not found: %w", err)
 	}
+	if attempt.Status != models.AttemptStatusAttemptRequested && attempt.Status != models.AttemptStatusEnvironmentProvisioning {
+		o.logger.Warn("ignoring stale provision job", "attempt_id", attemptID, "status", attempt.Status)
+		return nil
+	}
 
-	if err := o.attempts.TransitionAttempt(ctx, attemptID, models.AttemptStatusEnvironmentProvisioning); err != nil {
-		return fmt.Errorf("failed to transition attempt: %w", err)
+	if attempt.Status == models.AttemptStatusAttemptRequested {
+		if err := o.attempts.TransitionAttempt(ctx, attemptID, models.AttemptStatusEnvironmentProvisioning); err != nil {
+			return fmt.Errorf("failed to transition attempt: %w", err)
+		}
 	}
 
 	pubKey, privKey, err := ed25519.GenerateKey(rand.Reader)
@@ -127,12 +133,13 @@ func (o *Orchestrator) handleProvisionEnvironment(ctx context.Context, payload j
 	envResult, err := o.provider.CreateEnvironment(ctx, envSpec)
 	if err != nil {
 		o.handleProvisionFailure(ctx, attemptID)
-		return fmt.Errorf("failed to create environment: %w", err)
+		o.logger.Error("failed to create environment", "attempt_id", attemptID, "error", err)
+		return nil
 	}
 
 	metadata := map[string]interface{}{
 		"workstation_vm_id": envResult.Workstation.ProviderVMID,
-		"node_vm_ids":      []string{},
+		"node_vm_ids":       []string{},
 	}
 	for _, cluster := range envResult.Clusters {
 		for _, node := range cluster.Nodes {
@@ -153,7 +160,8 @@ func (o *Orchestrator) handleProvisionEnvironment(ctx context.Context, payload j
 
 	if err := o.store.Environments().Create(ctx, env); err != nil {
 		o.handleProvisionFailure(ctx, attemptID)
-		return fmt.Errorf("failed to create environment record: %w", err)
+		o.logger.Error("failed to create environment record", "attempt_id", attemptID, "error", err)
+		return nil
 	}
 
 	provisionSpec := provisioner.EnvironmentProvisionSpec{
@@ -186,7 +194,8 @@ func (o *Orchestrator) handleProvisionEnvironment(ctx context.Context, payload j
 
 	if _, err := o.provisioner.Provision(ctx, provisionSpec); err != nil {
 		o.handleProvisionFailure(ctx, attemptID)
-		return fmt.Errorf("failed to provision environment: %w", err)
+		o.logger.Error("failed to provision environment", "attempt_id", attemptID, "error", err)
+		return nil
 	}
 
 	terminalToken := uuid.New().String()
@@ -200,7 +209,8 @@ func (o *Orchestrator) handleProvisionEnvironment(ctx context.Context, payload j
 
 	if err := o.store.Sessions().Create(ctx, session); err != nil {
 		o.handleProvisionFailure(ctx, attemptID)
-		return fmt.Errorf("failed to create session: %w", err)
+		o.logger.Error("failed to create session", "attempt_id", attemptID, "error", err)
+		return nil
 	}
 
 	if err := o.attempts.TransitionAttempt(ctx, attemptID, models.AttemptStatusEnvironmentReady); err != nil {
@@ -217,7 +227,10 @@ func (o *Orchestrator) enqueueCleanup(ctx context.Context, attemptID uuid.UUID) 
 }
 
 func (o *Orchestrator) handleProvisionFailure(ctx context.Context, attemptID uuid.UUID) {
-	_ = o.attempts.TransitionAttempt(ctx, attemptID, models.AttemptStatusProvisionFailed)
+	if err := o.attempts.TransitionAttempt(ctx, attemptID, models.AttemptStatusProvisionFailed); err != nil {
+		o.logger.Error("failed to mark provisioning failure", "attempt_id", attemptID, "error", err)
+		return
+	}
 	_ = o.enqueueCleanup(ctx, attemptID)
 	if err := o.attempts.RestoreAttemptCount(ctx, attemptID); err != nil {
 		o.logger.Error("failed to restore attempt count after provision failure", "attempt_id", attemptID, "error", err)
