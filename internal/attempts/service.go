@@ -61,11 +61,13 @@ func (s *Service) RequestAttempt(ctx context.Context, userID, purchasedTestID uu
 	}
 
 	if err := s.store.Attempts().Create(ctx, attempt); err != nil {
+		_ = s.store.Purchases().IncrementAttemptsRemaining(ctx, purchase.ID)
 		return nil, fmt.Errorf("failed to create attempt: %w", err)
 	}
 
 	payload, _ := json.Marshal(map[string]string{"attempt_id": attempt.ID.String()})
 	if err := s.queue.Enqueue(ctx, jobs.JobKindProvisionEnvironment, payload, nil); err != nil {
+		_ = s.store.Purchases().IncrementAttemptsRemaining(ctx, purchase.ID)
 		return nil, fmt.Errorf("failed to enqueue provisioning job: %w", err)
 	}
 
@@ -91,4 +93,17 @@ func (s *Service) TransitionAttempt(ctx context.Context, attemptID uuid.UUID, to
 
 func (s *Service) GetAttempt(ctx context.Context, attemptID uuid.UUID) (*models.Attempt, error) {
 	return s.store.Attempts().GetByID(ctx, attemptID)
+}
+
+func (s *Service) RestoreAttemptCount(ctx context.Context, attemptID uuid.UUID) error {
+	attempt, err := s.store.Attempts().GetByID(ctx, attemptID)
+	if err != nil {
+		return fmt.Errorf("attempt not found: %w", err)
+	}
+
+	if err := s.store.Purchases().IncrementAttemptsRemaining(ctx, attempt.PurchasedTestID); err != nil {
+		return fmt.Errorf("failed to restore attempt count: %w", err)
+	}
+
+	return nil
 }

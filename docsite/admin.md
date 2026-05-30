@@ -236,6 +236,7 @@ curl -X POST -H "Authorization: Bearer $TOKEN" \
 - Resets attempt status to `attempt_requested`
 - Enqueues new `provision_environment` job
 - Previous environment is cleaned up automatically
+- Attempt count is automatically restored when provisioning fails, so students don't lose attempts due to infrastructure issues
 
 ### Retry Grading
 

@@ -125,8 +125,7 @@ func (o *Orchestrator) handleProvisionEnvironment(ctx context.Context, payload j
 
 	envResult, err := o.provider.CreateEnvironment(ctx, envSpec)
 	if err != nil {
-		_ = o.attempts.TransitionAttempt(ctx, attemptID, models.AttemptStatusProvisionFailed)
-		_ = o.enqueueCleanup(ctx, attemptID)
+		o.handleProvisionFailure(ctx, attemptID)
 		return fmt.Errorf("failed to create environment: %w", err)
 	}
 
@@ -152,8 +151,7 @@ func (o *Orchestrator) handleProvisionEnvironment(ctx context.Context, payload j
 	}
 
 	if err := o.store.Environments().Create(ctx, env); err != nil {
-		_ = o.attempts.TransitionAttempt(ctx, attemptID, models.AttemptStatusProvisionFailed)
-		_ = o.enqueueCleanup(ctx, attemptID)
+		o.handleProvisionFailure(ctx, attemptID)
 		return fmt.Errorf("failed to create environment record: %w", err)
 	}
 
@@ -185,8 +183,7 @@ func (o *Orchestrator) handleProvisionEnvironment(ctx context.Context, payload j
 	}
 
 	if _, err := o.provisioner.Provision(ctx, provisionSpec); err != nil {
-		_ = o.attempts.TransitionAttempt(ctx, attemptID, models.AttemptStatusProvisionFailed)
-		_ = o.enqueueCleanup(ctx, attemptID)
+		o.handleProvisionFailure(ctx, attemptID)
 		return fmt.Errorf("failed to provision environment: %w", err)
 	}
 
@@ -200,8 +197,7 @@ func (o *Orchestrator) handleProvisionEnvironment(ctx context.Context, payload j
 	}
 
 	if err := o.store.Sessions().Create(ctx, session); err != nil {
-		_ = o.attempts.TransitionAttempt(ctx, attemptID, models.AttemptStatusProvisionFailed)
-		_ = o.enqueueCleanup(ctx, attemptID)
+		o.handleProvisionFailure(ctx, attemptID)
 		return fmt.Errorf("failed to create session: %w", err)
 	}
 
@@ -216,6 +212,14 @@ func (o *Orchestrator) handleProvisionEnvironment(ctx context.Context, payload j
 func (o *Orchestrator) enqueueCleanup(ctx context.Context, attemptID uuid.UUID) error {
 	payload, _ := json.Marshal(map[string]string{"attempt_id": attemptID.String()})
 	return o.queue.Enqueue(ctx, jobs.JobKindCleanupEnvironment, payload, nil)
+}
+
+func (o *Orchestrator) handleProvisionFailure(ctx context.Context, attemptID uuid.UUID) {
+	_ = o.attempts.TransitionAttempt(ctx, attemptID, models.AttemptStatusProvisionFailed)
+	_ = o.enqueueCleanup(ctx, attemptID)
+	if err := o.attempts.RestoreAttemptCount(ctx, attemptID); err != nil {
+		o.logger.Error("failed to restore attempt count after provision failure", "attempt_id", attemptID, "error", err)
+	}
 }
 
 func (o *Orchestrator) handleCleanupEnvironment(ctx context.Context, payload json.RawMessage) error {

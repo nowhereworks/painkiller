@@ -106,3 +106,13 @@ func TestFullHappyPathLifecycle(t *testing.T) {
 		}
 	}
 }
+
+func TestProvisionFailureRetryPath(t *testing.T) {
+	if !ValidTransition(models.AttemptStatusProvisionFailed, models.AttemptStatusAttemptRequested) {
+		t.Error("expected provision_failed to allow retry via attempt_requested")
+	}
+
+	if !ValidTransition(models.AttemptStatusProvisionFailed, models.AttemptStatusCleanupPending) {
+		t.Error("expected provision_failed to allow cleanup_pending")
+	}
+}

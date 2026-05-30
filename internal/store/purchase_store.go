@@ -12,6 +12,7 @@ type PurchaseStore interface {
 	GetByID(ctx context.Context, id uuid.UUID) (*models.PurchasedTest, error)
 	ListByUserID(ctx context.Context, userID uuid.UUID) ([]*models.PurchasedTest, error)
 	DecrementAttemptsRemaining(ctx context.Context, id uuid.UUID) error
+	IncrementAttemptsRemaining(ctx context.Context, id uuid.UUID) error
 }
 
 type purchaseStore struct {
@@ -60,4 +61,10 @@ func (p *purchaseStore) DecrementAttemptsRemaining(ctx context.Context, id uuid.
 		return ErrNoRowsAffected
 	}
 	return nil
+}
+
+func (p *purchaseStore) IncrementAttemptsRemaining(ctx context.Context, id uuid.UUID) error {
+	query := `UPDATE purchased_tests SET attempts_remaining = attempts_remaining + 1 WHERE id = $1`
+	_, err := p.db.db.ExecContext(ctx, query, id)
+	return err
 }
