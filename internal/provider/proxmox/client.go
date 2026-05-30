@@ -214,10 +214,12 @@ func (c *Client) cloneVMWithID(ctx context.Context, templateVMID, newVMID int, n
 		fullVal = 1
 	}
 	body := map[string]interface{}{
-		"newid":   newVMID,
-		"name":    name,
-		"storage": c.config.StoragePool,
-		"full":    fullVal,
+		"newid": newVMID,
+		"name":  name,
+		"full":  fullVal,
+	}
+	if full {
+		body["storage"] = c.config.StoragePool
 	}
 	resp, err := c.doRequest(ctx, http.MethodPost, path, body)
 	if err != nil {

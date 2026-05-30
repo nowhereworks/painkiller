@@ -189,6 +189,9 @@ func TestCloneVMLinkedMode(t *testing.T) {
 			if !ok || int(full) != 0 {
 				t.Fatalf("full = %#v, want 0 for linked clone", body["full"])
 			}
+			if _, ok := body["storage"]; ok {
+				t.Fatalf("storage should not be set for linked clone, got %#v", body["storage"])
+			}
 			_, _ = w.Write([]byte(`{"data":"UPID:pve1:00000000:00000000:00000000:qmclone:1234:root@pam:"}`))
 
 		case r.Method == http.MethodGet && strings.HasPrefix(r.URL.Path, "/api2/json/nodes/pve1/tasks/"):

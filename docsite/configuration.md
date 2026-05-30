@@ -85,7 +85,8 @@ Painkiller Shell uses environment variables for configuration. Copy `.env.exampl
 - Get from Proxmox UI → Datacenter → Nodes
 
 **`PROXMOX_STORAGE_POOL`** (optional)
-- Proxmox storage pool for VM disks
+- Proxmox storage pool for full clone VM disks
+- Linked clones share the template backing disk and do not send a clone storage parameter
 - Default: `local-lvm`
 - Example: `local-lvm`
 

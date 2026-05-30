@@ -317,8 +317,8 @@ qm list | grep template
 
 The `clone_mode` field controls how Proxmox clones the template:
 
-- **`linked`** (default) - Creates a linked clone that shares the base disk with the template. Faster and uses less storage, but requires the template to remain available.
-- **`full`** - Creates a full independent copy of the template disk. Slower and uses more storage, but the clone is completely independent.
+- **`linked`** (default) - Creates a linked clone that shares the base disk with the template. Faster and uses less storage, requires the template to remain available, and does not use `PROXMOX_STORAGE_POOL` as a clone target.
+- **`full`** - Creates a full independent copy of the template disk on `PROXMOX_STORAGE_POOL`. Slower and uses more storage, but the clone is completely independent.
 
 The profile names are important. Cluster nodes in `scenario.yaml` reference these names through their `template` field. The `workstation` profile is not written in `scenario.yaml`; Painkiller creates a workstation VM for every attempt and always resolves it through `profiles.workstation`.
 
