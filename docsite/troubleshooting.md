@@ -290,6 +290,20 @@ curl -k -H "Authorization: PVEAPIToken=$PROXMOX_TOKEN_ID=$PROXMOX_TOKEN_SECRET" 
 
    Replace `9010` with the workstation template VMID from `PROXMOX_TEMPLATES`, and replace `local-lvm` with `PROXMOX_STORAGE_POOL`.
 
+4. **Grant SDN network use:**
+   ```bash
+   ssh root@proxmox.example.com "pveum role add PainkillerSDNUse -privs SDN.Use"
+   ssh root@proxmox.example.com "pveum aclmod /sdn/zones/localnetwork/vmbr0 -user painkiller@pam -role PainkillerSDNUse"
+   ```
+
+   If the API token has privilege separation enabled, grant the role directly to the token:
+
+   ```bash
+   ssh root@proxmox.example.com "pveum aclmod /sdn/zones/localnetwork/vmbr0 -token 'painkiller@pam!api' -role PainkillerSDNUse"
+   ```
+
+   This fixes errors like `Permission check failed (/sdn/zones/localnetwork/vmbr0, SDN.Use)`. Replace `localnetwork` and `vmbr0` with the SDN zone and bridge or VNet configured for `PROXMOX_NETWORK_BRIDGE`.
+
 ### VM Creation Failed
 
 **Symptom:** `provision_environment` job fails
@@ -327,6 +341,12 @@ journalctl -u painkiller | grep "provision_environment"
    errors":{"newid":"property is missing and it is not optional"}
    ```
    **Solution:** Rebuild and redeploy the Painkiller server. Current versions call Proxmox `/cluster/nextid`, send that value as `newid` on clone requests, and retry with a fresh VMID if another process uses the same ID first.
+
+5. **Provision attempt already failed:**
+   ```
+   invalid state transition: provision_failed -> environment_provisioning
+   ```
+   **Solution:** Rebuild and redeploy the Painkiller server. Provisioning failures are recorded as `provision_failed` without queue-level auto-retries; after fixing the underlying provider, network, or playbook issue, retry with `POST /api/v1/admin/attempts/:id/retry-provision`.
 
 ### VM Won't Start
 

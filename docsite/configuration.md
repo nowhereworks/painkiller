@@ -93,6 +93,7 @@ Painkiller Shell uses environment variables for configuration. Copy `.env.exampl
 - Proxmox network bridge for VM networking
 - Default: `vmbr0`
 - Example: `vmbr0`
+- If this bridge or VNet is managed by Proxmox SDN, the API user or token needs `SDN.Use` on the matching `/sdn/zones/<zone>/<bridge-or-vnet>` path
 
 **`PROXMOX_VLAN_ID`** (optional)
 - VLAN ID for student environment isolation

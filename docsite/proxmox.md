@@ -51,6 +51,10 @@ pveum aclmod / -user painkiller@pam -role PVEVMAdmin
 pveum aclmod /storage/local -user painkiller@pam -role PVEDatastoreUser
 pveum aclmod /nodes/pve1 -user painkiller@pam -role PVEVMAdmin
 
+# Grant SDN network use if the selected bridge/VNet is managed by Proxmox SDN
+pveum role add PainkillerSDNUse -privs SDN.Use
+pveum aclmod /sdn/zones/localnetwork/vmbr0 -user painkiller@pam -role PainkillerSDNUse
+
 # Or grant full admin (less secure, easier setup)
 pveum aclmod / -user painkiller@pam -role Administrator
 ```
@@ -60,9 +64,10 @@ If the API token has **Privilege Separation** enabled, grant permissions to the 
 ```bash
 pveum aclmod /vms/9010 -token 'painkiller@pam!api' -role PVEVMAdmin
 pveum aclmod /storage/local-lvm -token 'painkiller@pam!api' -role PVEDatastoreUser
+pveum aclmod /sdn/zones/localnetwork/vmbr0 -token 'painkiller@pam!api' -role PainkillerSDNUse
 ```
 
-Use the workstation template VMID from `PROXMOX_TEMPLATES` for `/vms/9010`, and use the configured `PROXMOX_STORAGE_POOL` for `/storage/local-lvm`.
+Use the workstation template VMID from `PROXMOX_TEMPLATES` for `/vms/9010`, use the configured `PROXMOX_STORAGE_POOL` for `/storage/local-lvm`, and use the configured Proxmox SDN zone and `PROXMOX_NETWORK_BRIDGE` for `/sdn/zones/localnetwork/vmbr0`.
 
 Required permissions:
 - `VM.Allocate` - Create VMs
@@ -72,6 +77,7 @@ Required permissions:
 - `VM.Console` - Access VM console (for debugging)
 - `Datastore.AllocateSpace` - Use storage for VM disks
 - `Sys.Audit` - Read node and VM information
+- `SDN.Use` - Use a Proxmox SDN bridge or VNet when the VM NIC is attached to SDN-managed networking
 
 ## Configuration
 
