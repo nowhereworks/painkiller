@@ -9,7 +9,8 @@
 
 ## Commands
 
-- There are no repo-specific scripts yet; use direct Go commands as files are added.
+- Development debugging is primarily done with `make run-dev`, which runs the ephemeral Docker Compose stack from `resources/docker-compose-dev-ephemeral.yaml`.
+- When debugging pasted Painkiller log messages, assume the environment information, env vars, service parameters, ports, and defaults from `resources/docker-compose-dev-ephemeral.yaml` unless the user says otherwise.
 - Once Go files exist, prefer focused verification with `go test ./...` unless a narrower package test is enough.
 
 ## Workflow Notes

@@ -4,6 +4,16 @@ This guide covers building, running, testing, and monitoring the Painkiller Shel
 
 ## Development
 
+### Run the Ephemeral Dev Stack
+
+For local development debugging, start the server and its dependencies with:
+
+```bash
+make run-dev
+```
+
+This runs `docker compose -f resources/docker-compose-dev-ephemeral.yaml up --build`. When investigating local Painkiller logs, use that compose file as the default source for environment variables, service parameters, exposed ports, and other runtime defaults unless a different environment is specified.
+
 ### Run with Hot Reload
 
 Install [air](https://github.com/cosmtrek/air) for automatic rebuilds:
