@@ -124,10 +124,9 @@ func main() {
 	var proxyCfg *proxy.Config
 	if cfg.ProxyAddr != "" {
 		proxyCfg = &proxy.Config{
-			Addr:           cfg.ProxyAddr,
-			AllowedDomains: cfg.ProxyAllowedDomains,
+			Addr: cfg.ProxyAddr,
 		}
-		logger.Info("proxy configured", "addr", cfg.ProxyAddr, "domains", len(cfg.ProxyAllowedDomains))
+		logger.Info("proxy configured", "addr", cfg.ProxyAddr)
 	}
 
 	orch := orchestrator.New(orchestrator.OrchestratorConfig{

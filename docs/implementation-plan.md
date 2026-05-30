@@ -678,6 +678,7 @@ Plan 1 (Skeleton)
 1. Execute plans in phase order. Within a phase, plans with satisfied dependencies can be worked in parallel.
 2. Each plan must pass its acceptance criteria before dependent plans begin.
 3. Keep infrastructure details (Proxmox, Ansible, Squid) behind their interface boundaries.
+   Squid is external infrastructure: Painkiller may configure workstations with a proxy address, but Squid ACLs and allowlists are managed in Squid/infra config.
 4. Do not grant purchased test access from frontend redirects. Trust Stripe webhooks only.
 5. Use the mock provider for all testing until Proxmox integration begins.
 6. Every plan should end with `go build ./...` and `go test ./...` passing.

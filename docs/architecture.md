@@ -17,7 +17,7 @@ Painkiller Shell is a Killer.sh-style Kubernetes training platform. Students buy
 - **Auth:** built-in auth for MVP; keep a boundary for possible Keycloak/OIDC later.
 - **Scenario authoring:** Git initially.
 - **Grading:** final submission or expiry only, with weighted checks and scoring.
-- **Restricted internet:** use a Squid-like proxy with allowlisted official documentation sites.
+- **Restricted internet:** use an external Squid-like proxy with allowlisted official documentation sites. Painkiller only points student workstations at the proxy and enforces direct egress blocking; allowlist/filtering policy is configured in Squid, not Painkiller runtime config.
 - **Progress preservation:** optional paid snapshot feature for exams and labs, deferred until after MVP.
 - **Secrets:** Environment variables (`.env`) for MVP, migrating to a vault/KMS later.
 
@@ -111,7 +111,7 @@ Proxmox
 - `/internal/jobs`
 - `/internal/audit`
 
-Keep Proxmox, Ansible, and proxy details behind infrastructure boundaries. Product code should speak in terms of tests, attempts, clusters, tasks, scores, and retakes.
+Keep Proxmox, Ansible, and proxy details behind infrastructure boundaries. Product code should speak in terms of tests, attempts, clusters, tasks, scores, and retakes. Squid is an external component: app code may pass a proxy address into workstation provisioning, but must not own or generate Squid allowlists or filtering policy.
 
 ## Multi-Cluster Test Model
 A test can define several clusters. Each task tells the student which cluster/context to use.

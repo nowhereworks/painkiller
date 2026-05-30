@@ -1,6 +1,8 @@
 # Documentation Proxy
 
-Painkiller Shell uses a shared Squid proxy to restrict student workstation internet access to official documentation only.
+Painkiller Shell uses a shared external Squid proxy to restrict student workstation internet access to official documentation only.
+
+Painkiller Shell does not own Squid allowlist policy. The application only configures student workstations with the proxy address and direct-egress blocking; Squid ACLs, allowlists, authentication, caching, and filtering rules are configured in Squid or the operator's proxy deployment.
 
 ## Architecture
 
@@ -11,6 +13,8 @@ Student Workstation -> Squid Proxy -> Allowlisted Documentation Sites
 Student workstations are configured with:
 - `http_proxy` and `https_proxy` environment variables pointing to the proxy
 - `iptables` rules blocking direct outbound HTTP/HTTPS (ports 80/443) except to the proxy IP
+
+Allowed domains are configured on the Squid host, not through Painkiller environment variables.
 
 ## Deployment
 

@@ -9,29 +9,28 @@ import (
 )
 
 type Config struct {
-	DatabaseURL         string
-	HTTPAddr            string
-	JWTSecret           string
-	StripeSecretKey     string
-	StripeWebhookSecret string
-	StripeSuccessURL    string
-	StripeCancelURL     string
-	Provider            string
-	ProxmoxURL          string
-	ProxmoxTokenID      string
-	ProxmoxTokenSecret  string
-	ProxmoxNode         string
-	ProxmoxStoragePool  string
+	DatabaseURL          string
+	HTTPAddr             string
+	JWTSecret            string
+	StripeSecretKey      string
+	StripeWebhookSecret  string
+	StripeSuccessURL     string
+	StripeCancelURL      string
+	Provider             string
+	ProxmoxURL           string
+	ProxmoxTokenID       string
+	ProxmoxTokenSecret   string
+	ProxmoxNode          string
+	ProxmoxStoragePool   string
 	ProxmoxNetworkBridge string
-	ProxmoxVLANID       int
-	ProxmoxTemplates    map[string]int
+	ProxmoxVLANID        int
+	ProxmoxTemplates     map[string]int
 	ProxmoxSkipTLSVerify bool
-	ProvisionerMode     string
-	ProxyAddr           string
-	ProxyAllowedDomains []string
-	ScenarioRepoPath    string
-	LogLevel            string
-	JWTExpiry           time.Duration
+	ProvisionerMode      string
+	ProxyAddr            string
+	ScenarioRepoPath     string
+	LogLevel             string
+	JWTExpiry            time.Duration
 }
 
 func Load() (*Config, error) {
@@ -55,7 +54,6 @@ func Load() (*Config, error) {
 		ProxmoxSkipTLSVerify: getBoolEnv("PROXMOX_SKIP_TLS_VERIFY", false),
 		ProvisionerMode:      getEnv("PROVISIONER_MODE", "ansible"),
 		ProxyAddr:            getEnv("PROXY_ADDR", ""),
-		ProxyAllowedDomains:  parseCSV(getEnv("PROXY_ALLOWED_DOMAINS", "kubernetes.io,k8s.io,helm.sh")),
 		ScenarioRepoPath:     getEnv("SCENARIO_REPO_PATH", ""),
 		LogLevel:             getEnv("LOG_LEVEL", "info"),
 		JWTExpiry:            getDurationEnv("JWT_EXPIRY", 24*time.Hour),
@@ -119,21 +117,6 @@ func getIntEnv(key string, fallback int) int {
 		return fallback
 	}
 	return n
-}
-
-func parseCSV(s string) []string {
-	if s == "" {
-		return nil
-	}
-	parts := strings.Split(s, ",")
-	result := make([]string, 0, len(parts))
-	for _, p := range parts {
-		trimmed := strings.TrimSpace(p)
-		if trimmed != "" {
-			result = append(result, trimmed)
-		}
-	}
-	return result
 }
 
 func parseTemplateMap(s string) map[string]int {

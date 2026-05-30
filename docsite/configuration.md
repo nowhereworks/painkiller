@@ -135,13 +135,8 @@ Painkiller Shell uses environment variables for configuration. Copy `.env.exampl
 - Format: `host:port`
 - Example: `10.0.0.10:3128`
 - When set, student workstations are configured with `http_proxy`/`https_proxy` and `iptables` enforcement
+- Painkiller only configures workstations to use this external proxy. Squid allowlists and filtering policy are configured in Squid, not through Painkiller environment variables.
 - See [Documentation Proxy](proxy.md) for deployment instructions
-
-**`PROXY_ALLOWED_DOMAINS`** (optional)
-- Comma-separated list of domains students are allowed to access through the proxy
-- Default: `kubernetes.io,k8s.io,helm.sh`
-- Example: `kubernetes.io,k8s.io,helm.sh,docs.docker.com`
-- Subdomains are automatically included (e.g., `kubernetes.io` also allows `*.kubernetes.io`)
 
 ### Logging
 
@@ -192,7 +187,6 @@ PROXMOX_VLAN_ID=100
 PROXMOX_TEMPLATES=workstation=900,kubeadm-control-plane=901,kubeadm-worker=902
 
 PROXY_ADDR=10.0.0.10:3128
-PROXY_ALLOWED_DOMAINS=kubernetes.io,k8s.io,helm.sh,docs.docker.com
 
 SCENARIO_REPO_PATH=/opt/painkiller-scenarios
 LOG_LEVEL=info

@@ -7,8 +7,7 @@ import (
 
 func TestGenerateIPTablesScript(t *testing.T) {
 	cfg := Config{
-		Addr:           "10.0.0.10:3128",
-		AllowedDomains: []string{"kubernetes.io", "k8s.io"},
+		Addr: "10.0.0.10:3128",
 	}
 	clusterCIDRs := []string{"10.244.0.0/16", "192.168.100.0/24"}
 
@@ -42,55 +41,13 @@ func TestGenerateIPTablesScript(t *testing.T) {
 
 func TestGenerateIPTablesScriptDefaultPort(t *testing.T) {
 	cfg := Config{
-		Addr:           "10.0.0.10",
-		AllowedDomains: []string{},
+		Addr: "10.0.0.10",
 	}
 
 	script := GenerateIPTablesScript(cfg, nil)
 
 	if !strings.Contains(script, "3128") {
 		t.Error("expected default port 3128")
-	}
-}
-
-func TestGenerateSquidConf(t *testing.T) {
-	cfg := Config{
-		Addr:           "10.0.0.10:3128",
-		AllowedDomains: []string{"kubernetes.io", "k8s.io", "helm.sh"},
-	}
-
-	conf := GenerateSquidConf(cfg)
-
-	if !strings.Contains(conf, "http_port 3128") {
-		t.Error("expected http_port directive")
-	}
-	if !strings.Contains(conf, ".kubernetes.io") {
-		t.Error("expected wildcard domain in ACL")
-	}
-	if !strings.Contains(conf, "kubernetes.io") {
-		t.Error("expected exact domain in ACL")
-	}
-	if !strings.Contains(conf, ".helm.sh") {
-		t.Error("expected helm.sh wildcard")
-	}
-	if !strings.Contains(conf, "http_access deny all") {
-		t.Error("expected deny-all rule")
-	}
-	if !strings.Contains(conf, "http_access allow localnet allowed_docs") {
-		t.Error("expected allow rule for allowed docs")
-	}
-}
-
-func TestGenerateSquidConfEmptyDomains(t *testing.T) {
-	cfg := Config{
-		Addr:           "10.0.0.10:3128",
-		AllowedDomains: []string{},
-	}
-
-	conf := GenerateSquidConf(cfg)
-
-	if !strings.Contains(conf, "http_access deny all") {
-		t.Error("expected deny-all even with empty domains")
 	}
 }
 

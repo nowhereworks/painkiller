@@ -66,7 +66,6 @@ services:
       - SCENARIO_REPO_PATH=/app/scenarios
       - LOG_LEVEL=DEBUG
       - PROXY_ADDR=${PROXY_ADDR}
-      - PROXY_ALLOWED_DOMAINS=kubernetes.io,k8s.io,helm.sh,docs.docker.com
 
 networks:
   painkiller-dev:

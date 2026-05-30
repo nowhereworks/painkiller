@@ -16,6 +16,7 @@
 
 - Keep changes minimal; avoid broad rewrites when a targeted edit solves the task.
 - When the user asks to persist useful context for future sessions, add it to `AGENTS.md` or another discoverable `.md` file.
+- Squid is an external infrastructure component. Painkiller config may contain only the proxy address needed to configure student workstations; Squid ACLs, allowlists, caching, auth, and filtering policy belong in Squid/infra config, not Go app env vars.
 
 ## Documentation
 
