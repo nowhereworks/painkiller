@@ -281,6 +281,15 @@ curl -k -H "Authorization: PVEAPIToken=$PROXMOX_TOKEN_ID=$PROXMOX_TOKEN_SECRET" 
    ssh root@proxmox.example.com "pveum aclmod / -user painkiller@pam -role PVEVMAdmin"
    ```
 
+   If the API token has privilege separation enabled, grant permissions directly to the token. This fixes errors like `Permission check failed (/vms/9010, VM.Clone)`:
+
+   ```bash
+   ssh root@proxmox.example.com "pveum aclmod /vms/9010 -token 'painkiller@pam!api' -role PVEVMAdmin"
+   ssh root@proxmox.example.com "pveum aclmod /storage/local-lvm -token 'painkiller@pam!api' -role PVEDatastoreUser"
+   ```
+
+   Replace `9010` with the workstation template VMID from `PROXMOX_TEMPLATES`, and replace `local-lvm` with `PROXMOX_STORAGE_POOL`.
+
 ### VM Creation Failed
 
 **Symptom:** `provision_environment` job fails

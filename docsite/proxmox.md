@@ -46,7 +46,7 @@ pveum user token add painkiller@pam api --comment "Painkiller Shell API"
 Grant the token necessary permissions:
 
 ```bash
-# Grant permissions to the user
+# Grant permissions to the user when token privilege separation is disabled
 pveum aclmod / -user painkiller@pam -role PVEVMAdmin
 pveum aclmod /storage/local -user painkiller@pam -role PVEDatastoreUser
 pveum aclmod /nodes/pve1 -user painkiller@pam -role PVEVMAdmin
@@ -54,6 +54,15 @@ pveum aclmod /nodes/pve1 -user painkiller@pam -role PVEVMAdmin
 # Or grant full admin (less secure, easier setup)
 pveum aclmod / -user painkiller@pam -role Administrator
 ```
+
+If the API token has **Privilege Separation** enabled, grant permissions to the token instead of only the user:
+
+```bash
+pveum aclmod /vms/9010 -token 'painkiller@pam!api' -role PVEVMAdmin
+pveum aclmod /storage/local-lvm -token 'painkiller@pam!api' -role PVEDatastoreUser
+```
+
+Use the workstation template VMID from `PROXMOX_TEMPLATES` for `/vms/9010`, and use the configured `PROXMOX_STORAGE_POOL` for `/storage/local-lvm`.
 
 Required permissions:
 - `VM.Allocate` - Create VMs
@@ -452,6 +461,15 @@ Check token permissions:
 pveum user token list painkiller@pam
 pveum acl list | grep painkiller
 ```
+
+If a start attempt fails with `Permission check failed (/vms/<vmid>, VM.Clone)` and the token has privilege separation enabled, grant permissions directly to the token:
+
+```bash
+pveum aclmod /vms/9010 -token 'painkiller@pam!api' -role PVEVMAdmin
+pveum aclmod /storage/local-lvm -token 'painkiller@pam!api' -role PVEDatastoreUser
+```
+
+Replace `9010` with the workstation template VMID and `local-lvm` with `PROXMOX_STORAGE_POOL`.
 
 ### Template Not Found
 
