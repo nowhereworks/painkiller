@@ -29,6 +29,7 @@ WORKDIR /app
 COPY --from=builder /out/server ./server
 COPY --from=builder /out/migrate ./migrate
 COPY --from=builder /app/migrations ./migrations
+COPY ./testdata/scenarios /app/scenarios
 
 EXPOSE 8080
 

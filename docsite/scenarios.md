@@ -324,7 +324,7 @@ This validates the scenario without importing it.
 
 ## Importing Scenarios
 
-Scenarios are imported from the Git repository specified in `SCENARIO_REPO_PATH`.
+Scenarios are imported from the directory specified in `SCENARIO_REPO_PATH`. The importer walks the directory tree for `scenario.yaml` files, validates them, and inserts immutable versions into the database.
 
 ### Manual Import
 
@@ -332,15 +332,20 @@ Scenarios are imported from the Git repository specified in `SCENARIO_REPO_PATH`
 go run ./cmd/import-scenarios
 ```
 
-This scans the scenario repository, validates all scenarios, and creates immutable versions in the database.
+This scans `SCENARIO_REPO_PATH`, validates all scenarios, and creates immutable versions in the database. Requires `SCENARIO_REPO_PATH` and `DATABASE_URL` to be set.
 
-### Automatic Import
+### Automatic Import on Server Boot
 
-Scenarios can be imported automatically via webhook when the Git repository is updated. This requires:
+When `SCENARIO_REPO_PATH` is set, the server automatically imports scenarios on startup. The import is idempotent — scenarios with the same `(external_id, git_commit)` are skipped. If the directory is not a Git repository, the commit defaults to `"local"`.
 
-1. Git repository webhook configuration (GitHub, GitLab, etc.)
-2. API endpoint to trigger import
-3. Authentication for webhook requests
+### Import Behavior
+
+- Walks `SCENARIO_REPO_PATH` recursively for `scenario.yaml` files
+- Validates each scenario and its checks before importing
+- Reads task prompt markdown files referenced by `prompt_file`
+- Creates a `scenario_version`, `tasks`, `checks`, `product`, and `test` row for each valid scenario
+- Skips scenarios that already exist for the same `(external_id, git_commit)` combination
+- Logs and continues on individual scenario failures
 
 ## Versioning
 

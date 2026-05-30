@@ -1,0 +1,2 @@
+ALTER TABLE products ADD COLUMN is_free BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE purchased_tests ALTER COLUMN stripe_session_id DROP NOT NULL;

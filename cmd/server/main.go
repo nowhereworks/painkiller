@@ -23,11 +23,15 @@ import (
 	"painkiller-shell/internal/entitlements"
 	"painkiller-shell/internal/grading"
 	"painkiller-shell/internal/httpx"
+	"painkiller-shell/internal/importer"
 	"painkiller-shell/internal/jobs"
 	applog "painkiller-shell/internal/log"
 	"painkiller-shell/internal/orchestrator"
+	"painkiller-shell/internal/provider"
 	"painkiller-shell/internal/provider/mock"
+	"painkiller-shell/internal/provider/proxmox"
 	"painkiller-shell/internal/provisioner/ansible"
+	"painkiller-shell/internal/proxy"
 	"painkiller-shell/internal/scoring"
 	"painkiller-shell/internal/store"
 	"painkiller-shell/internal/terminal"
@@ -56,9 +60,15 @@ func main() {
 
 	dataStore := store.New(db)
 
+	if cfg.ScenarioRepoPath != "" {
+		if err := importer.ImportAll(context.Background(), dataStore, cfg.ScenarioRepoPath, logger); err != nil {
+			logger.Error("scenario import failed", "error", err)
+		}
+	}
+
 	jwtManager := auth.NewJWTManager(cfg.JWTSecret, cfg.JWTExpiry)
 	authService := auth.NewService(dataStore, jwtManager)
-	authHandler := auth.NewHandler(authService, jwtManager)
+	authHandler := auth.NewHandler(authService, jwtManager, dataStore)
 
 	billingService := billing.NewService(dataStore, cfg.StripeSecretKey, cfg.StripeSuccessURL, cfg.StripeCancelURL)
 	webhookHandler := billing.NewWebhookHandler(billingService, cfg.StripeWebhookSecret, logger)
@@ -80,16 +90,43 @@ func main() {
 	attemptsService := attempts.NewService(dataStore, queue)
 	attemptsHandler := attempts.NewHandler(attemptsService)
 
-	provider := mock.New(100 * time.Millisecond)
+	var prov provider.Provider
+	switch cfg.Provider {
+	case "proxmox":
+		prov = proxmox.New(proxmox.Config{
+			APIURL:        cfg.ProxmoxURL,
+			TokenID:       cfg.ProxmoxTokenID,
+			TokenSecret:   cfg.ProxmoxTokenSecret,
+			Node:          cfg.ProxmoxNode,
+			StoragePool:   cfg.ProxmoxStoragePool,
+			NetworkBridge: cfg.ProxmoxNetworkBridge,
+			VLANID:        cfg.ProxmoxVLANID,
+			Templates:     cfg.ProxmoxTemplates,
+		})
+		logger.Info("using proxmox provider")
+	default:
+		prov = mock.New(100 * time.Millisecond)
+		logger.Info("using mock provider")
+	}
 	provisioner := ansible.New(logger)
 
+	var proxyCfg *proxy.Config
+	if cfg.ProxyAddr != "" {
+		proxyCfg = &proxy.Config{
+			Addr:           cfg.ProxyAddr,
+			AllowedDomains: cfg.ProxyAllowedDomains,
+		}
+		logger.Info("proxy configured", "addr", cfg.ProxyAddr, "domains", len(cfg.ProxyAllowedDomains))
+	}
+
 	orch := orchestrator.New(orchestrator.OrchestratorConfig{
-		Provider:    provider,
+		Provider:    prov,
 		Provisioner: provisioner,
 		Store:       dataStore,
 		Queue:       queue,
 		Attempts:    attemptsService,
 		Worker:      worker,
+		ProxyConfig: proxyCfg,
 		Logger:      logger,
 	})
 
@@ -112,6 +149,7 @@ func main() {
 
 		r.Group(func(r chi.Router) {
 			r.Use(jwtManager.Middleware)
+			r.Get("/auth/me", authHandler.HandleMe)
 			r.Route("/billing", billingHandler.RegisterRoutes)
 			r.Route("/entitlements", entitlementsHandler.RegisterRoutes)
 			r.Route("/attempts", attemptsHandler.RegisterRoutes)

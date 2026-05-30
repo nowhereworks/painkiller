@@ -42,6 +42,120 @@ Non-admin users receive `403 Forbidden` on admin endpoints.
 
 All admin endpoints are prefixed with `/api/v1/admin`.
 
+### Catalog Management
+
+The admin UI at `/admin/` provides a web interface for managing the test catalog. The following API endpoints power it.
+
+#### List Tests
+
+List all tests with product details.
+
+**Endpoint:** `GET /api/v1/admin/tests`
+
+**Example:**
+```bash
+curl -H "Authorization: Bearer $TOKEN" \
+  http://localhost:8080/api/v1/admin/tests
+```
+
+**Response:**
+```json
+{
+  "tests": [
+    {
+      "id": "uuid",
+      "product_id": "uuid",
+      "title": "CKA Simulator 1",
+      "description": "Full CKA practice exam",
+      "stripe_price_id": "price_...",
+      "is_free": false,
+      "duration_minutes": 120,
+      "access_window_hours": 36,
+      "attempts_allowed": 2
+    }
+  ]
+}
+```
+
+#### Get Test
+
+Get a single test by ID.
+
+**Endpoint:** `GET /api/v1/admin/tests/:id`
+
+#### Create Test
+
+Create a new product and test in a single transaction.
+
+**Endpoint:** `POST /api/v1/admin/tests`
+
+**Request body:**
+```json
+{
+  "title": "CKA Simulator 1",
+  "description": "Full CKA practice exam",
+  "stripe_price_id": "price_...",
+  "is_free": false,
+  "duration_minutes": 120,
+  "access_window_hours": 36,
+  "attempts_allowed": 2
+}
+```
+
+**Notes:**
+- `stripe_price_id` is required when `is_free` is `false`.
+- `stripe_price_id` is ignored when `is_free` is `true`.
+
+#### Update Test
+
+Update product and test fields. All fields are optional; only provided fields are updated.
+
+**Endpoint:** `PUT /api/v1/admin/tests/:id`
+
+**Request body (partial):**
+```json
+{
+  "title": "Updated title",
+  "is_free": true,
+  "duration_minutes": 180
+}
+```
+
+#### Delete Test
+
+Delete a test and its associated product. Fails if any purchases exist for the test.
+
+**Endpoint:** `DELETE /api/v1/admin/tests/:id`
+
+### Free Tests
+
+Products can be flagged as free (`is_free = true`). Free tests:
+- Appear in the public catalog with a "Free" badge.
+- Allow students to acquire access via `POST /api/v1/billing/acquire-free` without going through Stripe checkout.
+- Do not require a `stripe_price_id`.
+
+**Acquire free test:**
+```bash
+curl -X POST -H "Authorization: Bearer $TOKEN" \
+  -d '{"test_id": "uuid"}' \
+  http://localhost:8080/api/v1/billing/acquire-free
+```
+
+### User Info
+
+Authenticated users can retrieve their profile to check admin status.
+
+**Endpoint:** `GET /api/v1/auth/me`
+
+**Response:**
+```json
+{
+  "id": "uuid",
+  "email": "admin@example.com",
+  "is_admin": true
+}
+```
+
 ### List Attempts
 
 List all attempts with optional status filtering.

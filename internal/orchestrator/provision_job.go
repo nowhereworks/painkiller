@@ -15,6 +15,7 @@ import (
 	"painkiller-shell/internal/models"
 	"painkiller-shell/internal/provider"
 	"painkiller-shell/internal/provisioner"
+	"painkiller-shell/internal/proxy"
 )
 
 type provisionPayload struct {
@@ -160,6 +161,12 @@ func (o *Orchestrator) handleProvisionEnvironment(ctx context.Context, payload j
 		WorkstationIP: envResult.Workstation.IPAddress,
 		SSHPrivateKey: privKeyPEM,
 		Clusters:      make([]provisioner.ClusterSpec, 0, len(envResult.Clusters)),
+	}
+
+	if o.proxyConfig != nil && o.proxyConfig.Addr != "" {
+		clusterCIDRs := []string{"10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"}
+		provisionSpec.ProxyAddr = o.proxyConfig.Addr
+		provisionSpec.ProxyIPTScript = proxy.GenerateIPTablesScript(*o.proxyConfig, clusterCIDRs)
 	}
 
 	for i, cluster := range envResult.Clusters {

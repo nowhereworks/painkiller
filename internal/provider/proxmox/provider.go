@@ -5,8 +5,14 @@ import (
 	"encoding/json"
 	"fmt"
 	"sync/atomic"
+	"time"
 
 	"painkiller-shell/internal/provider"
+)
+
+const (
+	ipPollInterval = 5 * time.Second
+	ipPollTimeout  = 2 * time.Minute
 )
 
 type ProxmoxProvider struct {
@@ -22,6 +28,22 @@ func New(config Config) *ProxmoxProvider {
 	}
 	p.nextVMID.Store(9000)
 	return p
+}
+
+func (p *ProxmoxProvider) waitForIP(ctx context.Context, vmID int) (string, error) {
+	deadline := time.Now().Add(ipPollTimeout)
+	for time.Now().Before(deadline) {
+		ip, err := p.client.GetVMIPAddress(ctx, vmID)
+		if err == nil && ip != "" {
+			return ip, nil
+		}
+		select {
+		case <-ctx.Done():
+			return "", ctx.Err()
+		case <-time.After(ipPollInterval):
+		}
+	}
+	return "", fmt.Errorf("timed out waiting for IP on VM %d", vmID)
 }
 
 func (p *ProxmoxProvider) CreateEnvironment(ctx context.Context, spec provider.EnvironmentSpec) (*provider.EnvironmentResult, error) {
@@ -59,8 +81,14 @@ func (p *ProxmoxProvider) CreateEnvironment(ctx context.Context, spec provider.E
 		return nil, fmt.Errorf("failed to start workstation: %w", err)
 	}
 
+	wsIP, err := p.waitForIP(ctx, wsVMID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get workstation IP: %w", err)
+	}
+
 	result.Workstation = provider.VMResult{
 		ProviderVMID: fmt.Sprintf("%d", wsVMID),
+		IPAddress:    wsIP,
 		Hostname:     spec.Workstation.Hostname,
 	}
 
@@ -93,8 +121,14 @@ func (p *ProxmoxProvider) CreateEnvironment(ctx context.Context, spec provider.E
 				return nil, fmt.Errorf("failed to start node %s: %w", node.Hostname, err)
 			}
 
+			nodeIP, err := p.waitForIP(ctx, nodeVMID)
+			if err != nil {
+				return nil, fmt.Errorf("failed to get IP for node %s: %w", node.Hostname, err)
+			}
+
 			cr.Nodes = append(cr.Nodes, provider.VMResult{
 				ProviderVMID: fmt.Sprintf("%d", nodeVMID),
+				IPAddress:    nodeIP,
 				Hostname:     node.Hostname,
 			})
 		}

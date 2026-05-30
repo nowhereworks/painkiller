@@ -33,15 +33,6 @@ const (
 	EnvironmentStatusFailed     EnvironmentStatus = "failed"
 )
 
-type JobStatus string
-
-const (
-	JobStatusPending   JobStatus = "pending"
-	JobStatusRunning   JobStatus = "running"
-	JobStatusCompleted JobStatus = "completed"
-	JobStatusFailed    JobStatus = "failed"
-)
-
 type NodeRole string
 
 const (

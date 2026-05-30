@@ -8,7 +8,7 @@ import { useAuth } from "@/lib/auth";
 
 export function Nav() {
   const router = useRouter();
-  const { isAuthenticated, logout } = useAuth();
+  const { isAuthenticated, isAdmin, logout } = useAuth();
 
   async function handleLogout() {
     await logout();
@@ -29,6 +29,9 @@ export function Nav() {
           {isAuthenticated ? (
             <>
               <Button variant="ghost" onClick={() => router.push("/dashboard/")}>Dashboard</Button>
+              {isAdmin ? (
+                <Button variant="ghost" onClick={() => router.push("/admin/")}>Admin</Button>
+              ) : null}
               <Button variant="outline" onClick={handleLogout}>Log out</Button>
             </>
           ) : (

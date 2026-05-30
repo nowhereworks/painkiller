@@ -8,9 +8,10 @@ import (
 
 type Product struct {
 	ID            uuid.UUID `db:"id"`
-	StripePriceID string    `db:"stripe_price_id"`
+	StripePriceID *string   `db:"stripe_price_id"`
 	Title         string    `db:"title"`
 	Description   string    `db:"description"`
+	IsFree        bool      `db:"is_free"`
 	CreatedAt     time.Time `db:"created_at"`
 }
 

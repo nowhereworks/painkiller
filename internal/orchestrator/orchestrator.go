@@ -7,6 +7,7 @@ import (
 	"painkiller-shell/internal/jobs"
 	"painkiller-shell/internal/provider"
 	"painkiller-shell/internal/provisioner"
+	"painkiller-shell/internal/proxy"
 	"painkiller-shell/internal/store"
 )
 
@@ -17,6 +18,7 @@ type Orchestrator struct {
 	queue       *jobs.Queue
 	attempts    *attempts.Service
 	worker      *jobs.GenericWorker
+	proxyConfig *proxy.Config
 	logger      *slog.Logger
 }
 
@@ -27,6 +29,7 @@ type OrchestratorConfig struct {
 	Queue       *jobs.Queue
 	Attempts    *attempts.Service
 	Worker      *jobs.GenericWorker
+	ProxyConfig *proxy.Config
 	Logger      *slog.Logger
 }
 
@@ -38,6 +41,7 @@ func New(cfg OrchestratorConfig) *Orchestrator {
 		queue:       cfg.Queue,
 		attempts:    cfg.Attempts,
 		worker:      cfg.Worker,
+		proxyConfig: cfg.ProxyConfig,
 		logger:      cfg.Logger,
 	}
 

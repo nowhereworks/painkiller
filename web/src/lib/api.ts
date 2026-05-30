@@ -5,6 +5,25 @@ export type CatalogTest = {
   duration_minutes: number;
   access_window_hours: number;
   attempts_allowed: number;
+  is_free: boolean;
+};
+
+export type AdminTest = {
+  id: string;
+  product_id: string;
+  title: string;
+  description: string;
+  stripe_price_id: string | null;
+  is_free: boolean;
+  duration_minutes: number;
+  access_window_hours: number;
+  attempts_allowed: number;
+};
+
+export type MeResponse = {
+  id: string;
+  email: string;
+  is_admin: boolean;
 };
 
 export type Purchase = {
@@ -115,6 +134,10 @@ export async function logout() {
   return apiFetch<{ status: string }>("/api/v1/auth/logout", { method: "POST" });
 }
 
+export async function getMe() {
+  return apiFetch<MeResponse>("/api/v1/auth/me");
+}
+
 export async function getDashboard() {
   return apiFetch<{ purchases: Purchase[] }>("/api/v1/entitlements/dashboard");
 }
@@ -126,9 +149,85 @@ export async function createCheckout(testID: string) {
   });
 }
 
+export async function acquireFreeTest(testID: string) {
+  return apiFetch<{ purchase_id: string }>("/api/v1/billing/acquire-free", {
+    method: "POST",
+    body: JSON.stringify({ test_id: testID }),
+  });
+}
+
 export async function createAttempt(purchasedTestID: string) {
   return apiFetch<Attempt>("/api/v1/attempts/", {
     method: "POST",
     body: JSON.stringify({ purchased_test_id: purchasedTestID }),
   });
+}
+
+export async function adminListTests() {
+  return apiFetch<{ tests: AdminTest[] }>("/api/v1/admin/tests");
+}
+
+export async function adminGetTest(testID: string) {
+  return apiFetch<AdminTest>(`/api/v1/admin/tests/${testID}`);
+}
+
+export type CreateTestRequest = {
+  title: string;
+  description: string;
+  stripe_price_id: string | null;
+  is_free: boolean;
+  duration_minutes: number;
+  access_window_hours: number;
+  attempts_allowed: number;
+};
+
+export async function adminCreateTest(data: CreateTestRequest) {
+  return apiFetch<AdminTest>("/api/v1/admin/tests", {
+    method: "POST",
+    body: JSON.stringify(data),
+  });
+}
+
+export type UpdateTestRequest = {
+  title?: string;
+  description?: string;
+  stripe_price_id?: string | null;
+  is_free?: boolean;
+  duration_minutes?: number;
+  access_window_hours?: number;
+  attempts_allowed?: number;
+};
+
+export async function adminUpdateTest(testID: string, data: UpdateTestRequest) {
+  return apiFetch<AdminTest>(`/api/v1/admin/tests/${testID}`, {
+    method: "PUT",
+    body: JSON.stringify(data),
+  });
+}
+
+export async function adminDeleteTest(testID: string) {
+  return apiFetch<{ status: string }>(`/api/v1/admin/tests/${testID}`, {
+    method: "DELETE",
+  });
+}
+
+export async function getAttempt(attemptID: string) {
+  return apiFetch<Attempt>(`/api/v1/attempts/${attemptID}`);
+}
+
+export async function submitAttempt(attemptID: string) {
+  return apiFetch<{ status: string }>(`/api/v1/attempts/${attemptID}/submit`, {
+    method: "POST",
+  });
+}
+
+export type Score = {
+  total_score: number;
+  max_score: number;
+  percentage: number;
+  status: string;
+};
+
+export async function getScore(attemptID: string) {
+  return apiFetch<Score>(`/api/v1/scoring/attempts/${attemptID}/score`);
 }

@@ -140,3 +140,41 @@ func (c *Client) GetVMStatus(ctx context.Context, vmID int) (string, error) {
 
 	return result.Data.Status, nil
 }
+
+func (c *Client) GetVMIPAddress(ctx context.Context, vmID int) (string, error) {
+	path := fmt.Sprintf("/nodes/%s/qemu/%d/agent/network-get-interfaces", c.config.Node, vmID)
+	resp, err := c.doRequest(ctx, http.MethodGet, path, nil)
+	if err != nil {
+		return "", fmt.Errorf("guest agent query failed: %w", err)
+	}
+
+	var result struct {
+		Data struct {
+			Result []struct {
+				Name            string `json:"name"`
+				IPAddresses     []struct {
+					IPAddress string `json:"ip-address"`
+					Prefix    int    `json:"prefix"`
+					Type      string `json:"ip-address-type"`
+				} `json:"ip-addresses"`
+				HardwareAddress string `json:"hardware-address"`
+			} `json:"result"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(resp, &result); err != nil {
+		return "", fmt.Errorf("failed to parse guest agent response: %w", err)
+	}
+
+	for _, iface := range result.Data.Result {
+		if iface.Name == "lo" {
+			continue
+		}
+		for _, addr := range iface.IPAddresses {
+			if addr.Type == "ipv4" && addr.IPAddress != "" && addr.IPAddress != "127.0.0.1" {
+				return addr.IPAddress, nil
+			}
+		}
+	}
+
+	return "", fmt.Errorf("no IPv4 address found for VM %d", vmID)
+}

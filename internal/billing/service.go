@@ -40,11 +40,15 @@ func (s *Service) CreateCheckoutSession(ctx context.Context, userID uuid.UUID, t
 		return "", fmt.Errorf("product not found: %w", err)
 	}
 
+	if product.StripePriceID == nil || *product.StripePriceID == "" {
+		return "", fmt.Errorf("product %s has no stripe_price_id configured", product.ID)
+	}
+
 	params := &stripe.CheckoutSessionParams{
 		Mode: stripe.String(string(stripe.CheckoutSessionModePayment)),
 		LineItems: []*stripe.CheckoutSessionLineItemParams{
 			{
-				Price:    stripe.String(product.StripePriceID),
+				Price:    stripe.String(*product.StripePriceID),
 				Quantity: stripe.Int64(1),
 			},
 		},
@@ -94,7 +98,7 @@ func (s *Service) HandleCheckoutCompleted(ctx context.Context, sess *stripe.Chec
 		ID:                uuid.New(),
 		UserID:            userID,
 		TestID:            testID,
-		StripeSessionID:   sess.ID,
+		StripeSessionID:   nil,
 		ExpiresAt:         expiresAt,
 		AttemptsRemaining: test.AttemptsAllowed,
 		CreatedAt:         time.Now(),
@@ -105,4 +109,38 @@ func (s *Service) HandleCheckoutCompleted(ctx context.Context, sess *stripe.Chec
 	}
 
 	return nil
+}
+
+func (s *Service) CreateFreePurchase(ctx context.Context, userID uuid.UUID, testID uuid.UUID) (uuid.UUID, error) {
+	test, err := s.store.Tests().GetByID(ctx, testID)
+	if err != nil {
+		return uuid.Nil, fmt.Errorf("test not found: %w", err)
+	}
+
+	product, err := s.store.Products().GetByID(ctx, test.ProductID)
+	if err != nil {
+		return uuid.Nil, fmt.Errorf("product not found: %w", err)
+	}
+
+	if !product.IsFree {
+		return uuid.Nil, fmt.Errorf("test is not free")
+	}
+
+	expiresAt := time.Now().Add(time.Duration(test.AccessWindowHours) * time.Hour)
+
+	purchase := &models.PurchasedTest{
+		ID:                uuid.New(),
+		UserID:            userID,
+		TestID:            testID,
+		StripeSessionID:   nil,
+		ExpiresAt:         expiresAt,
+		AttemptsRemaining: test.AttemptsAllowed,
+		CreatedAt:         time.Now(),
+	}
+
+	if err := s.store.Purchases().Create(ctx, purchase); err != nil {
+		return uuid.Nil, fmt.Errorf("failed to create purchase: %w", err)
+	}
+
+	return purchase.ID, nil
 }

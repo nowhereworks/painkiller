@@ -253,24 +253,10 @@ packer build template.pkr.hcl
 
 ### Template Configuration
 
-Configure template mappings in the application. Add to `internal/provider/proxmox/config.go`:
+Configure template mappings via the `PROXMOX_TEMPLATES` environment variable:
 
-```go
-type Config struct {
-  // ... other fields ...
-  
-  TemplateMap map[string]int // template name -> Proxmox template VMID
-}
-```
-
-Example mapping:
-
-```go
-TemplateMap: map[string]int{
-  "kubeadm-control-plane": 9001,
-  "kubeadm-worker":        9002,
-  "workstation":           9003,
-}
+```bash
+PROXMOX_TEMPLATES=workstation=900,kubeadm-control-plane=901,kubeadm-worker=902
 ```
 
 Get template VMIDs from Proxmox UI or CLI:

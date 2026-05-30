@@ -1,10 +1,11 @@
 "use client";
 
 import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
-import { clearStoredToken, getStoredToken, logout as logoutRequest, storeToken } from "@/lib/api";
+import { clearStoredToken, getMe, getStoredToken, logout as logoutRequest, storeToken } from "@/lib/api";
 
 type AuthContextValue = {
   isAuthenticated: boolean;
+  isAdmin: boolean;
   setAuthenticated: (token: string) => void;
   logout: () => Promise<void>;
 };
@@ -13,14 +14,31 @@ const AuthContext = createContext<AuthContextValue | null>(null);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [isAdmin, setIsAdmin] = useState(false);
 
   useEffect(() => {
-    setIsAuthenticated(Boolean(getStoredToken()));
+    const token = getStoredToken();
+    setIsAuthenticated(Boolean(token));
+
+    if (token) {
+      getMe()
+        .then((me) => setIsAdmin(me.is_admin))
+        .catch(() => {
+          setIsAdmin(false);
+        });
+    }
   }, []);
 
-  function setAuthenticated(token: string) {
+  async function setAuthenticated(token: string) {
     storeToken(token);
     setIsAuthenticated(true);
+
+    try {
+      const me = await getMe();
+      setIsAdmin(me.is_admin);
+    } catch {
+      setIsAdmin(false);
+    }
   }
 
   async function logout() {
@@ -32,9 +50,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     clearStoredToken();
     setIsAuthenticated(false);
+    setIsAdmin(false);
   }
 
-  return <AuthContext.Provider value={{ isAuthenticated, setAuthenticated, logout }}>{children}</AuthContext.Provider>;
+  return <AuthContext.Provider value={{ isAuthenticated, isAdmin, setAuthenticated, logout }}>{children}</AuthContext.Provider>;
 }
 
 export function useAuth() {

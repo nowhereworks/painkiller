@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { Clock, Layers, Repeat2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { createCheckout, listTests, type CatalogTest } from "@/lib/api";
+import { acquireFreeTest, createCheckout, listTests, type CatalogTest } from "@/lib/api";
 
 export default function TestDetailPage() {
   const router = useRouter();
@@ -55,8 +55,13 @@ export default function TestDetailPage() {
     setIsCheckingOut(true);
 
     try {
-      const response = await createCheckout(test.id);
-      window.location.href = response.url;
+      if (test.is_free) {
+        await acquireFreeTest(test.id);
+        router.push("/dashboard/");
+      } else {
+        const response = await createCheckout(test.id);
+        window.location.href = response.url;
+      }
     } catch (err) {
       const message = err instanceof Error ? err.message : "Could not start checkout";
       setError(message);
@@ -87,7 +92,9 @@ export default function TestDetailPage() {
           {error ? <p className="text-sm text-destructive">{error}</p> : null}
 
           <div className="flex flex-col gap-3 sm:flex-row">
-            <Button disabled={!test || isCheckingOut} onClick={checkout}>{isCheckingOut ? "Redirecting..." : "Buy access"}</Button>
+            <Button disabled={!test || isCheckingOut} onClick={checkout}>
+              {isCheckingOut ? (test?.is_free ? "Acquiring..." : "Redirecting...") : (test?.is_free ? "Get free access" : "Buy access")}
+            </Button>
             <Button variant="outline" onClick={() => router.push("/")}>Back to catalog</Button>
           </div>
         </CardContent>

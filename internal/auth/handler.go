@@ -5,17 +5,20 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"painkiller-shell/internal/httpx"
+	"painkiller-shell/internal/store"
 )
 
 type Handler struct {
 	service    *Service
 	jwtManager *JWTManager
+	store      *store.Store
 }
 
-func NewHandler(service *Service, jwtManager *JWTManager) *Handler {
+func NewHandler(service *Service, jwtManager *JWTManager, store *store.Store) *Handler {
 	return &Handler{
 		service:    service,
 		jwtManager: jwtManager,
+		store:      store,
 	}
 }
 
@@ -119,4 +122,30 @@ func (h *Handler) logout(w http.ResponseWriter, r *http.Request) {
 	})
 
 	_ = httpx.WriteJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+}
+
+type meResponse struct {
+	ID      string `json:"id"`
+	Email   string `json:"email"`
+	IsAdmin bool   `json:"is_admin"`
+}
+
+func (h *Handler) HandleMe(w http.ResponseWriter, r *http.Request) {
+	userID, ok := UserIDFromContext(r.Context())
+	if !ok {
+		httpx.Unauthorized(w, "unauthorized")
+		return
+	}
+
+	user, err := h.store.Users().GetByID(r.Context(), userID)
+	if err != nil {
+		httpx.InternalError(w, "failed to fetch user")
+		return
+	}
+
+	_ = httpx.WriteJSON(w, http.StatusOK, meResponse{
+		ID:      user.ID.String(),
+		Email:   user.Email,
+		IsAdmin: user.IsAdmin,
+	})
 }

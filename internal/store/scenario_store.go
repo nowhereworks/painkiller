@@ -10,6 +10,7 @@ import (
 type ScenarioStore interface {
 	CreateVersion(ctx context.Context, version *models.ScenarioVersion) error
 	GetVersion(ctx context.Context, id uuid.UUID) (*models.ScenarioVersion, error)
+	GetVersionByExternalID(ctx context.Context, externalID, gitCommit string) (*models.ScenarioVersion, error)
 	ListVersions(ctx context.Context) ([]*models.ScenarioVersion, error)
 	CreateTask(ctx context.Context, task *models.Task) error
 	CreateCheck(ctx context.Context, check *models.Check) error
@@ -36,6 +37,16 @@ func (sc *scenarioStore) GetVersion(ctx context.Context, id uuid.UUID) (*models.
 	var version models.ScenarioVersion
 	query := `SELECT id, external_id, title, git_commit, duration_minutes, access_window_hours, attempts_allowed, topology_json, created_at FROM scenario_versions WHERE id = $1`
 	err := sc.db.db.GetContext(ctx, &version, query, id)
+	if err != nil {
+		return nil, err
+	}
+	return &version, nil
+}
+
+func (sc *scenarioStore) GetVersionByExternalID(ctx context.Context, externalID, gitCommit string) (*models.ScenarioVersion, error) {
+	var version models.ScenarioVersion
+	query := `SELECT id, external_id, title, git_commit, duration_minutes, access_window_hours, attempts_allowed, topology_json, created_at FROM scenario_versions WHERE external_id = $1 AND git_commit = $2`
+	err := sc.db.db.GetContext(ctx, &version, query, externalID, gitCommit)
 	if err != nil {
 		return nil, err
 	}

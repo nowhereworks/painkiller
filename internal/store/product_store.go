@@ -11,7 +11,10 @@ type ProductStore interface {
 	Create(ctx context.Context, product *models.Product) error
 	GetByID(ctx context.Context, id uuid.UUID) (*models.Product, error)
 	GetByStripePriceID(ctx context.Context, stripePriceID string) (*models.Product, error)
+	GetByTitle(ctx context.Context, title string) (*models.Product, error)
 	List(ctx context.Context) ([]*models.Product, error)
+	Update(ctx context.Context, product *models.Product) error
+	Delete(ctx context.Context, id uuid.UUID) error
 }
 
 type productStore struct {
@@ -23,15 +26,15 @@ func (s *Store) Products() ProductStore {
 }
 
 func (p *productStore) Create(ctx context.Context, product *models.Product) error {
-	query := `INSERT INTO products (id, stripe_price_id, title, description, created_at)
-		VALUES ($1, $2, $3, $4, $5)`
-	_, err := p.db.db.ExecContext(ctx, query, product.ID, product.StripePriceID, product.Title, product.Description, product.CreatedAt)
+	query := `INSERT INTO products (id, stripe_price_id, title, description, is_free, created_at)
+		VALUES ($1, $2, $3, $4, $5, $6)`
+	_, err := p.db.db.ExecContext(ctx, query, product.ID, product.StripePriceID, product.Title, product.Description, product.IsFree, product.CreatedAt)
 	return err
 }
 
 func (p *productStore) GetByID(ctx context.Context, id uuid.UUID) (*models.Product, error) {
 	var product models.Product
-	query := `SELECT id, stripe_price_id, title, description, created_at FROM products WHERE id = $1`
+	query := `SELECT id, stripe_price_id, title, description, is_free, created_at FROM products WHERE id = $1`
 	err := p.db.db.GetContext(ctx, &product, query, id)
 	if err != nil {
 		return nil, err
@@ -41,8 +44,18 @@ func (p *productStore) GetByID(ctx context.Context, id uuid.UUID) (*models.Produ
 
 func (p *productStore) GetByStripePriceID(ctx context.Context, stripePriceID string) (*models.Product, error) {
 	var product models.Product
-	query := `SELECT id, stripe_price_id, title, description, created_at FROM products WHERE stripe_price_id = $1`
+	query := `SELECT id, stripe_price_id, title, description, is_free, created_at FROM products WHERE stripe_price_id = $1`
 	err := p.db.db.GetContext(ctx, &product, query, stripePriceID)
+	if err != nil {
+		return nil, err
+	}
+	return &product, nil
+}
+
+func (p *productStore) GetByTitle(ctx context.Context, title string) (*models.Product, error) {
+	var product models.Product
+	query := `SELECT id, stripe_price_id, title, description, is_free, created_at FROM products WHERE title = $1 LIMIT 1`
+	err := p.db.db.GetContext(ctx, &product, query, title)
 	if err != nil {
 		return nil, err
 	}
@@ -51,7 +64,18 @@ func (p *productStore) GetByStripePriceID(ctx context.Context, stripePriceID str
 
 func (p *productStore) List(ctx context.Context) ([]*models.Product, error) {
 	var products []*models.Product
-	query := `SELECT id, stripe_price_id, title, description, created_at FROM products ORDER BY created_at`
+	query := `SELECT id, stripe_price_id, title, description, is_free, created_at FROM products ORDER BY created_at`
 	err := p.db.db.SelectContext(ctx, &products, query)
 	return products, err
+}
+
+func (p *productStore) Update(ctx context.Context, product *models.Product) error {
+	query := `UPDATE products SET stripe_price_id = $1, title = $2, description = $3, is_free = $4 WHERE id = $5`
+	_, err := p.db.db.ExecContext(ctx, query, product.StripePriceID, product.Title, product.Description, product.IsFree, product.ID)
+	return err
+}
+
+func (p *productStore) Delete(ctx context.Context, id uuid.UUID) error {
+	_, err := p.db.db.ExecContext(ctx, `DELETE FROM products WHERE id = $1`, id)
+	return err
 }

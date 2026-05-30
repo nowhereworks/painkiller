@@ -7,6 +7,7 @@ import (
 	"github.com/google/uuid"
 	"painkiller-shell/internal/auth"
 	"painkiller-shell/internal/httpx"
+	"painkiller-shell/internal/models"
 )
 
 type Handler struct {
@@ -80,6 +81,12 @@ type getAttemptResponse struct {
 }
 
 func (h *Handler) getAttempt(w http.ResponseWriter, r *http.Request) {
+	userID, ok := auth.UserIDFromContext(r.Context())
+	if !ok {
+		httpx.Unauthorized(w, "unauthorized")
+		return
+	}
+
 	attemptIDStr := chi.URLParam(r, "attemptID")
 	attemptID, err := uuid.Parse(attemptIDStr)
 	if err != nil {
@@ -93,11 +100,29 @@ func (h *Handler) getAttempt(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	purchase, err := h.service.store.Purchases().GetByID(r.Context(), attempt.PurchasedTestID)
+	if err != nil || purchase.UserID != userID {
+		httpx.Forbidden(w, "forbidden")
+		return
+	}
+
 	resp := getAttemptResponse{
 		ID:       attempt.ID.String(),
 		Status:   string(attempt.Status),
 		Score:    attempt.Score,
 		MaxScore: attempt.MaxScore,
+	}
+
+	activeStatuses := map[models.AttemptStatus]bool{
+		models.AttemptStatusEnvironmentReady: true,
+		models.AttemptStatusTerminalOpened:   true,
+		models.AttemptStatusRunning:          true,
+	}
+	if activeStatuses[attempt.Status] {
+		session, err := h.service.store.Sessions().GetByAttemptID(r.Context(), attemptID)
+		if err == nil {
+			resp.TerminalToken = &session.TerminalToken
+		}
 	}
 
 	_ = httpx.WriteJSON(w, http.StatusOK, resp)

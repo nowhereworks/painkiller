@@ -1,0 +1,50 @@
+# Painkiller Shell - Restricted Documentation Proxy
+# This is a template. The Go backend generates a dynamic version per deployment.
+
+http_port 3128
+
+# ACL definitions
+acl localnet src 10.0.0.0/8
+acl localnet src 172.16.0.0/12
+acl localnet src 192.168.0.0/16
+acl SSL_ports port 443
+acl Safe_ports port 80
+acl Safe_ports port 443
+acl CONNECT method CONNECT
+
+# Deny requests to non-safe ports
+http_access deny !Safe_ports
+
+# Deny CONNECT to non-SSL ports
+http_access deny CONNECT !SSL_ports
+
+# Allowlist ACL for documentation domains
+# Add or remove domains as needed for your test scenarios
+acl allowed_docs dstdomain .kubernetes.io .k8s.io .helm.sh .docs.docker.com
+acl allowed_docs_exact dstdomain kubernetes.io k8s.io helm.sh docs.docker.com
+
+# Allow access to allowlisted documentation
+http_access allow localnet allowed_docs
+http_access allow localnet allowed_docs_exact
+
+# Deny everything else
+http_access deny all
+
+# Logging
+access_log /var/log/squid/access.log squid
+cache_log /var/log/squid/cache.log
+
+# Performance
+maximum_object_size 50 MB
+cache_dir ufs /var/spool/squid 1000 16 256
+coredump_dir /var/spool/squid
+
+# Timeouts
+connect_timeout 30 seconds
+read_timeout 60 seconds
+request_timeout 60 seconds
+
+# Privacy
+via off
+forwarded_for delete
+request_header_access X-Forwarded-For deny all

@@ -57,6 +57,13 @@ Painkiller Shell uses environment variables for configuration. Copy `.env.exampl
 
 ### Proxmox Integration
 
+**`PROVIDER`** (optional)
+- Runtime provider to use
+- Values: `mock`, `proxmox`
+- Default: `mock`
+- Example: `proxmox`
+- When set to `proxmox`, all `PROXMOX_*` fields below become required
+
 **`PROXMOX_URL`** (required for Proxmox provider)
 - Proxmox API endpoint URL
 - Format: `https://host:port`
@@ -77,12 +84,48 @@ Painkiller Shell uses environment variables for configuration. Copy `.env.exampl
 - Example: `pve1`
 - Get from Proxmox UI → Datacenter → Nodes
 
+**`PROXMOX_STORAGE_POOL`** (optional)
+- Proxmox storage pool for VM disks
+- Default: `local-lvm`
+- Example: `local-lvm`
+
+**`PROXMOX_NETWORK_BRIDGE`** (optional)
+- Proxmox network bridge for VM networking
+- Default: `vmbr0`
+- Example: `vmbr0`
+
+**`PROXMOX_VLAN_ID`** (optional)
+- VLAN ID for student environment isolation
+- Default: `0` (no VLAN)
+- Example: `100`
+
+**`PROXMOX_TEMPLATES`** (required for Proxmox provider)
+- Comma-separated mapping of template names to Proxmox VMIDs
+- Format: `name=vmid,name=vmid,...`
+- Example: `workstation=900,kubeadm-control-plane=901,kubeadm-worker=902`
+- Get VMIDs from `qm list | grep template`
+
 ### Scenario Management
 
 **`SCENARIO_REPO_PATH`** (required for scenarios)
 - Absolute path to the Git repository containing scenarios
 - Example: `/opt/painkiller-scenarios`
 - See [Scenario Authoring](scenarios.md) for repo structure
+
+### Documentation Proxy
+
+**`PROXY_ADDR`** (optional)
+- Address and port of the shared Squid documentation proxy
+- Format: `host:port`
+- Example: `10.0.0.10:3128`
+- When set, student workstations are configured with `http_proxy`/`https_proxy` and `iptables` enforcement
+- See [Documentation Proxy](proxy.md) for deployment instructions
+
+**`PROXY_ALLOWED_DOMAINS`** (optional)
+- Comma-separated list of domains students are allowed to access through the proxy
+- Default: `kubernetes.io,k8s.io,helm.sh`
+- Example: `kubernetes.io,k8s.io,helm.sh,docs.docker.com`
+- Subdomains are automatically included (e.g., `kubernetes.io` also allows `*.kubernetes.io`)
 
 ### Logging
 
@@ -122,10 +165,18 @@ STRIPE_WEBHOOK_SECRET=whsec_...
 STRIPE_SUCCESS_URL=https://app.example.com/success
 STRIPE_CANCEL_URL=https://app.example.com/cancel
 
+PROVIDER=proxmox
 PROXMOX_URL=https://proxmox.example.com:8006
 PROXMOX_TOKEN_ID=painkiller@pam!api
 PROXMOX_TOKEN_SECRET=<secret>
 PROXMOX_NODE=pve1
+PROXMOX_STORAGE_POOL=local-lvm
+PROXMOX_NETWORK_BRIDGE=vmbr0
+PROXMOX_VLAN_ID=100
+PROXMOX_TEMPLATES=workstation=900,kubeadm-control-plane=901,kubeadm-worker=902
+
+PROXY_ADDR=10.0.0.10:3128
+PROXY_ALLOWED_DOMAINS=kubernetes.io,k8s.io,helm.sh,docs.docker.com
 
 SCENARIO_REPO_PATH=/opt/painkiller-scenarios
 LOG_LEVEL=info

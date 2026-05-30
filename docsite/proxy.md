@@ -20,7 +20,18 @@ Student workstations are configured with:
 
 ## Deployment
 
-### 1. Install Squid
+### Option 1: Docker Compose (Recommended)
+
+The repository includes a Docker Compose setup in `infra/proxy/`:
+
+```bash
+cd infra/proxy
+docker compose up -d
+```
+
+This starts a Squid proxy using the included `squid.conf.template` and `Dockerfile`.
+
+### Option 2: Manual Installation
 
 Install Squid on a management network host:
 
@@ -35,6 +46,14 @@ sudo apt-get install squid
 sudo yum install squid
 ```
 
+### Configure Squid
+
+Copy the configuration template from the repository:
+
+```bash
+sudo cp infra/proxy/squid.conf.template /etc/squid/squid.conf
+```
+
 ### 2. Configure Squid
 
 Copy the configuration files from the repository:
@@ -43,6 +62,8 @@ Copy the configuration files from the repository:
 sudo cp infra/proxy/squid.conf /etc/squid/squid.conf
 sudo cp infra/proxy/allowlist.txt /etc/squid/allowlist.txt
 ```
+
+The template includes inline ACLs for common documentation domains. Edit the `allowed_docs` and `allowed_docs_exact` lines to customize the allowlist for your test scenarios.
 
 #### squid.conf
 
@@ -152,35 +173,14 @@ sudo ufw allow 3128/tcp
 sudo iptables -A INPUT -p tcp --dport 3128 -j ACCEPT
 ```
 
-### 5. Configure Workstation Template
+### Configure Workstation Template
 
-The workstation VM template must include the iptables enforcement script.
+When `PROXY_ADDR` is set in the backend configuration, the orchestrator automatically:
+- Generates an `iptables` script that blocks direct outbound HTTP/HTTPS except to the proxy
+- Passes `http_proxy` and `https_proxy` environment variables to the Ansible provisioner
+- The provisioner applies these settings to the workstation VM during environment setup
 
-Copy the script to your workstation template:
-
-```bash
-sudo cp infra/workstation/iptables.sh /opt/painkiller/iptables.sh
-sudo chmod +x /opt/painkiller/iptables.sh
-```
-
-Edit the script to set your proxy IP:
-
-```bash
-sudo nano /opt/painkiller/iptables.sh
-```
-
-Update these variables:
-
-```bash
-PROXY_IP=10.0.0.100  # Your Squid proxy IP
-PROXY_PORT=3128
-```
-
-The script will be executed during workstation provisioning to:
-- Set `http_proxy` and `https_proxy` environment variables in `/etc/environment`
-- Configure iptables to block direct outbound HTTP/HTTPS
-- Allow traffic only to the proxy IP
-- Save rules for persistence
+No manual template configuration is required. The proxy settings are applied dynamically per environment.
 
 ### 6. Verify Configuration
 

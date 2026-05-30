@@ -27,6 +27,7 @@ type testResponse struct {
 	DurationMinutes   int    `json:"duration_minutes"`
 	AccessWindowHours int    `json:"access_window_hours"`
 	AttemptsAllowed   int    `json:"attempts_allowed"`
+	IsFree            bool   `json:"is_free"`
 }
 
 type listTestsResponse struct {
@@ -34,7 +35,7 @@ type listTestsResponse struct {
 }
 
 func (h *Handler) listTests(w http.ResponseWriter, r *http.Request) {
-	tests, err := h.store.Tests().List(r.Context())
+	tests, err := h.store.Tests().ListWithProduct(r.Context())
 	if err != nil {
 		httpx.InternalError(w, "failed to list tests")
 		return
@@ -44,11 +45,12 @@ func (h *Handler) listTests(w http.ResponseWriter, r *http.Request) {
 	for _, t := range tests {
 		resp.Tests = append(resp.Tests, testResponse{
 			ID:                t.ID.String(),
-			Title:             "",
-			Description:       "",
+			Title:             t.ProductTitle,
+			Description:       t.ProductDescription,
 			DurationMinutes:   t.DurationMinutes,
 			AccessWindowHours: t.AccessWindowHours,
 			AttemptsAllowed:   t.AttemptsAllowed,
+			IsFree:            t.ProductIsFree,
 		})
 	}
 

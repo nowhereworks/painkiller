@@ -18,6 +18,8 @@ type EnvironmentProvisionSpec struct {
 	Clusters       []ClusterSpec
 	PlaybookPath   string
 	ScenarioVars   map[string]interface{}
+	ProxyAddr      string
+	ProxyIPTScript string
 }
 
 type ProvisionResult struct {

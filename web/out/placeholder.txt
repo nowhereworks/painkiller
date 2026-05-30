@@ -1,1 +1,0 @@
-Build the frontend with `make web-build` before producing a production Go binary.
