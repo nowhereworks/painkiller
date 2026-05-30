@@ -245,6 +245,69 @@ exit 0
 
 Scenario-specific setup is handled by Ansible playbooks in the `provision/` directory.
 
+### Shared Roles
+
+Painkiller Shell provides shared Ansible roles for common provisioning tasks. These roles are automatically available to all scenario playbooks via `ANSIBLE_ROLES_PATH`.
+
+#### `kubeadm-init`
+
+Initializes a Kubernetes cluster on control plane nodes. This role:
+
+- Runs `kubeadm init` with the specified pod network CIDR
+- Installs Calico CNI
+- Waits for the control plane to become ready
+- Stores the join command for worker nodes
+
+**Variables:**
+- `pod_cidr` (optional): Pod network CIDR (default: `10.244.0.0/16`)
+
+**Example usage:**
+```yaml
+- hosts: control_plane
+  roles:
+    - kubeadm-init
+```
+
+#### `kubeadm-join`
+
+Joins worker nodes to the cluster. This role:
+
+- Retrieves the join command from the control plane
+- Runs `kubeadm join` on worker nodes
+- Waits for nodes to become ready
+
+**Example usage:**
+```yaml
+- hosts: workers
+  roles:
+    - kubeadm-join
+```
+
+#### `workstation-setup`
+
+Configures the student workstation with kubeconfig and useful tools. This role:
+
+- Fetches kubeconfig from all control planes
+- Merges kubeconfigs into a single file with named contexts
+- Installs useful tools (kubectl, jq, vim, etc.)
+- Configures kubectl autocompletion
+
+**Variables:**
+- `clusters`: List of cluster definitions with `name` and `kube_context` fields
+
+**Example usage:**
+```yaml
+- hosts: workstation
+  roles:
+    - workstation-setup
+  vars:
+    clusters:
+      - name: cluster-a
+        kube_context: cluster-a-admin
+      - name: cluster-b
+        kube_context: cluster-b-admin
+```
+
 ### Main Playbook
 
 `provision/playbook.yaml` runs after cluster provisioning and sets up the scenario environment.

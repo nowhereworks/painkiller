@@ -25,6 +25,8 @@ type Config struct {
 	ProxmoxNetworkBridge string
 	ProxmoxVLANID       int
 	ProxmoxTemplates    map[string]int
+	ProxmoxSkipTLSVerify bool
+	ProvisionerMode     string
 	ProxyAddr           string
 	ProxyAllowedDomains []string
 	ScenarioRepoPath    string
@@ -50,6 +52,8 @@ func Load() (*Config, error) {
 		ProxmoxNetworkBridge: getEnv("PROXMOX_NETWORK_BRIDGE", "vmbr0"),
 		ProxmoxVLANID:        getIntEnv("PROXMOX_VLAN_ID", 0),
 		ProxmoxTemplates:     parseTemplateMap(getEnv("PROXMOX_TEMPLATES", "")),
+		ProxmoxSkipTLSVerify: getBoolEnv("PROXMOX_SKIP_TLS_VERIFY", false),
+		ProvisionerMode:      getEnv("PROVISIONER_MODE", "ansible"),
 		ProxyAddr:            getEnv("PROXY_ADDR", ""),
 		ProxyAllowedDomains:  parseCSV(getEnv("PROXY_ALLOWED_DOMAINS", "kubernetes.io,k8s.io,helm.sh")),
 		ScenarioRepoPath:     getEnv("SCENARIO_REPO_PATH", ""),
@@ -91,6 +95,18 @@ func getDurationEnv(key string, fallback time.Duration) time.Duration {
 		return fallback
 	}
 	return time.Duration(seconds) * time.Second
+}
+
+func getBoolEnv(key string, fallback bool) bool {
+	v := os.Getenv(key)
+	if v == "" {
+		return fallback
+	}
+	b, err := strconv.ParseBool(v)
+	if err != nil {
+		return fallback
+	}
+	return b
 }
 
 func getIntEnv(key string, fallback int) int {

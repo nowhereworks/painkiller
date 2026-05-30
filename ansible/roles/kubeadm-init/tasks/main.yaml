@@ -1,0 +1,54 @@
+- name: Initialize Kubernetes cluster
+  command: >
+    kubeadm init
+    --apiserver-advertise-address={{ ansible_host }}
+    --pod-network-cidr={{ pod_cidr | default('10.244.0.0/16') }}
+  register: kubeadm_init
+  args:
+    creates: /etc/kubernetes/admin.conf
+
+- name: Extract join command
+  shell: kubeadm token create --print-join-command
+  register: join_command
+  changed_when: false
+
+- name: Set join command fact
+  set_fact:
+    kubeadm_join_command: "{{ join_command.stdout }}"
+  delegate_to: "{{ item }}"
+  delegate_facts: true
+  loop: "{{ groups[cluster_name + '_workers'] | default([]) }}"
+  vars:
+    cluster_name: "{{ group_names[0] | regex_replace('_control_plane$', '') }}"
+
+- name: Create .kube directory
+  file:
+    path: /root/.kube
+    state: directory
+    mode: '0755'
+
+- name: Copy admin.conf to .kube/config
+  copy:
+    src: /etc/kubernetes/admin.conf
+    dest: /root/.kube/config
+    remote_src: yes
+    mode: '0600'
+
+- name: Install Calico CNI
+  command: kubectl apply -f https://raw.githubusercontent.com/projectcalico/calico/v3.28.0/manifests/calico.yaml
+  environment:
+    KUBECONFIG: /root/.kube/config
+  register: calico_install
+  retries: 3
+  delay: 5
+  until: calico_install.rc == 0
+
+- name: Wait for control plane to be ready
+  command: kubectl get nodes
+  environment:
+    KUBECONFIG: /root/.kube/config
+  register: nodes_status
+  retries: 30
+  delay: 10
+  until: "'Ready' in nodes_status.stdout"
+  changed_when: false

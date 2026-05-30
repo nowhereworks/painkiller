@@ -53,12 +53,20 @@ services:
       - STRIPE_WEBHOOK_SECRET=whsec_...
       - STRIPE_SUCCESS_URL=http://localhost:3000/success
       - STRIPE_CANCEL_URL=http://localhost:3000/cancel
-      - PROXMOX_URL=https://proxmox.example.com:8006
-      - PROXMOX_TOKEN_ID=user@pam!token
-      - PROXMOX_TOKEN_SECRET=secret
-      - PROXMOX_NODE=pve1
+      - PROVIDER=proxmox
+      - PROXMOX_URL=${PROXMOX_URL}
+      - PROXMOX_TOKEN_ID=${PROXMOX_TOKEN_ID}
+      - PROXMOX_TOKEN_SECRET=${PROXMOX_TOKEN_SECRET}
+      - PROXMOX_NODE=${PROXMOX_NODE}
+      - PROXMOX_STORAGE_POOL=local-lvm
+      - PROXMOX_NETWORK_BRIDGE=vmbr0
+      - PROXMOX_SKIP_TLS_VERIFY=true
+      - PROXMOX_TEMPLATES=workstation=9010,kubeadm-control-plane=9010,kubeadm-worker=9010
+      - PROVISIONER_MODE=none
       - SCENARIO_REPO_PATH=/app/scenarios
       - LOG_LEVEL=DEBUG
+      - PROXY_ADDR=${PROXY_ADDR}
+      - PROXY_ALLOWED_DOMAINS=kubernetes.io,k8s.io,helm.sh,docs.docker.com
 
 networks:
   painkiller-dev:

@@ -1,0 +1,28 @@
+- name: Determine control plane group
+  set_fact:
+    control_plane_group: "{{ group_names | select('match', '.*_control_plane$') | list | first }}"
+  when: control_plane_group is not defined
+
+- name: Get join command from control plane
+  set_fact:
+    kubeadm_join_command: "{{ hostvars[groups[control_plane_group][0]]['kubeadm_join_command'] }}"
+  vars:
+    control_plane_group: "{{ group_names | select('match', '.*_control_plane$') | list | first }}"
+
+- name: Join worker to cluster
+  command: "{{ kubeadm_join_command }}"
+  args:
+    creates: /etc/kubernetes/kubelet.conf
+
+- name: Wait for node to be ready
+  command: kubectl get nodes {{ inventory_hostname }}
+  delegate_to: "{{ groups[control_plane_group][0] }}"
+  environment:
+    KUBECONFIG: /root/.kube/config
+  register: node_status
+  retries: 30
+  delay: 10
+  until: "'Ready' in node_status.stdout"
+  changed_when: false
+  vars:
+    control_plane_group: "{{ group_names | select('match', '.*_control_plane$') | list | first }}"

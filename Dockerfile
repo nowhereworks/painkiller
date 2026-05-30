@@ -22,13 +22,15 @@ RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" -o /out/migrate
 
 FROM alpine:3.22
 
-RUN apk --no-cache add ca-certificates
+RUN apk --no-cache add ca-certificates python3 py3-pip openssh-client \
+    && pip3 install --break-system-packages ansible
 
 WORKDIR /app
 
 COPY --from=builder /out/server ./server
 COPY --from=builder /out/migrate ./migrate
 COPY --from=builder /app/migrations ./migrations
+COPY ./ansible /app/ansible
 COPY ./testdata/scenarios /app/scenarios
 
 EXPOSE 8080

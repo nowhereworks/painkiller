@@ -53,10 +53,11 @@ func (o *Orchestrator) handleProvisionEnvironment(ctx context.Context, payload j
 	}
 	sshPubKeyStr := string(ssh.MarshalAuthorizedKey(sshPubKey))
 
-	privKeyPEM := pem.EncodeToMemory(&pem.Block{
-		Type:  "OPENSSH PRIVATE KEY",
-		Bytes: privKey,
-	})
+	privKeyBlock, err := ssh.MarshalPrivateKey(privKey, "")
+	if err != nil {
+		return fmt.Errorf("failed to marshal SSH private key: %w", err)
+	}
+	privKeyPEM := pem.EncodeToMemory(privKeyBlock)
 
 	purchase, err := o.store.Purchases().GetByID(ctx, attempt.PurchasedTestID)
 	if err != nil {
@@ -158,6 +159,7 @@ func (o *Orchestrator) handleProvisionEnvironment(ctx context.Context, payload j
 	provisionSpec := provisioner.EnvironmentProvisionSpec{
 		WorkstationIP: envResult.Workstation.IPAddress,
 		SSHPrivateKey: privKeyPEM,
+		PlaybookPath:  fmt.Sprintf("/app/scenarios/%s/provision/playbook.yaml", scenarioVersion.ExternalID),
 		Clusters:      make([]provisioner.ClusterSpec, 0, len(envResult.Clusters)),
 	}
 

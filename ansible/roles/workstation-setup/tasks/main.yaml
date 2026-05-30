@@ -1,0 +1,48 @@
+- name: Create .kube directory
+  file:
+    path: /root/.kube
+    state: directory
+    mode: '0755'
+
+- name: Fetch kubeconfig from control planes
+  slurp:
+    src: /etc/kubernetes/admin.conf
+  delegate_to: "{{ hostvars[groups[item + '_control_plane'][0]]['inventory_hostname'] }}"
+  register: kubeconfigs
+  loop: "{{ clusters | map(attribute='name') | list }}"
+
+- name: Merge kubeconfigs
+  template:
+    src: kubeconfig.j2
+    dest: /root/.kube/config
+    mode: '0600'
+  vars:
+    cluster_configs: "{{ kubeconfigs.results }}"
+
+- name: Install useful tools
+  apt:
+    name:
+      - bash-completion
+      - tmux
+      - jq
+      - vim
+    state: present
+    update_cache: yes
+
+- name: Configure kubectl completion
+  lineinfile:
+    path: /root/.bashrc
+    line: 'source <(kubectl completion bash)'
+    create: yes
+
+- name: Configure kubectl alias
+  lineinfile:
+    path: /root/.bashrc
+    line: 'alias k=kubectl'
+    create: yes
+
+- name: Configure k alias completion
+  lineinfile:
+    path: /root/.bashrc
+    line: 'complete -o default -F __start_kubectl k'
+    create: yes

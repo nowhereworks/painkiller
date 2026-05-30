@@ -1,0 +1,51 @@
+- name: Initialize control planes
+  hosts: "*_control_plane"
+  become: yes
+  tasks:
+    - name: Compute per-cluster pod CIDR
+      set_fact:
+        pod_cidr: "10.{{ 244 + cluster_idx }}.0.0/16"
+      vars:
+        cluster_idx: "{{ groups.keys() | select('match', '.*_control_plane') | list | index(group_names[0]) }}"
+
+    - name: Initialize Kubernetes cluster
+      include_role:
+        name: kubeadm-init
+
+- name: Join workers
+  hosts: "*_workers"
+  become: yes
+  tasks:
+    - name: Join worker to cluster
+      include_role:
+        name: kubeadm-join
+
+- name: Setup workstation
+  hosts: workstation
+  become: yes
+  tasks:
+    - name: Setup workstation with kubeconfigs
+      include_role:
+        name: workstation-setup
+      vars:
+        clusters: "{{ clusters }}"
+
+- name: Scenario-specific setup
+  hosts: workstation
+  become: yes
+  tasks:
+    - name: Create production namespace on cluster-b
+      command: kubectl --context=cluster-b-admin create namespace production
+      environment:
+        KUBECONFIG: /root/.kube/config
+      register: create_namespace
+      failed_when: create_namespace.rc != 0 and 'already exists' not in create_namespace.stderr
+
+    - name: Create web-app deployment with 1 replica
+      command: >
+        kubectl --context=cluster-b-admin -n production create deployment web-app
+        --image=nginx --replicas=1
+      environment:
+        KUBECONFIG: /root/.kube/config
+      register: create_deployment
+      failed_when: create_deployment.rc != 0 and 'already exists' not in create_deployment.stderr

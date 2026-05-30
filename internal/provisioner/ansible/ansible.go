@@ -53,6 +53,7 @@ func (a *AnsibleProvisioner) Provision(ctx context.Context, spec provisioner.Env
 		spec.PlaybookPath,
 	)
 
+	cmd.Env = append(os.Environ(), "ANSIBLE_ROLES_PATH=/app/ansible/roles")
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 

@@ -105,6 +105,22 @@ Painkiller Shell uses environment variables for configuration. Copy `.env.exampl
 - Example: `workstation=900,kubeadm-control-plane=901,kubeadm-worker=902`
 - Get VMIDs from `qm list | grep template`
 
+**`PROXMOX_SKIP_TLS_VERIFY`** (optional)
+- Skip TLS certificate verification for Proxmox API
+- Values: `true`, `false`
+- Default: `false`
+- Example: `true`
+- Use for self-signed certificates in development/test environments
+
+### Provisioner
+
+**`PROVISIONER_MODE`** (optional)
+- Provisioner mode for setting up Kubernetes clusters
+- Values: `ansible`, `none`
+- Default: `ansible`
+- Example: `none`
+- Use `none` to skip Ansible provisioning (for testing VM lifecycle only)
+
 ### Scenario Management
 
 **`SCENARIO_REPO_PATH`** (required for scenarios)

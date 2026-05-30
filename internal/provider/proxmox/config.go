@@ -9,4 +9,5 @@ type Config struct {
 	NetworkBridge string
 	VLANID        int
 	Templates     map[string]int
+	SkipTLSVerify bool
 }

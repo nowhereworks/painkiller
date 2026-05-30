@@ -4,7 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"sync/atomic"
+	"strings"
 	"time"
 
 	"painkiller-shell/internal/provider"
@@ -16,18 +16,15 @@ const (
 )
 
 type ProxmoxProvider struct {
-	client    *Client
-	config    Config
-	nextVMID  atomic.Int64
+	client *Client
+	config Config
 }
 
 func New(config Config) *ProxmoxProvider {
-	p := &ProxmoxProvider{
+	return &ProxmoxProvider{
 		client: NewClient(config),
 		config: config,
 	}
-	p.nextVMID.Store(9000)
-	return p
 }
 
 func (p *ProxmoxProvider) waitForIP(ctx context.Context, vmID int) (string, error) {
@@ -46,34 +43,37 @@ func (p *ProxmoxProvider) waitForIP(ctx context.Context, vmID int) (string, erro
 	return "", fmt.Errorf("timed out waiting for IP on VM %d", vmID)
 }
 
+func (p *ProxmoxProvider) cloudInitConfig(hostname, sshPublicKey string) map[string]string {
+	cfg := map[string]string{
+		"citype":    "nocloud",
+		"ipconfig0": fmt.Sprintf("ip=dhcp,bridge=%s", p.config.NetworkBridge),
+	}
+	if sshPublicKey != "" {
+		cfg["cipublickey"] = strings.TrimSpace(sshPublicKey)
+	}
+	if hostname != "" {
+		cfg["ciname"] = hostname
+	}
+	return cfg
+}
+
 func (p *ProxmoxProvider) CreateEnvironment(ctx context.Context, spec provider.EnvironmentSpec) (*provider.EnvironmentResult, error) {
 	result := &provider.EnvironmentResult{
 		Clusters: make([]provider.ClusterResult, 0, len(spec.Clusters)),
 	}
 
-	wsVMID := int(p.nextVMID.Add(1))
 	templateID, ok := p.config.Templates[spec.Workstation.Template]
 	if !ok {
 		return nil, fmt.Errorf("unknown template: %s", spec.Workstation.Template)
 	}
 
-	if err := p.client.CloneVM(ctx, templateID, wsVMID, spec.Workstation.Hostname); err != nil {
+	wsVMID, err := p.client.CloneVM(ctx, templateID, spec.Workstation.Hostname)
+	if err != nil {
 		return nil, fmt.Errorf("failed to clone workstation: %w", err)
 	}
 
-	cloudInit := GenerateCloudInit(CloudInitConfig{
-		Hostname:     spec.Workstation.Hostname,
-		SSHPublicKey: spec.Workstation.SSHPublicKey,
-		Metadata:     spec.Workstation.Tags,
-	})
-
-	config := map[string]string{
-		"cicustom": fmt.Sprintf("user=local-snippets:snippets/%s-cloud-init.yaml", spec.Workstation.Hostname),
-		"ipconfig0": fmt.Sprintf("ip=dhcp,bridge=%s", p.config.NetworkBridge),
-	}
-	_ = cloudInit
-
-	if err := p.client.ConfigureVM(ctx, wsVMID, config); err != nil {
+	ciConfig := p.cloudInitConfig(spec.Workstation.Hostname, spec.Workstation.SSHPublicKey)
+	if err := p.client.ConfigureVM(ctx, wsVMID, ciConfig); err != nil {
 		return nil, fmt.Errorf("failed to configure workstation: %w", err)
 	}
 
@@ -99,21 +99,18 @@ func (p *ProxmoxProvider) CreateEnvironment(ctx context.Context, spec provider.E
 		}
 
 		for _, node := range cluster.Nodes {
-			nodeVMID := int(p.nextVMID.Add(1))
 			nodeTemplateID, ok := p.config.Templates[node.Template]
 			if !ok {
 				return nil, fmt.Errorf("unknown template: %s", node.Template)
 			}
 
-			if err := p.client.CloneVM(ctx, nodeTemplateID, nodeVMID, node.Hostname); err != nil {
+			nodeVMID, err := p.client.CloneVM(ctx, nodeTemplateID, node.Hostname)
+			if err != nil {
 				return nil, fmt.Errorf("failed to clone node %s: %w", node.Hostname, err)
 			}
 
-			nodeConfig := map[string]string{
-				"ipconfig0": fmt.Sprintf("ip=dhcp,bridge=%s", p.config.NetworkBridge),
-			}
-
-			if err := p.client.ConfigureVM(ctx, nodeVMID, nodeConfig); err != nil {
+			nodeCI := p.cloudInitConfig(node.Hostname, node.SSHPublicKey)
+			if err := p.client.ConfigureVM(ctx, nodeVMID, nodeCI); err != nil {
 				return nil, fmt.Errorf("failed to configure node %s: %w", node.Hostname, err)
 			}
 

@@ -30,7 +30,9 @@ import (
 	"painkiller-shell/internal/provider"
 	"painkiller-shell/internal/provider/mock"
 	"painkiller-shell/internal/provider/proxmox"
+	"painkiller-shell/internal/provisioner"
 	"painkiller-shell/internal/provisioner/ansible"
+	"painkiller-shell/internal/provisioner/noop"
 	"painkiller-shell/internal/proxy"
 	"painkiller-shell/internal/scoring"
 	"painkiller-shell/internal/store"
@@ -102,13 +104,22 @@ func main() {
 			NetworkBridge: cfg.ProxmoxNetworkBridge,
 			VLANID:        cfg.ProxmoxVLANID,
 			Templates:     cfg.ProxmoxTemplates,
+			SkipTLSVerify: cfg.ProxmoxSkipTLSVerify,
 		})
 		logger.Info("using proxmox provider")
 	default:
 		prov = mock.New(100 * time.Millisecond)
 		logger.Info("using mock provider")
 	}
-	provisioner := ansible.New(logger)
+	var provisionerImpl provisioner.Provisioner
+	switch cfg.ProvisionerMode {
+	case "none":
+		provisionerImpl = noop.New(logger)
+		logger.Info("using noop provisioner")
+	default:
+		provisionerImpl = ansible.New(logger)
+		logger.Info("using ansible provisioner")
+	}
 
 	var proxyCfg *proxy.Config
 	if cfg.ProxyAddr != "" {
@@ -121,7 +132,7 @@ func main() {
 
 	orch := orchestrator.New(orchestrator.OrchestratorConfig{
 		Provider:    prov,
-		Provisioner: provisioner,
+		Provisioner: provisionerImpl,
 		Store:       dataStore,
 		Queue:       queue,
 		Attempts:    attemptsService,

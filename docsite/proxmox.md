@@ -95,6 +95,11 @@ PROXMOX_NODE=pve1
 - Get from Proxmox UI: **Datacenter** → **Nodes**
 - Example: `pve1`
 
+**`PROXMOX_SKIP_TLS_VERIFY`** (optional)
+- Set to `true` to skip TLS certificate verification
+- Use for self-signed certificates in development/test environments
+- Default: `false`
+
 ## VM Templates
 
 Painkiller Shell clones VMs from pre-built templates. Create templates for each node type.
@@ -118,9 +123,10 @@ Painkiller Shell clones VMs from pre-built templates. Create templates for each 
 All templates must include:
 
 1. **cloud-init** - For VM customization on first boot
-2. **SSH server** - For remote management
-3. **Base packages** - Common utilities (curl, wget, vim, etc.)
-4. **QEMU guest agent** - For Proxmox integration
+2. **cloud-init drive** - A cloud-init CDROM drive must be attached to the template (e.g., `ide0: cloudinit`). Painkiller Shell uses Proxmox's built-in cloud-init parameters (`citype=configdrive2`, `cipublickey`, `ciname`) which require this drive.
+3. **SSH server** - For remote management
+4. **Base packages** - Common utilities (curl, wget, vim, etc.)
+5. **QEMU guest agent** - For Proxmox integration (required for IP address retrieval)
 
 ### Building Templates
 
@@ -366,55 +372,27 @@ fi
 
 ## Cloud-Init Configuration
 
-Cloud-init customizes VMs on first boot. Painkiller Shell injects cloud-init data for:
+Painkiller Shell uses Proxmox's built-in cloud-init parameters to customize VMs on first boot. This requires templates to have a cloud-init drive attached (e.g., `ide0: cloudinit`).
 
-- Hostname
-- SSH authorized keys
-- Network configuration
-- Metadata tags
+The application sets these parameters via the Proxmox API:
 
-### Cloud-Init Template
+- **`citype`** - Cloud-init type (`configdrive2`)
+- **`cipublickey`** - SSH public key for the ephemeral session
+- **`ciname`** - Hostname for the VM
+- **`ipconfig0`** - Network configuration (DHCP with bridge)
 
-The application generates cloud-init config dynamically:
+### Attaching a Cloud-Init Drive to a Template
 
-```yaml
-#cloud-config
-hostname: {{ .Hostname }}
-manage_etc_hosts: true
-
-ssh_authorized_keys:
-  - {{ .SSHPublicKey }}
-
-network:
-  version: 2
-  ethernets:
-    eth0:
-      dhcp4: false
-      addresses:
-        - {{ .IPAddress }}/{{ .CIDR }}
-      gateway4: {{ .Gateway }}
-      nameservers:
-        addresses: [8.8.8.8, 8.8.4.4]
-
-runcmd:
-  - echo "Painkiller Environment: {{ .EnvironmentID }}" >> /etc/motd
-  - echo "Attempt: {{ .AttemptID }}" >> /etc/motd
+```bash
+# Add a cloud-init CDROM drive to template VMID 900
+qm set 900 --ide0 local-lvm:cloudinit
 ```
 
-### Custom Cloud-Init
+Or via the Proxmox UI: select the template → **Hardware** → **Add** → **CloudInit Drive**.
 
-For scenario-specific customization, add cloud-init snippets to scenario playbooks:
+### Scenario-Specific Customization
 
-```yaml
-# In provision/playbook.yaml
-- name: Add custom cloud-init
-  copy:
-    dest: /var/lib/cloud/scripts/per-instance/custom.sh
-    content: |
-      #!/bin/bash
-      echo "Scenario: {{ scenario_id }}" >> /etc/motd
-    mode: '0755'
-```
+For scenario-specific setup beyond cloud-init, use Ansible playbooks in the scenario's `provision/` directory.
 
 ## Monitoring and Maintenance
 
