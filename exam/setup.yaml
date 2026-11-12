@@ -1,0 +1,23 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: exam-repair
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: broken-web
+  namespace: exam-repair
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: broken-web
+  template:
+    metadata:
+      labels:
+        app: broken-web
+    spec:
+      containers:
+        - name: web
+          image: nginx:does-not-exist
