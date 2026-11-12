@@ -3,6 +3,7 @@ package main
 import (
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"net/http/httptest"
 	"os"
 	"os/exec"
@@ -55,14 +56,181 @@ func TestRejectInvalidTransition(t *testing.T) {
 	}
 }
 
-func TestRetryIsRestrictedToPreparationFailures(t *testing.T) {
-	for _, op := range []string{"reset", "persistence", ""} {
+func TestRetryIsRestrictedToLabOperationFailures(t *testing.T) {
+	for _, op := range []string{"persistence", ""} {
 		a := testApp(t)
 		a.state = state{Phase: "error", FailedOperation: op}
 		w := httptest.NewRecorder()
 		a.action(w, httptest.NewRequest("POST", "/api/retry", nil))
 		if w.Code != 409 || a.state.Phase != "error" {
 			t.Fatalf("retry accepted for %q: %d", op, w.Code)
+		}
+	}
+}
+
+// stubCommand puts an executable on PATH for the duration of the test.
+func stubCommand(t *testing.T, name, body string) {
+	t.Helper()
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, name), []byte(body), 0700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+}
+
+func waitPhase(t *testing.T, a *app, want string) {
+	t.Helper()
+	deadline := time.Now().Add(10 * time.Second)
+	for time.Now().Before(deadline) {
+		a.mu.Lock()
+		phase := a.state.Phase
+		a.mu.Unlock()
+		if phase == want {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatalf("phase %q was never reached", want)
+}
+
+func TestRetryResetRerunsDestroy(t *testing.T) {
+	dir := t.TempDir()
+	t.Chdir(dir)
+	if err := os.Mkdir("scripts", 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile("scripts/create-lab.sh", []byte("#!/bin/sh\necho \"$1\" >> calls\n"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	a := testApp(t)
+	a.file = filepath.Join(dir, "state.db")
+	a.lockDir = dir
+	a.state = state{Phase: "error", FailedOperation: "reset", Message: "destroy failed"}
+	w := httptest.NewRecorder()
+	a.action(w, httptest.NewRequest("POST", "/api/retry", nil))
+	if w.Code != 204 {
+		t.Fatalf("reset retry rejected: %d", w.Code)
+	}
+	waitPhase(t, a, "idle")
+	calls, err := os.ReadFile("calls")
+	if err != nil || string(calls) != "destroy\n" {
+		t.Fatalf("unexpected lab calls: %q %v", calls, err)
+	}
+}
+
+func TestDuplicateSubmitGradesOnlyOnce(t *testing.T) {
+	a := testApp(t)
+	a.state = state{Phase: "running", Deadline: time.Now().Add(time.Hour), Host: "192.0.2.1"}
+	var wg sync.WaitGroup
+	codes := make(chan int, 2)
+	for i := 0; i < 2; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			w := httptest.NewRecorder()
+			a.action(w, httptest.NewRequest("POST", "/api/submit", nil))
+			codes <- w.Code
+		}()
+	}
+	wg.Wait()
+	close(codes)
+	seen := map[int]int{}
+	for code := range codes {
+		seen[code]++
+	}
+	if seen[204] != 1 || seen[409] != 1 {
+		t.Fatalf("unexpected submit results: %v", seen)
+	}
+	waitPhase(t, a, "completed")
+}
+
+func TestExpiryClosesTerminalsAndGrades(t *testing.T) {
+	a := testApp(t)
+	f, err := os.CreateTemp(t.TempDir(), "terminal")
+	if err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.Command("sleep", "30")
+	if err = cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	a.terminals[f] = cmd
+	a.state = state{Phase: "running", Deadline: time.Now().Add(-time.Second)}
+	a.expire()
+	if a.state.Phase != "grading" {
+		t.Fatalf("expired attempt did not start grading: %s", a.state.Phase)
+	}
+	if len(a.terminals) != 0 {
+		t.Fatal("expiry left terminals open")
+	}
+	waitPhase(t, a, "completed")
+}
+
+func TestResumeAfterRestart(t *testing.T) {
+	preparing := testApp(t)
+	preparing.state = state{Phase: "preparing"}
+	if err := preparing.resume(); err != nil {
+		t.Fatal(err)
+	}
+	if preparing.state.Phase != "error" || preparing.state.FailedOperation != "prepare" {
+		t.Fatalf("interrupted preparation not retryable: %+v", preparing.state)
+	}
+	resetting := testApp(t)
+	resetting.state = state{Phase: "resetting"}
+	if err := resetting.resume(); err != nil {
+		t.Fatal(err)
+	}
+	if resetting.state.Phase != "error" || resetting.state.FailedOperation != "reset" {
+		t.Fatalf("interrupted reset not retryable: %+v", resetting.state)
+	}
+	running := testApp(t)
+	deadline := time.Now().Add(time.Hour).Truncate(time.Second)
+	running.state = state{Phase: "running", Deadline: deadline, Host: "192.0.2.1"}
+	if err := running.resume(); err != nil {
+		t.Fatal(err)
+	}
+	if running.state.Phase != "running" || !running.state.Deadline.Equal(deadline) {
+		t.Fatalf("running attempt not preserved: %+v", running.state)
+	}
+	grading := testApp(t)
+	grading.state = state{Phase: "grading", Host: "192.0.2.1"}
+	if err := grading.resume(); err != nil {
+		t.Fatal(err)
+	}
+	waitPhase(t, grading, "completed")
+}
+
+func TestGradingPersistenceFailureIsReported(t *testing.T) {
+	stubCommand(t, "ssh", "#!/bin/sh\nprintf '%s' '{\"metadata\":{\"name\":\"ok\"}}'\n")
+	a := testApp(t)
+	a.state = state{Phase: "grading", Host: "192.0.2.1"}
+	a.tasks = []task{{ID: "one", Points: 2, Resource: "kubectl get thing -o json", Checks: []check{{Description: "exists", Points: 2, Expression: `.metadata.name == "ok"`}}}}
+	if _, err := a.db.Exec("DROP TABLE attempt"); err != nil {
+		t.Fatal(err)
+	}
+	a.grade()
+	if a.state.Phase != "error" || a.state.FailedOperation != "persistence" {
+		t.Fatalf("persistence failure not surfaced: %+v", a.state)
+	}
+}
+
+func TestCaptureRunsConcurrently(t *testing.T) {
+	stubCommand(t, "ssh", "#!/bin/sh\nsleep 0.4\nprintf '%s' '{\"metadata\":{\"name\":\"ok\"}}'\n")
+	a := testApp(t)
+	a.state = state{Phase: "grading", Host: "192.0.2.1"}
+	for i := 0; i < 6; i++ {
+		a.tasks = append(a.tasks, task{ID: string(rune('a' + i)), Points: 2, Resource: "kubectl get thing -o json", Checks: []check{{Description: "exists", Points: 2, Expression: `.metadata.name == "ok"`}}})
+	}
+	start := time.Now()
+	a.grade()
+	elapsed := time.Since(start)
+	// Six captures of 400 ms each take at least 2.4 s when run sequentially.
+	if elapsed > 1800*time.Millisecond {
+		t.Fatalf("captures were not concurrent: %v", elapsed)
+	}
+	for _, r := range a.state.Results {
+		if r.Earned != 2 || r.Error != "" {
+			t.Fatalf("unexpected result: %+v", r)
 		}
 	}
 }
@@ -226,7 +394,7 @@ func TestPackagedExam(t *testing.T) {
 	if err := validateTasks(tasks); err != nil {
 		t.Fatal(err)
 	}
-	if len(tasks) != 17 {
+	if len(tasks) != 29 {
 		t.Fatalf("got %d questions", len(tasks))
 	}
 	for _, task := range tasks {
@@ -750,35 +918,42 @@ func TestCaptureRetriesTransientFailure(t *testing.T) {
 	}
 }
 
+// fixtures maps every packaged task to one captured document that satisfies
+// all of its checks. Real captures come from exam/tasks.json "resource" commands.
+var fixtures = map[string]string{
+	"namespace":      `{"metadata":{"name":"exam-sandbox"}}`,
+	"node-label":     `{"items":[{"metadata":{"name":"k8s-3000"}}]}`,
+	"node-placement": `{"items":[{"spec":{"taints":[{"key":"exam","value":"reserved","effect":"NoSchedule"}],"unschedulable":true}}]}`,
+	"static-pod":     `{"items":[{"metadata":{"name":"static-web-k8s-3001"},"status":{"phase":"Running"}}]}`,
+	"etcd-snapshot":  `{"hash":1476058848,"revision":856,"totalKey":867,"totalSize":1818624}`,
+	"pod":            `{"spec":{"containers":[{"image":"nginx:1.27"}]}}`,
+	"deployment":     `{"spec":{"replicas":2,"template":{"spec":{"containers":[{"image":"nginx:1.27"}]}}}}`,
+	"rollout":        `{"metadata":{"annotations":{"deployment.kubernetes.io/revision":"3"}},"spec":{"template":{"spec":{"containers":[{"name":"web","image":"nginx:1.27"}]}}}}`,
+	"multicontainer": `{"spec":{"initContainers":[{"name":"prepare","image":"busybox:1.36"}],"containers":[{"name":"app","image":"nginx:1.27"},{"name":"log-sidecar","image":"busybox:1.36"}]},"status":{"phase":"Running"}}`,
+	"resources":      `{"spec":{"template":{"spec":{"containers":[{"resources":{"requests":{"cpu":"100m","memory":"128Mi"},"limits":{"cpu":"500m","memory":"256Mi"}}}]}}}}`,
+	"limits":         `{"items":[{"kind":"ResourceQuota","metadata":{"name":"limit-pods"},"spec":{"hard":{"pods":"20"}}},{"kind":"LimitRange","metadata":{"name":"default-limits"},"spec":{"limits":[{"type":"Container","default":{"cpu":"200m","memory":"256Mi"},"defaultRequest":{"cpu":"100m","memory":"128Mi"}}]}}]}`,
+	"priorityclass":  `{"value":100000,"globalDefault":false}`,
+	"job":            `{"spec":{"template":{"spec":{"containers":[{"image":"busybox:1.36","command":["echo","hello"]}]}}}}`,
+	"cronjob":        `{"spec":{"schedule":"*/5 * * * *","jobTemplate":{"spec":{"template":{"spec":{"containers":[{"image":"busybox:1.36","command":["echo","hello"]}]}}}}}}`,
+	"configmap":      `{"data":{"mode":"production"}}`,
+	"secret":         `{"data":{"username":"b3BlcmF0b3I="}}`,
+	"serviceaccount": `{"metadata":{"name":"observer"}}`,
+	"pvc-binding":    `{"items":[{"kind":"PersistentVolume","metadata":{"name":"exam-pv"},"spec":{"capacity":{"storage":"1Gi"},"accessModes":["ReadWriteOnce"],"storageClassName":"exam-local","hostPath":{"path":"/tmp/exam-data"}}},{"kind":"PersistentVolumeClaim","metadata":{"name":"exam-claim"},"spec":{"resources":{"requests":{"storage":"1Gi"}},"storageClassName":"exam-local","accessModes":["ReadWriteOnce"],"volumeName":"exam-pv"},"status":{"phase":"Bound"}}]}`,
+	"mount-config":   `{"spec":{"volumes":[{"name":"config","configMap":{"name":"exam-material"}}],"containers":[{"name":"web","image":"nginx:1.27","volumeMounts":[{"name":"config","mountPath":"/etc/exam"}]}]},"status":{"phase":"Running"}}`,
+	"service":        `{"spec":{"type":"ClusterIP","selector":{"app":"service-target"},"ports":[{"port":80,"targetPort":80}]}}`,
+	"nodeport":       `{"spec":{"type":"NodePort","selector":{"app":"service-target"},"ports":[{"port":80,"targetPort":80,"nodePort":30080}]}}`,
+	"ingress":        `{"spec":{"rules":[{"host":"exam.local","http":{"paths":[{"path":"/","pathType":"Prefix","backend":{"service":{"name":"exam-backend","port":{"number":80}}}}]}}]}}`,
+	"networkpolicy":  `{"spec":{"podSelector":{},"policyTypes":["Ingress"]}}`,
+	"coredns":        `{"spec":{"replicas":3},"status":{"availableReplicas":3}}`,
+	"repair":         `{"spec":{"template":{"spec":{"containers":[{"name":"web","image":"nginx:1.27"}]}}},"status":{"availableReplicas":1}}`,
+	"svc-selector":   `{"items":[{"metadata":{"labels":{"kubernetes.io/service-name":"broken-endpoints"}},"endpoints":[{"addresses":["10.244.1.5"],"conditions":{"ready":true}}]}]}`,
+	"crashloop":      `{"status":{"availableReplicas":1}}`,
+	"rbac":           `{"items":[{"kind":"Role","metadata":{"name":"pod-reader"},"rules":[{"apiGroups":[""],"resources":["pods"],"verbs":["get","list","watch"]}]},{"kind":"RoleBinding","metadata":{"name":"read-pods"},"roleRef":{"kind":"Role","name":"pod-reader"},"subjects":[{"kind":"ServiceAccount","name":"binding-observer","namespace":"exam-workloads"}]}]}`,
+	"cluster-rbac":   `{"items":[{"kind":"ClusterRole","metadata":{"name":"node-reader"},"rules":[{"apiGroups":[""],"resources":["nodes"],"verbs":["get","list","watch"]}]},{"kind":"ClusterRoleBinding","metadata":{"name":"node-reader"},"roleRef":{"kind":"ClusterRole","name":"node-reader"},"subjects":[{"kind":"ServiceAccount","name":"cluster-observer","namespace":"exam-workloads"}]}]}`,
+}
+
 func TestExamChecksAcceptCorrectFixtures(t *testing.T) {
-	b, err := os.ReadFile("../../exam/tasks.json")
-	if err != nil {
-		t.Fatal(err)
-	}
-	var tasks []task
-	if err = json.Unmarshal(b, &tasks); err != nil {
-		t.Fatal(err)
-	}
-	fixtures := map[string]string{
-		"namespace":      `{"metadata":{"name":"exam-sandbox"}}`,
-		"pod":            `{"spec":{"containers":[{"image":"nginx:1.27"}]}}`,
-		"deployment":     `{"spec":{"replicas":2,"template":{"spec":{"containers":[{"image":"nginx:1.27"}]}}}}`,
-		"service":        `{"spec":{"type":"ClusterIP","selector":{"app":"service-target"},"ports":[{"port":80,"targetPort":80}]}}`,
-		"configmap":      `{"data":{"mode":"production"}}`,
-		"secret":         `{"data":{"username":"b3BlcmF0b3I="}}`,
-		"serviceaccount": `{"metadata":{"name":"observer"}}`,
-		"quota":          `{"spec":{"hard":{"pods":"10"}}}`,
-		"job":            `{"spec":{"template":{"spec":{"containers":[{"image":"busybox:1.36","command":["echo","hello"]}]}}}}`,
-		"label":          `{"items":[{"metadata":{"name":"node"}}]}`,
-		"pv":             `{"spec":{"capacity":{"storage":"1Gi"},"accessModes":["ReadWriteOnce"],"storageClassName":"exam-local","hostPath":{"path":"/tmp/exam-data"}}}`,
-		"pvc":            `{"spec":{"resources":{"requests":{"storage":"1Gi"}},"accessModes":["ReadWriteOnce"],"storageClassName":"exam-local"}}`,
-		"networkpolicy":  `{"spec":{"podSelector":{},"policyTypes":["Ingress"]}}`,
-		"role":           `{"rules":[{"apiGroups":[""],"resources":["pods"],"verbs":["get","list","watch"]}]}`,
-		"rolebinding":    `{"roleRef":{"kind":"Role","name":"binding-reader"},"subjects":[{"kind":"ServiceAccount","name":"binding-observer","namespace":"exam-workloads"}]}`,
-		"repair":         `{"spec":{"template":{"spec":{"containers":[{"name":"web","image":"nginx:1.27"}]}}},"status":{"availableReplicas":1}}`,
-		"cronjob":        `{"spec":{"schedule":"*/5 * * * *","jobTemplate":{"spec":{"template":{"spec":{"containers":[{"image":"busybox:1.36","command":["echo","hello"]}]}}}}}}`,
-	}
-	for _, task := range tasks {
+	for _, task := range packagedTasks(t) {
 		for _, c := range task.Checks {
 			cmd := exec.Command("jq", "-e", "if . == null then false else ("+c.Expression+") end")
 			cmd.Stdin = strings.NewReader(fixtures[task.ID])
@@ -789,7 +964,8 @@ func TestExamChecksAcceptCorrectFixtures(t *testing.T) {
 	}
 }
 
-func TestDeploymentFixtureGetsPartialCredit(t *testing.T) {
+func packagedTasks(t *testing.T) []task {
+	t.Helper()
 	b, err := os.ReadFile("../../exam/tasks.json")
 	if err != nil {
 		t.Fatal(err)
@@ -798,25 +974,82 @@ func TestDeploymentFixtureGetsPartialCredit(t *testing.T) {
 	if err = json.Unmarshal(b, &tasks); err != nil {
 		t.Fatal(err)
 	}
-	var deployment task
-	for _, candidate := range tasks {
-		if candidate.ID == "deployment" {
-			deployment = candidate
-		}
-	}
-	if len(deployment.Checks) != 2 {
-		t.Fatal("expected two deployment checks")
-	}
-	fixture := `{"spec":{"replicas":1,"template":{"spec":{"containers":[{"image":"nginx:1.27"}]}}}}`
+	return tasks
+}
+
+// scoreFixture evaluates every check of a task against one captured document,
+// mirroring the grading path.
+func scoreFixture(t *testing.T, task task, fixture string) int {
+	t.Helper()
 	score := 0
-	for _, c := range deployment.Checks {
-		cmd := exec.Command("jq", "-e", "try ("+c.Expression+") catch false")
+	for _, c := range task.Checks {
+		cmd := exec.Command("jq", "-e", "try (("+c.Expression+") // false) catch false")
 		cmd.Stdin = strings.NewReader(fixture)
-		if cmd.Run() == nil {
+		out, err := cmd.CombinedOutput()
+		if err == nil {
 			score += c.Points
+			continue
+		}
+		var exit *exec.ExitError
+		if !errors.As(err, &exit) || exit.ExitCode() != 1 {
+			t.Fatalf("%s / %s is not a boolean expression: %v %s", task.ID, c.Description, err, out)
 		}
 	}
-	if score != 3 {
-		t.Fatalf("expected 3 points, got %d", score)
+	return score
+}
+
+// TestFixturesScoreEveryTask guarantees each packaged task can reach its full
+// score from a single captured document, and that multi-check tasks award
+// partial credit for exactly the failing checks.
+func TestFixturesScoreEveryTask(t *testing.T) {
+	for _, task := range packagedTasks(t) {
+		fixture, ok := fixtures[task.ID]
+		if !ok {
+			t.Errorf("task %s has no correct fixture", task.ID)
+			continue
+		}
+		if score := scoreFixture(t, task, fixture); score != task.Points {
+			t.Errorf("%s scored %d of %d", task.ID, score, task.Points)
+		}
+		if score := scoreFixture(t, task, `{}`); score != 0 {
+			t.Errorf("%s scored %d on an empty document", task.ID, score)
+		}
+		if score := scoreFixture(t, task, `null`); score != 0 {
+			t.Errorf("%s scored %d on a null document", task.ID, score)
+		}
+	}
+}
+
+func TestFixtureWinsPartialCredit(t *testing.T) {
+	tasks := packagedTasks(t)
+	cases := []struct {
+		id, fixture string
+		want        int
+	}{
+		// Image correct, replica count wrong: 2 of 4.
+		{"deployment", `{"spec":{"replicas":1,"template":{"spec":{"containers":[{"image":"nginx:1.27"}]}}}}`, 2},
+		// Image rolled out but not yet rolled back: 2 of 4.
+		{"rollout", `{"metadata":{"annotations":{"deployment.kubernetes.io/revision":"2"}},"spec":{"template":{"spec":{"containers":[{"name":"web","image":"nginx:1.26"}]}}}}`, 2},
+		// Volume and claim configured but not bound: 4 of 6.
+		{"pvc-binding", `{"items":[{"kind":"PersistentVolume","metadata":{"name":"exam-pv"},"spec":{"capacity":{"storage":"1Gi"},"accessModes":["ReadWriteOnce"],"storageClassName":"exam-local","hostPath":{"path":"/tmp/exam-data"}}},{"kind":"PersistentVolumeClaim","metadata":{"name":"exam-claim"},"spec":{"resources":{"requests":{"storage":"1Gi"}},"storageClassName":"exam-local","accessModes":["ReadWriteOnce"]},"status":{"phase":"Pending"}}]}`, 4},
+		// Ingress routes correctly but the path type is wrong: 4 of 5.
+		{"ingress", `{"spec":{"rules":[{"host":"exam.local","http":{"paths":[{"path":"/","pathType":"ImplementationSpecific","backend":{"service":{"name":"exam-backend","port":{"number":80}}}}]}}]}}`, 4},
+		// Service repaired but the endpoint is not ready yet: 0 of 4.
+		{"svc-selector", `{"items":[{"endpoints":[{"addresses":["10.0.0.1"],"conditions":{"ready":false}}]}]}`, 0},
+	}
+	for _, c := range cases {
+		var found bool
+		for _, task := range tasks {
+			if task.ID != c.id {
+				continue
+			}
+			found = true
+			if score := scoreFixture(t, task, c.fixture); score != c.want {
+				t.Errorf("%s scored %d, want %d", c.id, score, c.want)
+			}
+		}
+		if !found {
+			t.Errorf("task %s not found", c.id)
+		}
 	}
 }

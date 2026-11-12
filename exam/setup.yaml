@@ -1,3 +1,5 @@
+# Objects the exam tasks build on. Intentional faults are injected last so the
+# rest of the exam works even if a fault is disruptive.
 apiVersion: v1
 kind: Namespace
 metadata:
@@ -5,29 +7,40 @@ metadata:
   labels:
     painkiller-shell/exam: "true"
 ---
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: broken-web
-  namespace: exam-repair
-spec:
-  replicas: 1
-  selector:
-    matchLabels:
-      app: broken-web
-  template:
-    metadata:
-      labels:
-        app: broken-web
-    spec:
-      containers:
-        - name: web
-          image: nginx:does-not-exist
----
 apiVersion: v1
 kind: Namespace
 metadata:
   name: exam-workloads
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: exam-material
+  namespace: exam-workloads
+data:
+  mode: practice
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: binding-observer
+  namespace: exam-workloads
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: cluster-observer
+  namespace: exam-workloads
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: binding-reader
+  namespace: exam-workloads
+rules:
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list", "watch"]
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -49,17 +62,105 @@ spec:
           image: nginx:1.27
 ---
 apiVersion: v1
-kind: ServiceAccount
+kind: Service
 metadata:
-  name: binding-observer
+  name: exam-backend
   namespace: exam-workloads
+spec:
+  selector:
+    app: service-target
+  ports:
+    - port: 80
+      targetPort: 80
 ---
-apiVersion: rbac.authorization.k8s.io/v1
-kind: Role
+apiVersion: apps/v1
+kind: Deployment
 metadata:
-  name: binding-reader
+  name: rollout
   namespace: exam-workloads
-rules:
-  - apiGroups: [""]
-    resources: ["pods"]
-    verbs: ["get", "list", "watch"]
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: rollout
+  template:
+    metadata:
+      labels:
+        app: rollout
+    spec:
+      containers:
+        - name: web
+          image: nginx:1.27
+---
+# Fault 1: the deployment uses an image that cannot be pulled.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: broken-web
+  namespace: exam-repair
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: broken-web
+  template:
+    metadata:
+      labels:
+        app: broken-web
+    spec:
+      containers:
+        - name: web
+          image: nginx:does-not-exist
+---
+# Fault 2: the service selector does not match the deployment's Pods.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: endpoint-target
+  namespace: exam-repair
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: endpoint-target
+  template:
+    metadata:
+      labels:
+        app: endpoint-target
+    spec:
+      containers:
+        - name: web
+          image: nginx:1.27
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: broken-endpoints
+  namespace: exam-repair
+spec:
+  selector:
+    app: endpoint-target-stale
+  ports:
+    - port: 80
+      targetPort: 80
+---
+# Fault 3: the container exits immediately, so the Pod crash-loops.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: crashing
+  namespace: exam-repair
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: crashing
+  template:
+    metadata:
+      labels:
+        app: crashing
+    spec:
+      containers:
+        - name: app
+          image: busybox:1.36
+          command: ["sh", "-c", "exit 1"]

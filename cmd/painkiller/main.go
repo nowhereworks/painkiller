@@ -234,50 +234,59 @@ func (a *app) prepareLab(create bool) {
 	}
 	a.saveBackground()
 }
-func (a *app) grade() {
-	a.mu.Lock()
-	host := a.state.Host
-	answers := a.state.Answers
-	if answers == nil {
-		answers = make(map[string]answerSnapshot)
+
+// captureConcurrency bounds simultaneous answer captures. Captures run in
+// parallel so that the interval in which live cluster state is read stays as
+// short as possible, while staying below the SSH server's connection limit.
+const captureConcurrency = 6
+
+func (a *app) captureAnswer(user, host string, t task) answerSnapshot {
+	args := append([]string{"30s", "ssh"}, labSSHArgs()...)
+	args = append(args, user+"@"+host, t.Resource)
+	out, err := output("timeout", args...)
+	snap := answerSnapshot{Data: json.RawMessage("null")}
+	switch {
+	case err != nil && strings.Contains(out, "(NotFound)"):
+		// A deleted namespace or object is an incorrect answer, not a grader outage.
+	case err != nil:
+		snap.Error = fmt.Sprintf("capture failed: %v %s", err, strings.TrimSpace(out))
+	case strings.TrimSpace(out) == "":
+	case !json.Valid([]byte(out)):
+		snap.Error = "capture returned invalid JSON"
+	default:
+		snap.Data = json.RawMessage(out)
 	}
-	a.mu.Unlock()
-	user := env("LAB_SSH_USER", "milkman")
-	// Capture each answer once, before evaluating any checks. Successfully
-	// captured resources are immutable even when a failed capture is retried.
-	for _, t := range a.tasks {
-		if t.Resource == "" {
-			continue
+	return snap
+}
+
+// captureAnswers reads every pending resource concurrently and stores the
+// result immediately. Successfully captured answers are never re-read; only
+// failed captures are retried (once). Returns false when persistence fails.
+func (a *app) captureAnswers(user, host string, pending []task, answers map[string]answerSnapshot) bool {
+	for pass := 0; pass < 2 && len(pending) > 0; pass++ {
+		if pass > 0 {
+			time.Sleep(time.Second)
 		}
-		if saved, ok := answers[t.ID]; ok && saved.Error == "" {
-			continue
+		captured := make([]answerSnapshot, len(pending))
+		slots := make(chan struct{}, captureConcurrency)
+		var wg sync.WaitGroup
+		for i, t := range pending {
+			wg.Add(1)
+			go func(i int, t task) {
+				defer wg.Done()
+				slots <- struct{}{}
+				defer func() { <-slots }()
+				captured[i] = a.captureAnswer(user, host, t)
+			}(i, t)
 		}
-		args := append([]string{"30s", "ssh"}, labSSHArgs()...)
-		args = append(args, user+"@"+host, t.Resource)
-		var out string
-		var err error
-		for attempt := 0; attempt < 2; attempt++ {
-			out, err = output("timeout", args...)
-			if err == nil || strings.Contains(out, "(NotFound)") {
-				break
-			}
-			if attempt == 0 {
-				time.Sleep(time.Second)
-			}
-		}
-		snap := answerSnapshot{Data: json.RawMessage("null")}
-		if err != nil && strings.Contains(out, "(NotFound)") {
-			// A deleted namespace or object is an incorrect answer, not a grader outage.
-		} else if err != nil {
-			snap.Error = fmt.Sprintf("capture failed: %v %s", err, strings.TrimSpace(out))
-		} else if strings.TrimSpace(out) != "" {
-			if !json.Valid([]byte(out)) {
-				snap.Error = "capture returned invalid JSON"
-			} else {
-				snap.Data = json.RawMessage(out)
+		wg.Wait()
+		var failed []task
+		for i, t := range pending {
+			answers[t.ID] = captured[i]
+			if captured[i].Error != "" {
+				failed = append(failed, t)
 			}
 		}
-		answers[t.ID] = snap
 		a.mu.Lock()
 		a.state.Answers = answers
 		saveErr := a.save()
@@ -289,8 +298,72 @@ func (a *app) grade() {
 			a.state.FailedOperation = "persistence"
 			a.state.Message = "Could not persist captured answers; restart to retry grading."
 			a.mu.Unlock()
-			return
+			return false
 		}
+		pending = failed
+	}
+	return true
+}
+
+func (a *app) reset() {
+	out, err := a.run("scripts/create-lab.sh", "destroy")
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if err != nil {
+		a.state.Phase = "error"
+		a.state.FailedOperation = "reset"
+		a.state.Message = fmt.Sprintf("%v: %s", err, out)
+	} else {
+		a.state = state{Phase: "idle"}
+	}
+	a.saveBackground()
+}
+
+// resume continues an attempt after the server restarted. Lab operations that
+// were interrupted mid-flight cannot be trusted, so they become retryable
+// errors; grading is safe to restart because captured answers are immutable.
+func (a *app) resume() error {
+	if a.state.Phase == "preparing" || a.state.Phase == "resetting" {
+		a.state.FailedOperation = "prepare"
+		if a.state.Phase == "resetting" {
+			a.state.FailedOperation = "reset"
+		}
+		a.state.Phase = "error"
+		a.state.Message = "Service restarted during a lab operation. Inspect the lab, then retry or reset it."
+		if err := a.save(); err != nil {
+			return err
+		}
+	}
+	if a.state.Phase == "grading" {
+		go a.grade()
+	}
+	return nil
+}
+
+func (a *app) grade() {
+	a.mu.Lock()
+	host := a.state.Host
+	answers := a.state.Answers
+	if answers == nil {
+		answers = make(map[string]answerSnapshot)
+	}
+	a.mu.Unlock()
+	user := env("LAB_SSH_USER", "milkman")
+	// Capture every answer before evaluating any check. Captures run
+	// concurrently, so the cluster is read within a few seconds; checks then
+	// evaluate the immutable snapshots and never re-read live state.
+	var pending []task
+	for _, t := range a.tasks {
+		if t.Resource == "" {
+			continue
+		}
+		if saved, ok := answers[t.ID]; ok && saved.Error == "" {
+			continue
+		}
+		pending = append(pending, t)
+	}
+	if !a.captureAnswers(user, host, pending, answers) {
+		return
 	}
 	results := make([]result, 0, len(a.tasks))
 	for _, t := range a.tasks {
@@ -315,14 +388,13 @@ func (a *app) grade() {
 			var out string
 			var err error
 			if t.Resource != "" {
-				cmd := exec.Command("timeout", "30s", "jq", "-e", "try ("+c.Expression+") catch false")
+				// "// false" makes a missing path score zero instead of
+				// producing no output, which jq reports as an error.
+				cmd := exec.Command("timeout", "30s", "jq", "-e", "try (("+c.Expression+") // false) catch false")
 				cmd.Stdin = bytes.NewReader(answers[t.ID].Data)
 				var b []byte
 				b, err = cmd.CombinedOutput()
 				out = strings.TrimSpace(string(b))
-				if out == "false" || out == "null" {
-					out = ""
-				}
 			} else {
 				args := append([]string{"30s", "ssh"}, labSSHArgs()...)
 				args = append(args, user+"@"+host, "bash -o pipefail -c "+shellQuote(c.Command))
@@ -332,12 +404,9 @@ func (a *app) grade() {
 			if err == nil {
 				cr.Earned = c.Points
 				res.Earned += c.Points
-			} else {
-				var e *exec.ExitError
-				if !strings.Contains(out, "(NotFound)") && (!errors.As(err, &e) || e.ExitCode() != 1 || strings.TrimSpace(out) != "") {
-					cr.Error = fmt.Sprintf("check failed: %v %s", err, strings.TrimSpace(out))
-					res.Error = "One or more checks could not be graded"
-				}
+			} else if checkUnavailable(err, out) {
+				cr.Error = fmt.Sprintf("check failed: %v %s", err, strings.TrimSpace(out))
+				res.Error = "One or more checks could not be graded"
 			}
 			res.Checks = append(res.Checks, cr)
 		}
@@ -351,6 +420,17 @@ func (a *app) grade() {
 	a.saveBackground()
 }
 func shellQuote(s string) string { return "'" + strings.ReplaceAll(s, "'", "'\\''") + "'" }
+
+// checkUnavailable reports whether a failed check points at a grader or
+// infrastructure problem rather than an incorrect answer. Both jq (-e) and
+// shell checks exit with status 1 for "answer does not match".
+func checkUnavailable(err error, out string) bool {
+	if err == nil || strings.Contains(out, "(NotFound)") {
+		return false
+	}
+	var exit *exec.ExitError
+	return !errors.As(err, &exit) || exit.ExitCode() != 1
+}
 func env(k, d string) string {
 	if v := os.Getenv(k); v != "" {
 		return v
@@ -379,14 +459,20 @@ func (a *app) action(w http.ResponseWriter, r *http.Request) {
 		a.state.Phase = "preparing"
 		next = a.prepare
 	case "retry":
-		if a.state.Phase != "error" || a.state.FailedOperation != "prepare" {
-			http.Error(w, "lab preparation is not retryable", 409)
+		if a.state.Phase != "error" || (a.state.FailedOperation != "prepare" && a.state.FailedOperation != "reset") {
+			http.Error(w, "operation is not retryable", 409)
 			return
 		}
-		a.state.Phase = "preparing"
+		failed := a.state.FailedOperation
 		a.state.FailedOperation = ""
 		a.state.Message = ""
-		next = func() { a.prepareLab(false) }
+		if failed == "reset" {
+			a.state.Phase = "resetting"
+			next = a.reset
+		} else {
+			a.state.Phase = "preparing"
+			next = func() { a.prepareLab(false) }
+		}
 	case "start":
 		if a.state.Phase != "ready" {
 			http.Error(w, "lab is not ready", 409)
@@ -432,19 +518,7 @@ func (a *app) action(w http.ResponseWriter, r *http.Request) {
 		a.state.Phase = "resetting"
 		a.state.Message = ""
 		a.state.FailedOperation = ""
-		next = func() {
-			out, err := a.run("scripts/create-lab.sh", "destroy")
-			a.mu.Lock()
-			defer a.mu.Unlock()
-			if err != nil {
-				a.state.Phase = "error"
-				a.state.FailedOperation = "reset"
-				a.state.Message = fmt.Sprintf("%v: %s", err, out)
-			} else {
-				a.state = state{Phase: "idle"}
-			}
-			a.saveBackground()
-		}
+		next = a.reset
 	case "marks":
 		if a.state.Phase != "running" || !time.Now().Before(a.state.Deadline) {
 			http.Error(w, "exam is not running", 409)
@@ -693,21 +767,8 @@ func main() {
 			log.Fatal(err)
 		}
 	}
-	if a.state.Phase == "preparing" || a.state.Phase == "resetting" {
-		a.state.FailedOperation = a.state.Phase
-		if a.state.FailedOperation == "preparing" {
-			a.state.FailedOperation = "prepare"
-		} else {
-			a.state.FailedOperation = "reset"
-		}
-		a.state.Phase = "error"
-		a.state.Message = "Service restarted during a lab operation. Inspect the lab and reset it."
-		if err = a.save(); err != nil {
-			log.Fatal(err)
-		}
-	}
-	if a.state.Phase == "grading" {
-		go a.grade()
+	if err = a.resume(); err != nil {
+		log.Fatal(err)
 	}
 	go func() {
 		for range time.Tick(time.Second) {

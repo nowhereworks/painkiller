@@ -134,6 +134,19 @@ case "$command" in
       result=$(remote "qm guest exec $id -- sh -c 'set -e; id $ssh_user >/dev/null; mkdir -p /etc/sudoers.d; printf \"%s ALL=(ALL) NOPASSWD:ALL\\n\" $ssh_user > /etc/sudoers.d/painkiller-shell; chmod 440 /etc/sudoers.d/painkiller-shell; visudo -cf /etc/sudoers.d/painkiller-shell >/dev/null'")
       jq -e '.exited == 1 and .exitcode == 0' <<<"$result" >/dev/null || { echo "Failed to configure lab sudo on VM $id: $result" >&2; exit 1; }
     done
+    # Wait for cloud-init and any package installation on first boot to finish;
+    # they hold the dpkg lock that the playbook's package step needs.
+    for ((id=start; id<=end; id++)); do
+      ip=$(ip_for "$id") || { echo "VM $id address unavailable" >&2; exit 1; }
+      # shellcheck disable=SC2016
+      node_ssh "$ssh_user@$ip" 'set -u
+        if command -v cloud-init >/dev/null 2>&1; then sudo -n cloud-init status --wait >/dev/null 2>&1 || true; fi
+        for _ in $(seq 1 150); do
+          pgrep -x apt-get >/dev/null 2>&1 || pgrep -x dpkg >/dev/null 2>&1 || exit 0
+          sleep 2
+        done
+        echo "Guest package manager still busy" >&2; exit 1' </dev/null || { echo "VM $id did not finish booting" >&2; exit 1; }
+    done
     mkdir -p "$PWD/data/kubeconfigs"
     kubeconfig_dir=$(mktemp -d "$PWD/data/kubeconfigs/exam.XXXXXXXX")
     kubeconfig_vars=$(jq -nc --arg dir "$kubeconfig_dir" '{local_kubeconfig_dir:$dir}')
@@ -143,7 +156,7 @@ case "$command" in
     first=${control_ips%%,*}
     # Expand the home directory and user IDs on the guest, not on the management host.
     # shellcheck disable=SC2016
-    node_ssh "$ssh_user@$first" 'set -eu; mkdir -p "$HOME/.kube"; chmod 700 "$HOME/.kube"; sudo -n install -m 600 -o "$(id -u)" -g "$(id -g)" /etc/kubernetes/admin.conf "$HOME/.kube/config"; if ! command -v jq >/dev/null; then sudo -n apt-get update && sudo -n apt-get install -y jq; fi'
+    node_ssh "$ssh_user@$first" 'set -eu; mkdir -p "$HOME/.kube"; chmod 700 "$HOME/.kube"; sudo -n install -m 600 -o "$(id -u)" -g "$(id -g)" /etc/kubernetes/admin.conf "$HOME/.kube/config"; if ! command -v jq >/dev/null || ! command -v etcdctl >/dev/null; then sudo -n apt-get update && sudo -n apt-get install -y jq etcd-client; fi'
     node_count=$(node_ssh "$ssh_user@$first" 'kubectl get nodes --no-headers' | wc -l)
     [[ $node_count -eq $((end-start+1)) ]] || { echo "Expected $((end-start+1)) nodes, got $node_count" >&2; exit 1; }
     node_ssh "$ssh_user@$first" "kubectl wait --for=condition=Ready nodes --all --timeout=${timeout}s"

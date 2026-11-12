@@ -1,6 +1,11 @@
 # Painkiller Shell — MVP Completion Plan
 
-> **Restart prompt for a fresh session:** Read this file fully, then continue
+> **Status: MVP complete.** All items in §8 are implemented and validated on a
+> real 3-node lab. This file remains as the record of scope, architecture,
+> validation results, and lessons learned. The restart prompt below is kept for
+> context.
+>
+> **Original restart prompt for a fresh session:** Read this file fully, then continue
 > from "Remaining Work". The codebase is already a working, validated MVP; the
 > remaining work is exam-content depth, atomic answer capture, and comprehensive
 > failure-path testing. Do **not** re-litigate the lab-creation approach — see
@@ -27,34 +32,38 @@ cloning of Killer.sh, multiple infrastructure providers.
 
 ---
 
-## 2. Current status (as of commit `40729e3`, pushed to `origin/main`)
+## 2. Current status
 
 ### Done and validated end-to-end on a real 3-node Proxmox lab
-- Linked-clone lab creation: 3 VMs reachable in **~31 s**.
-- kubeadm provisioning: 3 nodes **Ready** (Kubernetes v1.36.6, Flannel, containerd 2.2.1).
+- Linked-clone lab creation: 3 VMs reachable in **~31 s**; provisioning waits for
+  cloud-init/apt to settle before Ansible runs.
+- kubeadm provisioning: 3 nodes **Ready** (Kubernetes v1.36.6, Flannel, containerd 2.2.1),
+  `jq` and `etcd-client` installed on the controller.
 - Timed exam UI: question navigation, flags, "mark complete", timer, copy instructions.
 - Browser SSH terminal (xterm.js) with input, reconnect, and resize.
-- Submit → snapshot grading → results with per-check partial credit.
+- Submit → concurrent snapshot capture → grading with per-check partial credit.
+- Retry preparation (reusing VMs) and retry of a failed reset.
+- Restart recovery: interrupted lab operations become retryable errors; grading resumes.
 - Reset (destroy lab) and re-run.
+- **29-task, 100-point exam** covering all five CKA domains (see §5).
 
 ### Live validation results (recorded)
 | Stage | Result |
 |---|---|
 | Baseline (fresh lab) | **0 / 100** |
 | Reference solutions applied | **100 / 100** |
-| One answer deliberately removed | **94 / 100** |
+| One answer deliberately removed | **98 / 100** (configmap = 2 points) |
 | Browser submit (graded) | **100 / 100** |
 | Reset | complete |
 
 ### Automated tests
-- **35 Go tests** pass: `go test -race ./...`
+- `go test -race ./...` — 42 tests: state transitions, grading, partial credit,
+  fixture coverage for every packaged task, snapshot immutability/privacy,
+  concurrent capture, lab-script guards, retry, restart resume, expiry.
 - `go vet ./...`, `shellcheck scripts/*.sh exam/reference-solutions.sh`,
-  `node --check web/app.js`, YAML/JSON validation.
+  `node --check web/app.js scripts/e2e/*.js`, YAML/JSON validation.
+- `scripts/e2e/` Playwright harness (committed, reproducible).
 
-### What is **not** done (the remaining work — see §8)
-1. Exam content is 17 representative tasks, not genuinely full CKA domain depth.
-2. Answer capture is **sequential**, not atomic.
-3. Comprehensive failure/recovery test matrix not fully exercised on a real lab.
 
 ---
 
@@ -63,17 +72,18 @@ cloning of Killer.sh, multiple infrastructure providers.
 | Path | Purpose |
 |---|---|
 | `cmd/painkiller/main.go` | The entire server: state machine, HTTP API, WebSocket terminal, grading, lab orchestration, SQLite persistence. |
-| `cmd/painkiller/main_test.go` | 35 tests (state transitions, grading, partial credit, snapshot immutability/privacy, lab-script guards, retry, concurrency, DNS-retry, fixtures). |
+| `cmd/painkiller/main_test.go` | 42 tests (state transitions, grading, partial credit, fixtures for every task, snapshot immutability/privacy, concurrent capture, lab-script guards, retry prepare/reset, restart resume, expiry, persistence failure). |
 | `web/index.html` | Single-page UI (home / exam / results). |
 | `web/app.js` | Frontend logic (status polling, timer, marks, terminal, results). |
 | `web/style.css` | Styling. |
 | `web/embed.go` | `//go:embed` of the bundled frontend. |
 | `web/vendor/` | Bundled xterm.js + fit addon + licenses (no CDN). |
-| `exam/tasks.json` | The exam: 17 tasks, 100 points. Schema in §5. |
-| `exam/setup.yaml` | Pre-seeded cluster objects (`exam-workloads`, `exam-repair/broken-web` fault, `service-target`, `binding-observer`, `binding-reader`). `exam-repair` has label `painkiller-shell/exam: "true"` (marker used by reference solutions). |
+| `exam/tasks.json` | The exam: 29 tasks, 100 points. Schema in §5. |
+| `exam/setup.yaml` | Pre-seeded objects: namespaces `exam-workloads`/`exam-repair` (marker label on `exam-repair`), `exam-material` ConfigMap, `exam-backend` Service, `service-target`/`rollout` Deployments, and the ServiceAccounts/Role used by the RBAC tasks. Intentional faults come last: `broken-web` (bad image), `broken-endpoints` (wrong selector), `crashing` (exit 1). |
 | `exam/reference-solutions.sh` | Applies all correct answers. **Refuses to run unless the `exam-repair` marker label exists.** Used only for validation. |
 | `scripts/create-lab.sh` | Proxmox lab lifecycle: `create`, `status`, `provision`, `start`, `stop`, `destroy`. |
 | `scripts/configure-exam-access.sh` | Creates a lab-only SSH key on the controller, installs it on workers, writes `~/.ssh/config` include + known_hosts so the candidate can `ssh <worker-ip>` without prompts. |
+| `scripts/e2e/` | Committed Playwright harness: `live.js` (full scoring flow), `terminal.js`, `expiry.js`, `lib.js`, README. |
 | `go.mod` / `go.sum` | Go module deps (see §7). |
 | `README.md` | User-facing docs (prereqs, safety, env vars, run). |
 | `AGENTS.md` | Project directives + Proxmox/template facts. |
@@ -100,18 +110,23 @@ idle ──prepare──▶ preparing ──ok──▶ ready ──start──�
   closed: if persistence fails it stays `running` and retries next tick).
 
 ### 4.2 Grading (`grade()`)
-- Captures each task's `resource` **once** via `ssh <user>@<host> <resource>`
+- Captures each task's `resource` once via `ssh <user>@<host> <resource>`
   (30 s timeout, one retry on transient failure, `(NotFound)` treated as an
   incorrect answer not an infra error).
-- Stores raw JSON in `state.Answers[id] = answerSnapshot{Data, Error}` and
-  persists after each capture (so retries never recapture successful ones).
-- Evaluates each check locally with `jq -e 'try (<expression>) catch false'` on
-  the stored JSON.
+- Captures run **concurrently** (`captureConcurrency = 6`), so the live cluster
+  is read within a few seconds instead of one task after another. Answers are
+  persisted after each capture pass; a failed capture is retried once and
+  successful ones are never re-read.
+- Stores raw JSON in `state.Answers[id] = answerSnapshot{Data, Error}` (so
+  retries never recapture successful ones).
+- Evaluates each check locally with
+  `jq -e 'try ((<expression>) // false) catch false'` on the stored JSON, so a
+  missing path scores zero instead of looking like a grader failure.
 - `result.Earned` = sum of passing check points; `result.Checks[]` holds per-check
   detail; `result.Error` marks infrastructure/grader failures; totals with errors
   are shown as "Provisional".
 - `/api/status` omits `Answers` (may contain secrets).
-- **Limitation:** capture is sequential, not an atomic cluster snapshot.
+- **Limitation:** capture is concurrent but not a transactional cluster snapshot.
 
 ### 4.3 HTTP API
 - `GET /api/status` — public state (no answers).
@@ -121,8 +136,9 @@ idle ──prepare──▶ preparing ──ok──▶ ready ──start──�
 - `GET /api/terminal` (WebSocket) — only when `running` and before deadline.
 - `POST /api/<action>` (same-origin required):
   `prepare | retry | start | submit | regrade | reset | mark | select`.
-  - `retry` only when `phase=error && failed_operation=prepare`; re-runs
-    `status → provision → configure → setup` **without** recreating VMs.
+  - `retry` only when `phase=error` and `failed_operation` is `prepare` or
+    `reset`. A prepare retry re-runs `status → provision → configure → setup`
+    **without** recreating VMs; a reset retry re-runs the destroy.
   - `mark` updates one task's flag/done (does not clobber others).
   - `select` persists the current question id.
 
@@ -164,9 +180,19 @@ idle ──prepare──▶ preparing ──ok──▶ ready ──start──�
 - The Go `task` type also supports a legacy `check`/`checks[].command` (ssh) mode,
   but **all current tasks use `resource` + `expression`**.
 
-### Current 17 tasks (all 6 pts except `cronjob` = 4; total 100)
-`namespace, pod, deployment, service, configmap, secret, serviceaccount, quota,
-job, label, pv, pvc, networkpolicy, role, rolebinding, repair, cronjob`
+### Current 29 tasks (100 points)
+`namespace (2), node-label (2), node-placement (4), static-pod (4),
+etcd-snapshot (4), pod (2), deployment (4), rollout (4), multicontainer (5),
+resources (4), limits (4), priorityclass (3), job (2), cronjob (3),
+configmap (2), secret (3), serviceaccount (2), pvc-binding (6),
+mount-config (3), service (3), nodeport (3), ingress (5), networkpolicy (3),
+coredns (3), repair (4), svc-selector (4), crashloop (4), rbac (4),
+cluster-rbac (4)`
+
+Multi-object tasks use one capture over a resource list
+(`kubectl get pv,pvc -o json`, `kubectl get role,rolebinding -o json`, ...) and
+select items by `kind`/`metadata.name`, so a single captured document grades
+several objects without another round trip.
 
 ---
 
@@ -185,7 +211,7 @@ job, label, pv, pvc, networkpolicy, role, rolebinding, repair, cronjob`
 - **Lab VM range: IDs 3000–3004 only.** Default `3000–3002` = 1 controller +
   2 workers. Never touch the template or any VM outside this range.
 - **Per-VM memory:** `LAB_VM_MEMORY=3072` MiB; create requires +4 GiB host headroom.
-- **Ansible playbooks:** `$HOME/repo/_nowhereworks/lab-ansible-playbooks`,
+- **Ansible playbooks:** `/home/milkman/repo/_nowhereworks/lab-ansible-playbooks`,
   pinned rev `8ec676e93017ce3e110c27485e25d1f32d541056`,
   `kubeadm-cluster/kubeadm-cluster.yml` (k8s 1.36.x from `pkgs.k8s.io`, Flannel).
 - **Provision step** also: sets NOPASSWD sudo for `milkman` on lab VMs, installs
@@ -207,7 +233,7 @@ go run ./cmd/painkiller
 ```
 Flow: **Prepare lab** (create → provision → configure access → apply setup) →
 **Start exam** → work in terminal → **Submit** → results → **Reset**.
-On a transient prepare failure, use **Retry preparation**.
+On a transient prepare failure, use **Retry operation**.
 
 ### Checks
 ```sh
@@ -234,96 +260,43 @@ node --check web/app.js
 | `LAB_READY_TIMEOUT` | `600` | Per-VM readiness timeout (s) |
 | `LAB_SSH_USER` | `milkman` | Node SSH user |
 | `LAB_KNOWN_HOSTS` | `data/lab_known_hosts` | Managed guest host keys |
-| `LAB_PLAYBOOKS_DIR` | `$HOME/repo/_nowhereworks/lab-ansible-playbooks` | Playbooks |
+| `LAB_PLAYBOOKS_DIR` | `/home/milkman/repo/_nowhereworks/lab-ansible-playbooks` | Playbooks |
 | `LAB_PLAYBOOKS_REV` | `8ec676…` | Pinned revision |
 | `LAB_KUBERNETES_VERSION` | `1.36.1` | kubeadm version (apt resolves to latest patch) |
 | `LAB_CNI_PLUGIN` | `flannel` | CNI |
 | `LAB_CONTROL_PLANE_ENDPOINT` | unset | HA endpoint |
 
-### E2E validation harness (currently **ephemeral**, in `/tmp/opencode/painkiller-test/`)
-Uses Playwright-core + local Chrome. Recreate/commit these **first** (see §8.0):
-- `live.js`: ready → start exam → flag → reload → baseline 0 → apply
-  `exam/reference-solutions.sh` → 100 → delete one answer → 94 → restore →
-  browser submit → expect "100 / 100" → reset.
-- `terminal.js`: interactive echo + reconnect.
-- `expiry.js`: past-deadline attempt auto-grades after restart.
-- `copy.js`, `browser.js`, `retry.js`, `verify-access.js`, `identity.js`.
+### E2E validation harness (committed in `scripts/e2e/`)
+Uses Playwright-core + local Chrome; `npm --prefix scripts/e2e install` once.
+- `live.js`: prepare → start exam → flag → reload → baseline 0 → apply
+  `exam/reference-solutions.sh` → 100 → delete one answer → 98 → restore →
+  browser submit → expect "100 / 100" → duplicate submit 409 → terminal 409 →
+  reset.
+- `terminal.js`: interactive echo + reconnect (timer preserved).
+- `expiry.js`: auto-grade at the deadline with `PAINKILLER_MINUTES=1`.
 
-Expected values: baseline `0`, reference `100`, one-wrong `94`, submit `100`.
+Expected values: baseline `0`, reference `100`, one-wrong `98`, submit `100`.
+Failure paths are covered by Go tests (see `scripts/e2e/README.md` for the map).
 
----
+### Remaining work
 
-## 8. Remaining work (ordered)
+All MVP items from the original plan are complete:
+- **8.0** E2E harness committed to `scripts/e2e/`.
+- **8.1** Exam expanded to 29 tasks / 100 points across the five CKA domains,
+  with setup objects, faults injected last, reference solutions gated by the
+  `exam-repair` marker, and a correct fixture for every task
+  (`TestFixturesScoreEveryTask`, plus partial-credit cases).
+- **8.2** Capture runs concurrently (6 at a time) with snapshot-once semantics;
+  remaining non-atomicity documented in README and §10.
+- **8.3** Failure/recovery paths automated: retry preparation, retry reset,
+  duplicate start/submit, restart resume for preparing/resetting/running/grading,
+  expiry, grading persistence failure, terminal reconnect (e2e).
+- **8.4** Submit captures immediately after closing terminals, so later changes
+  to the cluster do not alter a submitted attempt; checks are documented in
+  README. No local CI script was added (plain `go test`/`shellcheck` commands).
 
-### 8.0 Commit the E2E harness (prerequisite)
-The Playwright harness in `/tmp/opencode/painkiller-test/` is outside the repo
-and will be lost. Move it into e.g. `scripts/e2e/` (or `testdata/e2e/`) with a
-short README, or inline the checks as runnable commands. Goal: reproducible
-end-to-end validation from a clean context.
-- **Accept:** `scripts/e2e/` exists, documented, and re-runs the §7 E2E flow.
-
-### 8.1 Exam content depth & coverage (largest gap)
-Current 17 tasks are representative but shallow. Expand to genuinely cover the
-CKA domains, keeping **100 points** total and the `resource`+`expression` model.
-Domains to strengthen/add (each with setup, instructions, partial-credit checks,
-solution, explanation):
-- **Cluster architecture/install/config:** kubeadm upgrade (plan/apply), etcd
-  snapshot + restore, static Pod, kubelet config, node drain/cordon/uncordon,
-  taint/toleration, `kubectl` context/namespace switching.
-- **Workloads & scheduling:** Deployment rollback/strategy, init containers,
-  sidecars, multi-container Pod, resource requests/limits, LimitRange,
-  PriorityClass, HPA (metrics-server), Job/CronJob completion semantics.
-- **Services & networking:** ClusterIP/NodePort, Endpoints/EndpointSlice,
-  Ingress, NetworkPolicy **enforcement** (requires Calico — or document the
-  Flannel limitation and keep policy tasks resource-only), CoreDNS.
-- **Storage:** PV/PVC **binding** (volumeName, storageClassName), PV reclaim
-  policy, access modes, mounting ConfigMap/Secret as volumes, subPath.
-- **Troubleshooting:** broken kubelet/manifest, CrashLoopBackOff with real fix,
-  Service selector mismatch, image pull failure, node NotReady recovery.
-- **RBAC:** ClusterRole + ClusterRoleBinding, `kubectl auth can-i` verification.
-
-Design rules:
-- Tasks must be **independent** where possible; intentional faults injected
-  **last** in `exam/setup.yaml`.
-- Graders check resulting **state**, not command history; no mutation.
-- Keep `exam/reference-solutions.sh` in sync and gated by the `exam-repair` marker.
-- **Accept:** `validateTasks` passes (100 pts), reference solutions score 100,
-  empty state scores 0, and a per-task wrong-answer sweep loses exactly the
-  expected points. Extend `TestExamChecksAcceptCorrectFixtures` with fixtures
-  for every new task.
-- **Caveat:** Flannel does not enforce NetworkPolicy. Either switch `LAB_CNI_PLUGIN`
-  to `calico` for the exam or keep policy checks configuration-only (current
-  approach) and label the task accordingly.
-
-### 8.2 Atomic answer capture
-Replace the sequential per-task capture with a capture that minimizes the
-window for background processes to change answers.
-- Option A (preferred): capture all relevant objects in **one pass** (e.g., a
-  single `kubectl get` over the exam namespaces/kinds → one JSON document),
-  then evaluate parts with jq.
-- Option B: freeze first (close terminals, optionally `systemctl stop kubelet`
-  is too invasive) then capture quickly; document residual risk.
-- Keep the existing "capture once, retry only failures, never recapture
-  successes" behavior and privacy (never expose `Answers`).
-- **Accept:** a background process racing capture cannot change an answer that
-  was already captured; document any remaining non-atomicity.
-
-### 8.3 Comprehensive failure/recovery testing (real lab)
-Add e2e coverage for:
-- Provisioning fails mid-run → `phase=error`, **Retry preparation** reuses VMs.
-- Terminal disconnect mid-exam → reconnect resumes a shell (attempt time preserved).
-- Duplicate start/submit clicks → 409, no double grading.
-- Failed cleanup (destroy partially fails) → `error` + retry reset.
-- Service restart during `running` and during `grading` → state preserved;
-  grading resumes on boot.
-- Expiry during an active session → auto-grade, terminals closed.
-- **Accept:** each path has an automated test (Go where possible, e2e otherwise)
-  and passes on the real 3-node lab.
-
-### 8.4 Optional hardening (only if cheap)
-- Prevent answer changes after submit (capture immediately; consider snapshot
-  of lab state / stop candidate-accessible processes — document trade-offs).
-- Local CI script that runs all checks.
+Optional future work: Calico for enforced NetworkPolicy, a second exam variant,
+authentication if access expands beyond one trusted user.
 
 ---
 
@@ -335,9 +308,16 @@ Add e2e coverage for:
   cloud-init and produces zero-byte SSH keys and duplicate IDs. (Caused a long
   debug loop; the shared machine-id is benign.)
 - **Use linked clones** (`qm clone … --full 0`). ~30 s to ready.
+- **Wait for cloud-init and the guest package manager before provisioning.**
+  Fresh clones run `apt-get` from cloud-init and hold the dpkg lock, so a
+  playbook started immediately fails with "Could not get lock
+  /var/lib/dpkg/lock-frontend". `provision` now runs `cloud-init status --wait`
+  and polls `pgrep apt-get|dpkg` on every VM first.
 - Proxmox hostname resolves via `.nowhereworks.local`, which blips; `remote()`
   retries connection-only failures. Do not add blanket retries (would re-run
   `qm clone`).
+- `etcd-client` is installed by provisioning on the first controller, so the etcd
+  snapshot task is solvable (etcdctl 3.4.30 reads etcd 3.6 snapshots).
 - `data/` is git-ignored; state/kubeconfigs/host-keys live there.
 - CGO is required (sqlite3). `jq` is used on the management host for grading.
 
@@ -345,23 +325,21 @@ Add e2e coverage for:
 
 ## 10. Known limitations (be honest)
 
-- Answer capture is sequential (not atomic).
+- Answer capture is concurrent (six at a time) but not a transactional snapshot.
 - Not tamper-proof: a candidate can leave background processes on nodes.
 - Flannel does not enforce NetworkPolicy (policy task is resource-only).
 - Transient DNS blips on prox-k12 (mitigated by connection retry + Retry button).
 - Single-user, no auth — trusted host/network only.
-- Exam content is 17 tasks, not full CKA depth.
-- No official CKA exam format claim.
+- Exam content is 29 tasks; it covers the domains but is not an official CKA
+  exam format or a full question bank.
 
 ---
 
-## 11. Open questions / decisions
+## 11. Decisions (resolved)
 
-1. **CNI for the exam:** switch to Calico to make NetworkPolicy tasks enforceable,
-   or keep Flannel and keep policy checks configuration-only? (Current: Flannel,
-   configuration-only.)
-2. **Exam size/target:** keep one 100-point exam and deepen it, or add a second
-   variant? (MVP plan: one exam.)
-3. **Answer-capture atomicity:** Option A single-pass capture vs. Option B
-   freeze-then-capture — pick before implementing §8.2.
-4. **E2E harness location:** `scripts/e2e/` vs `testdata/e2e/`.
+1. **CNI for the exam:** Flannel, NetworkPolicy graded as configuration only
+   (documented in the task instructions).
+2. **Exam size/target:** one 100-point exam with 29 tasks.
+3. **Answer-capture atomicity:** concurrent capture with snapshot-once
+   semantics; no freeze. Remaining non-atomicity documented.
+4. **E2E harness location:** `scripts/e2e/`.

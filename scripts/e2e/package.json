@@ -1,0 +1,13 @@
+{
+  "name": "painkiller-shell-e2e",
+  "private": true,
+  "description": "Browser and scoring checks for a real Painkiller Shell lab",
+  "scripts": {
+    "live": "node live.js",
+    "terminal": "node terminal.js",
+    "expiry": "node expiry.js"
+  },
+  "dependencies": {
+    "playwright-core": "^1.48.0"
+  }
+}

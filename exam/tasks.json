@@ -2,30 +2,104 @@
   {
     "id": "namespace",
     "title": "Create a namespace",
-    "points": 6,
+    "points": 2,
     "instructions": "Create a namespace named `exam-sandbox`.",
     "solution": "kubectl create namespace exam-sandbox",
     "resource": "kubectl get namespace exam-sandbox --ignore-not-found -o json",
     "checks": [
       {
         "description": "Namespace exists",
-        "points": 6,
+        "points": 2,
         "expression": ".metadata.name == \"exam-sandbox\""
       }
     ],
     "explanation": "Namespaces isolate namespaced API resources."
   },
   {
+    "id": "node-label",
+    "title": "Label a node",
+    "points": 2,
+    "instructions": "Add the label `exam=ready` to any node.",
+    "solution": "node=$(kubectl get nodes -o jsonpath='{.items[0].metadata.name}')\nkubectl label node \"$node\" exam=ready --overwrite",
+    "resource": "kubectl get nodes -l exam=ready -o json",
+    "checks": [
+      {
+        "description": "At least one matching node",
+        "points": 2,
+        "expression": "(.items | length) > 0"
+      }
+    ],
+    "explanation": "Node labels can be used to select nodes for scheduling."
+  },
+  {
+    "id": "node-placement",
+    "title": "Taint and cordon a node",
+    "points": 4,
+    "instructions": "Add the taint `exam=reserved:NoSchedule` to one node, and mark one node unschedulable (cordon). New Pods that do not tolerate the taint must no longer be placed on the tainted node.",
+    "solution": "worker=$(kubectl get nodes -o json | jq -r '[.items[] | select(.metadata.labels[\"node-role.kubernetes.io/control-plane\"] == null)][0].metadata.name')\nkubectl taint node \"$worker\" exam=reserved:NoSchedule --overwrite\nkubectl cordon \"$worker\"",
+    "resource": "kubectl get nodes -o json",
+    "checks": [
+      {
+        "description": "A node carries the reservation taint",
+        "points": 2,
+        "expression": "any(.items[]?; any(.spec.taints[]?; .key == \"exam\" and .value == \"reserved\" and .effect == \"NoSchedule\"))"
+      },
+      {
+        "description": "A node is unschedulable",
+        "points": 2,
+        "expression": "any(.items[]?; .spec.unschedulable == true)"
+      }
+    ],
+    "explanation": "Taints repel Pods unless they tolerate them, while cordon marks a node unschedulable without evicting running Pods. Both are reversible with `kubectl uncordon` and `kubectl taint nodes <node> exam=reserved:NoSchedule-`."
+  },
+  {
+    "id": "static-pod",
+    "title": "Run a static Pod",
+    "points": 4,
+    "instructions": "On one of the worker nodes, create a static Pod manifest named `static-web` using image `nginx:1.27`. The kubelet must run a Pod named `static-web-<node-name>`. SSH access to the worker nodes is configured from the lab terminal; do not run it on the control-plane node.",
+    "solution": "worker=$(kubectl get nodes -o json | jq -r '[.items[] | select(.metadata.labels[\"node-role.kubernetes.io/control-plane\"] == null)][0].metadata.name')\nip=$(kubectl get node \"$worker\" -o jsonpath='{.status.addresses[?(@.type==\"InternalIP\")].address}')\nssh \"$ip\" 'sudo tee /etc/kubernetes/manifests/static-web.yaml >/dev/null' <<'YAML'\napiVersion: v1\nkind: Pod\nmetadata:\n  name: static-web\nspec:\n  containers:\n    - name: web\n      image: nginx:1.27\nYAML",
+    "resource": "kubectl get pods --all-namespaces -o json",
+    "checks": [
+      {
+        "description": "Static Pod is registered with the API server",
+        "points": 2,
+        "expression": "any(.items[]?; (.metadata.name | startswith(\"static-web-\")))"
+      },
+      {
+        "description": "Static Pod is running",
+        "points": 2,
+        "expression": "any(.items[]?; (.metadata.name | startswith(\"static-web-\")) and .status.phase == \"Running\")"
+      }
+    ],
+    "explanation": "The kubelet watches its static Pod manifest directory (`/etc/kubernetes/manifests` by default) and creates a mirror Pod so the workload is visible to the API server."
+  },
+  {
+    "id": "etcd-snapshot",
+    "title": "Back up etcd",
+    "points": 4,
+    "instructions": "On the control-plane node, create an etcd snapshot and save it as `/opt/backup/etcd.db`. The `etcdctl` client is installed and the etcd certificates are in `/etc/kubernetes/pki/etcd/`. The snapshot must be a readable etcd backup.",
+    "solution": "sudo -n mkdir -p /opt/backup\nsudo -n env ETCDCTL_API=3 etcdctl --endpoints=https://127.0.0.1:2379 \\\n  --cacert=/etc/kubernetes/pki/etcd/ca.crt \\\n  --cert=/etc/kubernetes/pki/etcd/server.crt \\\n  --key=/etc/kubernetes/pki/etcd/server.key \\\n  snapshot save /opt/backup/etcd.db",
+    "resource": "sudo -n etcdctl snapshot status /opt/backup/etcd.db -w json 2>/dev/null || echo '{}'",
+    "checks": [
+      {
+        "description": "Snapshot is readable and populated",
+        "points": 4,
+        "expression": ".totalKey > 0"
+      }
+    ],
+    "explanation": "`etcdctl snapshot save` stores a consistent copy of the etcd key space. Restoring it requires stopping the API server and etcd, then running `etcdctl snapshot restore` into a new data directory."
+  },
+  {
     "id": "pod",
     "title": "Create a pod",
-    "points": 6,
+    "points": 2,
     "instructions": "In namespace `exam-workloads`, create a pod named `web` using image `nginx:1.27`.",
     "solution": "kubectl -n exam-workloads run web --image=nginx:1.27",
     "resource": "kubectl -n exam-workloads get pod web --ignore-not-found -o json",
     "checks": [
       {
         "description": "Pod image",
-        "points": 6,
+        "points": 2,
         "expression": "any(.spec.containers[]?; .image == \"nginx:1.27\")"
       }
     ],
@@ -34,258 +108,156 @@
   {
     "id": "deployment",
     "title": "Create a deployment",
-    "points": 6,
+    "points": 4,
     "instructions": "In namespace `exam-workloads`, create a deployment named `api` using image `nginx:1.27` with 2 replicas.",
     "solution": "kubectl -n exam-workloads create deployment api --image=nginx:1.27 --replicas=2",
+    "resource": "kubectl -n exam-workloads get deployment api --ignore-not-found -o json",
     "checks": [
       {
         "description": "Deployment uses nginx:1.27",
-        "points": 3,
+        "points": 2,
         "expression": "any(.spec.template.spec.containers[]?; .image == \"nginx:1.27\")"
       },
       {
         "description": "Deployment requests two replicas",
-        "points": 3,
+        "points": 2,
         "expression": ".spec.replicas == 2"
       }
     ],
-    "resource": "kubectl -n exam-workloads get deployment api --ignore-not-found -o json",
-    "explanation": "The Deployment template supplies the image and its replica count defines desired scale."
+    "explanation": "The Deployment template supplies the image and its replica count defines the desired scale."
   },
   {
-    "id": "service",
-    "title": "Expose a deployment",
-    "points": 6,
-    "instructions": "Expose the existing deployment `service-target` in namespace `exam-workloads` as a ClusterIP service named `api` on port 80 targeting port 80.",
-    "solution": "kubectl -n exam-workloads expose deployment service-target --name=api --port=80 --target-port=80",
-    "resource": "kubectl -n exam-workloads get service api --ignore-not-found -o json",
+    "id": "rollout",
+    "title": "Roll back a deployment",
+    "points": 4,
+    "instructions": "The Deployment `rollout` in namespace `exam-workloads` runs `nginx:1.27`. Update it to `nginx:1.26`, wait for the rollout, then roll back to the previous revision. When you are done it must run `nginx:1.27` again and report at least 3 revisions.",
+    "solution": "kubectl -n exam-workloads set image deployment/rollout web=nginx:1.26\nkubectl -n exam-workloads rollout status deployment/rollout --timeout=180s\nkubectl -n exam-workloads rollout undo deployment/rollout\nkubectl -n exam-workloads rollout status deployment/rollout --timeout=180s",
+    "resource": "kubectl -n exam-workloads get deployment rollout --ignore-not-found -o json",
     "checks": [
       {
-        "description": "Service configuration",
-        "points": 6,
-        "expression": ".spec.type == \"ClusterIP\" and .spec.selector.app == \"service-target\" and any(.spec.ports[]?; .port == 80 and .targetPort == 80)"
+        "description": "A new revision was rolled out",
+        "points": 2,
+        "expression": "((.metadata.annotations[\"deployment.kubernetes.io/revision\"] // \"0\") | tonumber) >= 2"
+      },
+      {
+        "description": "Rollback restored nginx:1.27",
+        "points": 2,
+        "expression": "((.metadata.annotations[\"deployment.kubernetes.io/revision\"] // \"0\") | tonumber) >= 3 and any(.spec.template.spec.containers[]?; .image == \"nginx:1.27\")"
       }
     ],
-    "explanation": "A ClusterIP Service routes port 80 to pods selected by the deployment label."
+    "explanation": "Each Pod template change creates a ReplicaSet revision. `kubectl rollout undo` reuses the previous ReplicaSet and records the rollback as a new revision."
   },
   {
-    "id": "configmap",
-    "title": "Create a ConfigMap",
-    "points": 6,
-    "instructions": "In namespace `exam-workloads`, create a ConfigMap named `settings` with key `mode` set to `production`.",
-    "solution": "kubectl -n exam-workloads create configmap settings --from-literal=mode=production",
-    "resource": "kubectl -n exam-workloads get configmap settings --ignore-not-found -o json",
+    "id": "multicontainer",
+    "title": "Build a multi-container Pod",
+    "points": 5,
+    "instructions": "Create a Pod named `pipeline` in `exam-workloads` with an init container `prepare` (image `busybox:1.36`, command `sh -c \"sleep 2\"`) and two containers: `app` (image `nginx:1.27`) and `log-sidecar` (image `busybox:1.36`, command `sh -c \"tail -f /dev/null\"`). The Pod must reach the Running phase.",
+    "solution": "kubectl apply -f - <<'YAML'\napiVersion: v1\nkind: Pod\nmetadata:\n  name: pipeline\n  namespace: exam-workloads\nspec:\n  initContainers:\n    - name: prepare\n      image: busybox:1.36\n      command: [\"sh\", \"-c\", \"sleep 2\"]\n  containers:\n    - name: app\n      image: nginx:1.27\n    - name: log-sidecar\n      image: busybox:1.36\n      command: [\"sh\", \"-c\", \"tail -f /dev/null\"]\nYAML",
+    "resource": "kubectl -n exam-workloads get pod pipeline --ignore-not-found -o json",
     "checks": [
       {
-        "description": "ConfigMap data",
-        "points": 6,
-        "expression": ".data.mode == \"production\""
+        "description": "Init container is configured",
+        "points": 1,
+        "expression": "any(.spec.initContainers[]?; .name == \"prepare\" and .image == \"busybox:1.36\")"
+      },
+      {
+        "description": "Both application containers are present",
+        "points": 2,
+        "expression": "any(.spec.containers[]?; .name == \"app\" and .image == \"nginx:1.27\") and any(.spec.containers[]?; .name == \"log-sidecar\" and .image == \"busybox:1.36\")"
+      },
+      {
+        "description": "Pod is running",
+        "points": 2,
+        "expression": ".status.phase == \"Running\""
       }
     ],
-    "explanation": "A ConfigMap stores non-confidential key-value configuration."
+    "explanation": "Init containers run to completion before application containers start, while sidecar containers run alongside the main container in the same Pod."
   },
   {
-    "id": "secret",
-    "title": "Create a Secret",
-    "points": 6,
-    "instructions": "In namespace `exam-workloads`, create a generic Secret named `credentials` with key `username` set to `operator`.",
-    "solution": "kubectl -n exam-workloads create secret generic credentials --from-literal=username=operator",
-    "resource": "kubectl -n exam-workloads get secret credentials --ignore-not-found -o json",
+    "id": "resources",
+    "title": "Set resource requests and limits",
+    "points": 4,
+    "instructions": "Create a Deployment named `resource-demo` in `exam-workloads` with one replica, image `nginx:1.27`, and container resources requesting `100m` CPU and `128Mi` memory with limits of `500m` CPU and `256Mi` memory.",
+    "solution": "kubectl apply -f - <<'YAML'\napiVersion: apps/v1\nkind: Deployment\nmetadata:\n  name: resource-demo\n  namespace: exam-workloads\nspec:\n  replicas: 1\n  selector:\n    matchLabels:\n      app: resource-demo\n  template:\n    metadata:\n      labels:\n        app: resource-demo\n    spec:\n      containers:\n        - name: web\n          image: nginx:1.27\n          resources:\n            requests:\n              cpu: 100m\n              memory: 128Mi\n            limits:\n              cpu: 500m\n              memory: 256Mi\nYAML",
+    "resource": "kubectl -n exam-workloads get deployment resource-demo --ignore-not-found -o json",
     "checks": [
       {
-        "description": "Secret data",
-        "points": 6,
-        "expression": "(try (.data.username | @base64d) catch \"\") == \"operator\""
+        "description": "Container requests are set",
+        "points": 2,
+        "expression": "any(.spec.template.spec.containers[]?; .resources.requests.cpu == \"100m\" and .resources.requests.memory == \"128Mi\")"
+      },
+      {
+        "description": "Container limits are set",
+        "points": 2,
+        "expression": "any(.spec.template.spec.containers[]?; .resources.limits.cpu == \"500m\" and .resources.limits.memory == \"256Mi\")"
       }
     ],
-    "explanation": "Secret values are encoded in the Kubernetes API and should be handled as sensitive data."
+    "explanation": "Requests drive scheduling decisions; limits cap how much a container may consume before it is throttled or OOM-killed."
   },
   {
-    "id": "serviceaccount",
-    "title": "Create a ServiceAccount",
-    "points": 6,
-    "instructions": "Create a ServiceAccount named `observer` in namespace `exam-workloads`.",
-    "solution": "kubectl -n exam-workloads create serviceaccount observer",
-    "resource": "kubectl -n exam-workloads get serviceaccount observer --ignore-not-found -o json",
+    "id": "limits",
+    "title": "Limit a namespace",
+    "points": 4,
+    "instructions": "In namespace `exam-workloads`, create a ResourceQuota named `limit-pods` limiting pods to 20, and a LimitRange named `default-limits` that applies a Container default limit of `200m` CPU and `256Mi` memory with a default request of `100m` CPU and `128Mi` memory.",
+    "solution": "kubectl -n exam-workloads create quota limit-pods --hard=pods=20\nkubectl apply -f - <<'YAML'\napiVersion: v1\nkind: LimitRange\nmetadata:\n  name: default-limits\n  namespace: exam-workloads\nspec:\n  limits:\n    - type: Container\n      default:\n        cpu: 200m\n        memory: 256Mi\n      defaultRequest:\n        cpu: 100m\n        memory: 128Mi\nYAML",
+    "resource": "kubectl -n exam-workloads get resourcequota,limitrange -o json",
     "checks": [
       {
-        "description": "ServiceAccount exists",
-        "points": 6,
-        "expression": ".metadata.name == \"observer\""
+        "description": "Pod count quota is defined",
+        "points": 2,
+        "expression": "any(.items[]?; .kind == \"ResourceQuota\" and .metadata.name == \"limit-pods\" and .spec.hard.pods == \"20\")"
+      },
+      {
+        "description": "Container defaults are defined",
+        "points": 2,
+        "expression": "any(.items[]?; .kind == \"LimitRange\" and .metadata.name == \"default-limits\" and any(.spec.limits[]?; .type == \"Container\" and .default.cpu == \"200m\" and .default.memory == \"256Mi\" and .defaultRequest.cpu == \"100m\" and .defaultRequest.memory == \"128Mi\"))"
       }
     ],
-    "explanation": "A ServiceAccount provides an identity for workloads in its namespace."
+    "explanation": "A ResourceQuota caps the total resources a namespace may consume, while a LimitRange supplies defaults and bounds for individual containers."
   },
   {
-    "id": "quota",
-    "title": "Set a resource quota",
-    "points": 6,
-    "instructions": "Create a ResourceQuota named `limit-pods` in namespace `exam-workloads` limiting the number of pods to 10.",
-    "solution": "kubectl -n exam-workloads create quota limit-pods --hard=pods=10",
-    "resource": "kubectl -n exam-workloads get resourcequota limit-pods --ignore-not-found -o json",
+    "id": "priorityclass",
+    "title": "Create a PriorityClass",
+    "points": 3,
+    "instructions": "Create a PriorityClass named `exam-critical` with the value `100000`. It must not be the cluster default PriorityClass.",
+    "solution": "kubectl create priorityclass exam-critical --value=100000",
+    "resource": "kubectl get priorityclass exam-critical --ignore-not-found -o json",
     "checks": [
       {
-        "description": "Pod quota",
-        "points": 6,
-        "expression": ".spec.hard.pods == \"10\""
+        "description": "Priority value and default flag",
+        "points": 3,
+        "expression": ".value == 100000 and ((.globalDefault // false) == false)"
       }
     ],
-    "explanation": "ResourceQuota enforces a namespace-wide maximum number of pods."
+    "explanation": "The scheduler prefers Pods with a higher PriorityClass value; `globalDefault` would apply it to every Pod that omits a class."
   },
   {
     "id": "job",
     "title": "Create a Job",
-    "points": 6,
+    "points": 2,
     "instructions": "Create a Job named `hello` in namespace `exam-workloads` using image `busybox:1.36` which runs `echo hello`.",
     "solution": "kubectl -n exam-workloads create job hello --image=busybox:1.36 -- echo hello",
     "resource": "kubectl -n exam-workloads get job hello --ignore-not-found -o json",
     "checks": [
       {
         "description": "Job image and command",
-        "points": 6,
+        "points": 2,
         "expression": "any(.spec.template.spec.containers[]?; .image == \"busybox:1.36\" and .command == [\"echo\", \"hello\"])"
       }
     ],
     "explanation": "A Job runs a workload to completion with the specified command."
   },
   {
-    "id": "label",
-    "title": "Label a node",
-    "points": 6,
-    "instructions": "Add the label `exam=ready` to any node.",
-    "solution": "node=$(kubectl get nodes -o jsonpath='{.items[0].metadata.name}')\nkubectl label node \"$node\" exam=ready --overwrite",
-    "resource": "kubectl get nodes -l exam=ready -o json",
-    "checks": [
-      {
-        "description": "At least one matching node",
-        "points": 6,
-        "expression": "(.items | length) > 0"
-      }
-    ],
-    "explanation": "Node labels can be used to select nodes for scheduling."
-  },
-  {
-    "id": "pv",
-    "title": "Create a persistent volume",
-    "points": 6,
-    "instructions": "Create a PersistentVolume named `exam-pv` with capacity 1Gi, access mode ReadWriteOnce, storage class `exam-local`, and hostPath `/tmp/exam-data`.",
-    "solution": "kubectl apply -f - <<'YAML'\napiVersion: v1\nkind: PersistentVolume\nmetadata: {name: exam-pv}\nspec:\n  capacity: {storage: 1Gi}\n  accessModes: [ReadWriteOnce]\n  storageClassName: exam-local\n  hostPath: {path: /tmp/exam-data}\nYAML",
-    "resource": "kubectl get pv exam-pv --ignore-not-found -o json",
-    "checks": [
-      {
-        "description": "Capacity and access mode",
-        "points": 3,
-        "expression": ".spec.capacity.storage == \"1Gi\" and (.spec.accessModes | index(\"ReadWriteOnce\") != null)"
-      },
-      {
-        "description": "Storage class and host path",
-        "points": 3,
-        "expression": ".spec.storageClassName == \"exam-local\" and .spec.hostPath.path == \"/tmp/exam-data\""
-      }
-    ],
-    "explanation": "A PersistentVolume advertises storage capacity, access modes, class and backing path."
-  },
-  {
-    "id": "pvc",
-    "title": "Claim persistent storage",
-    "points": 6,
-    "instructions": "Create a PersistentVolumeClaim named `exam-claim` in `exam-workloads`, requesting 1Gi with ReadWriteOnce and storage class `exam-local`.",
-    "solution": "kubectl apply -f - <<'YAML'\napiVersion: v1\nkind: PersistentVolumeClaim\nmetadata: {name: exam-claim, namespace: exam-workloads}\nspec:\n  accessModes: [ReadWriteOnce]\n  storageClassName: exam-local\n  resources:\n    requests: {storage: 1Gi}\nYAML",
-    "resource": "kubectl -n exam-workloads get pvc exam-claim --ignore-not-found -o json",
-    "checks": [
-      {
-        "description": "Capacity and access mode",
-        "points": 3,
-        "expression": ".spec.resources.requests.storage == \"1Gi\" and (.spec.accessModes | index(\"ReadWriteOnce\") != null)"
-      },
-      {
-        "description": "Storage class",
-        "points": 3,
-        "expression": ".spec.storageClassName == \"exam-local\""
-      }
-    ],
-    "explanation": "A claim requests capacity and access modes from a compatible volume."
-  },
-  {
-    "id": "networkpolicy",
-    "title": "Default deny ingress",
-    "points": 6,
-    "instructions": "Create a NetworkPolicy named `deny-ingress` in `exam-workloads` selecting all pods and specifying default-deny ingress. The default Flannel lab CNI does not enforce policies; this task checks the resource configuration.",
-    "solution": "kubectl apply -f - <<'YAML'\napiVersion: networking.k8s.io/v1\nkind: NetworkPolicy\nmetadata: {name: deny-ingress, namespace: exam-workloads}\nspec:\n  podSelector: {}\n  policyTypes: [Ingress]\nYAML",
-    "resource": "kubectl -n exam-workloads get networkpolicy deny-ingress --ignore-not-found -o json",
-    "checks": [
-      {
-        "description": "Default deny ingress",
-        "points": 6,
-        "expression": ".spec.podSelector == {} and (.spec.policyTypes | index(\"Ingress\") != null) and ((.spec.ingress // []) | length == 0)"
-      }
-    ],
-    "explanation": "A policy selecting all pods with Ingress and no allow rules specifies default-deny ingress. Enforcement requires a compatible CNI."
-  },
-  {
-    "id": "role",
-    "title": "Create a Role",
-    "points": 6,
-    "instructions": "Create a Role named `pod-reader` in `exam-workloads` allowing get, list, and watch on pods.",
-    "solution": "kubectl -n exam-workloads create role pod-reader --verb=get,list,watch --resource=pods",
-    "resource": "kubectl -n exam-workloads get role pod-reader --ignore-not-found -o json",
-    "checks": [
-      {
-        "description": "Pod read permissions",
-        "points": 6,
-        "expression": "any(.rules[]?; (.apiGroups | index(\"\") != null) and (.resources | index(\"pods\") != null) and (.verbs | index(\"get\") != null) and (.verbs | index(\"list\") != null) and (.verbs | index(\"watch\") != null))"
-      }
-    ],
-    "explanation": "A Role grants the listed verbs on namespaced pod resources."
-  },
-  {
-    "id": "rolebinding",
-    "title": "Bind a Role",
-    "points": 6,
-    "instructions": "Bind the existing Role `binding-reader` to ServiceAccount `binding-observer` in namespace `exam-workloads` using a RoleBinding named `read-pods`.",
-    "solution": "kubectl -n exam-workloads create rolebinding read-pods --role=binding-reader --serviceaccount=exam-workloads:binding-observer",
-    "resource": "kubectl -n exam-workloads get rolebinding read-pods --ignore-not-found -o json",
-    "checks": [
-      {
-        "description": "Role and subject",
-        "points": 6,
-        "expression": ".roleRef.kind == \"Role\" and .roleRef.name == \"binding-reader\" and any(.subjects[]?; .kind == \"ServiceAccount\" and .name == \"binding-observer\" and .namespace == \"exam-workloads\")"
-      }
-    ],
-    "explanation": "A RoleBinding connects a namespaced Role to a subject."
-  },
-  {
-    "id": "repair",
-    "title": "Troubleshoot a deployment",
-    "points": 6,
-    "instructions": "The `broken-web` deployment in namespace `exam-repair` cannot start. Fix its image to `nginx:1.27` and ensure it has one available replica.",
-    "solution": "kubectl -n exam-repair set image deployment/broken-web web=nginx:1.27\nkubectl -n exam-repair rollout status deployment/broken-web",
-    "checks": [
-      {
-        "description": "Correct container image",
-        "points": 3,
-        "expression": "any(.spec.template.spec.containers[]?; .name == \"web\" and .image == \"nginx:1.27\")"
-      },
-      {
-        "description": "One available replica",
-        "points": 3,
-        "expression": ".status.availableReplicas == 1"
-      }
-    ],
-    "resource": "kubectl -n exam-repair get deployment broken-web --ignore-not-found -o json",
-    "explanation": "A valid container image permits the Deployment controller to create an available replica."
-  },
-  {
     "id": "cronjob",
     "title": "Schedule a Job",
-    "points": 4,
+    "points": 3,
     "instructions": "Create a CronJob named `periodic` in `exam-workloads` using `busybox:1.36`, scheduled every five minutes, running `echo hello`.",
-    "solution": "kubectl -n exam-workloads create cronjob periodic --image=busybox:1.36 --schedule=\"*/5 * * * *\" -- echo hello",
+    "solution": "kubectl -n exam-workloads create cronjob periodic --image=busybox:1.36 --schedule='*/5 * * * *' -- echo hello",
     "resource": "kubectl -n exam-workloads get cronjob periodic --ignore-not-found -o json",
     "checks": [
       {
         "description": "Schedule",
-        "points": 2,
+        "points": 1,
         "expression": ".spec.schedule == \"*/5 * * * *\""
       },
       {
@@ -295,5 +267,290 @@
       }
     ],
     "explanation": "A CronJob uses a cron schedule to create Jobs from a template."
+  },
+  {
+    "id": "configmap",
+    "title": "Create a ConfigMap",
+    "points": 2,
+    "instructions": "In namespace `exam-workloads`, create a ConfigMap named `settings` with key `mode` set to `production`.",
+    "solution": "kubectl -n exam-workloads create configmap settings --from-literal=mode=production",
+    "resource": "kubectl -n exam-workloads get configmap settings --ignore-not-found -o json",
+    "checks": [
+      {
+        "description": "ConfigMap data",
+        "points": 2,
+        "expression": ".data.mode == \"production\""
+      }
+    ],
+    "explanation": "A ConfigMap stores non-confidential key-value configuration."
+  },
+  {
+    "id": "secret",
+    "title": "Create a Secret",
+    "points": 3,
+    "instructions": "In namespace `exam-workloads`, create a generic Secret named `credentials` with key `username` set to `operator`.",
+    "solution": "kubectl -n exam-workloads create secret generic credentials --from-literal=username=operator",
+    "resource": "kubectl -n exam-workloads get secret credentials --ignore-not-found -o json",
+    "checks": [
+      {
+        "description": "Secret data",
+        "points": 3,
+        "expression": "(try (.data.username | @base64d) catch \"\") == \"operator\""
+      }
+    ],
+    "explanation": "Secret values are stored base64-encoded in the API and should be handled as sensitive data."
+  },
+  {
+    "id": "serviceaccount",
+    "title": "Create a ServiceAccount",
+    "points": 2,
+    "instructions": "Create a ServiceAccount named `observer` in namespace `exam-workloads`.",
+    "solution": "kubectl -n exam-workloads create serviceaccount observer",
+    "resource": "kubectl -n exam-workloads get serviceaccount observer --ignore-not-found -o json",
+    "checks": [
+      {
+        "description": "ServiceAccount exists",
+        "points": 2,
+        "expression": ".metadata.name == \"observer\""
+      }
+    ],
+    "explanation": "A ServiceAccount provides an identity for workloads in its namespace."
+  },
+  {
+    "id": "pvc-binding",
+    "title": "Bind a persistent volume",
+    "points": 6,
+    "instructions": "Create a PersistentVolume named `exam-pv` with capacity `1Gi`, access mode `ReadWriteOnce`, storage class `exam-local` and hostPath `/tmp/exam-data`. Create a PersistentVolumeClaim named `exam-claim` in `exam-workloads` requesting `1Gi` with the same access mode and class, and make sure it binds to `exam-pv`.",
+    "solution": "kubectl apply -f - <<'YAML'\napiVersion: v1\nkind: PersistentVolume\nmetadata:\n  name: exam-pv\nspec:\n  capacity:\n    storage: 1Gi\n  accessModes: [ReadWriteOnce]\n  storageClassName: exam-local\n  hostPath:\n    path: /tmp/exam-data\n---\napiVersion: v1\nkind: PersistentVolumeClaim\nmetadata:\n  name: exam-claim\n  namespace: exam-workloads\nspec:\n  accessModes: [ReadWriteOnce]\n  storageClassName: exam-local\n  resources:\n    requests:\n      storage: 1Gi\nYAML",
+    "resource": "kubectl -n exam-workloads get pv,pvc -o json",
+    "checks": [
+      {
+        "description": "Volume capacity, mode and backing path",
+        "points": 3,
+        "expression": "any(.items[]?; .kind == \"PersistentVolume\" and .metadata.name == \"exam-pv\" and .spec.capacity.storage == \"1Gi\" and (.spec.accessModes | index(\"ReadWriteOnce\") != null) and .spec.storageClassName == \"exam-local\" and .spec.hostPath.path == \"/tmp/exam-data\")"
+      },
+      {
+        "description": "Claim requests matching storage",
+        "points": 1,
+        "expression": "any(.items[]?; .kind == \"PersistentVolumeClaim\" and .metadata.name == \"exam-claim\" and .spec.resources.requests.storage == \"1Gi\" and .spec.storageClassName == \"exam-local\" and (.spec.accessModes | index(\"ReadWriteOnce\") != null))"
+      },
+      {
+        "description": "Claim is bound to the volume",
+        "points": 2,
+        "expression": "any(.items[]?; .kind == \"PersistentVolumeClaim\" and .metadata.name == \"exam-claim\" and .status.phase == \"Bound\" and .spec.volumeName == \"exam-pv\")"
+      }
+    ],
+    "explanation": "The control plane binds a claim to a volume whose capacity, access modes and storage class satisfy the request; `volumeName` pins a specific volume."
+  },
+  {
+    "id": "mount-config",
+    "title": "Mount a ConfigMap",
+    "points": 3,
+    "instructions": "Create a Pod named `config-mount` in `exam-workloads` using image `nginx:1.27` that mounts the existing ConfigMap `exam-material` as a volume named `config` at `/etc/exam`. The Pod must be running.",
+    "solution": "kubectl apply -f - <<'YAML'\napiVersion: v1\nkind: Pod\nmetadata:\n  name: config-mount\n  namespace: exam-workloads\nspec:\n  containers:\n    - name: web\n      image: nginx:1.27\n      volumeMounts:\n        - name: config\n          mountPath: /etc/exam\n  volumes:\n    - name: config\n      configMap:\n        name: exam-material\nYAML",
+    "resource": "kubectl -n exam-workloads get pod config-mount --ignore-not-found -o json",
+    "checks": [
+      {
+        "description": "ConfigMap volume is declared",
+        "points": 1,
+        "expression": "any(.spec.volumes[]?; .name == \"config\" and .configMap.name == \"exam-material\")"
+      },
+      {
+        "description": "Volume is mounted into the container",
+        "points": 1,
+        "expression": "any(.spec.containers[]?; any(.volumeMounts[]?; .name == \"config\" and .mountPath == \"/etc/exam\"))"
+      },
+      {
+        "description": "Pod is running",
+        "points": 1,
+        "expression": ".status.phase == \"Running\""
+      }
+    ],
+    "explanation": "ConfigMap data can be projected into a Pod as files; a volume must be declared and then mounted into a container."
+  },
+  {
+    "id": "service",
+    "title": "Expose a deployment",
+    "points": 3,
+    "instructions": "Expose the existing deployment `service-target` in namespace `exam-workloads` as a ClusterIP service named `api` on port 80 targeting port 80.",
+    "solution": "kubectl -n exam-workloads expose deployment service-target --name=api --port=80 --target-port=80",
+    "resource": "kubectl -n exam-workloads get service api --ignore-not-found -o json",
+    "checks": [
+      {
+        "description": "Service configuration",
+        "points": 3,
+        "expression": ".spec.type == \"ClusterIP\" and .spec.selector.app == \"service-target\" and any(.spec.ports[]?; .port == 80 and .targetPort == 80)"
+      }
+    ],
+    "explanation": "A ClusterIP Service routes port 80 to Pods selected by the deployment label."
+  },
+  {
+    "id": "nodeport",
+    "title": "Create a NodePort service",
+    "points": 3,
+    "instructions": "Expose the deployment `service-target` in `exam-workloads` again, this time as a NodePort Service named `web-nodeport` on port 80 targeting container port 80.",
+    "solution": "kubectl -n exam-workloads expose deployment service-target --name=web-nodeport --type=NodePort --port=80 --target-port=80",
+    "resource": "kubectl -n exam-workloads get service web-nodeport --ignore-not-found -o json",
+    "checks": [
+      {
+        "description": "NodePort service configuration",
+        "points": 3,
+        "expression": ".spec.type == \"NodePort\" and .spec.selector.app == \"service-target\" and any(.spec.ports[]?; .port == 80 and .targetPort == 80 and .nodePort > 0)"
+      }
+    ],
+    "explanation": "A NodePort Service allocates a port on every node and forwards traffic to the selected Pods."
+  },
+  {
+    "id": "ingress",
+    "title": "Route traffic with an Ingress",
+    "points": 5,
+    "instructions": "Create an Ingress named `web` in `exam-workloads` that routes requests for host `exam.local` to the existing Service `exam-backend` on port 80. Use the path `/` with pathType `Prefix`. This lab has no ingress controller, so only the resource configuration is checked.",
+    "solution": "kubectl apply -f - <<'YAML'\napiVersion: networking.k8s.io/v1\nkind: Ingress\nmetadata:\n  name: web\n  namespace: exam-workloads\nspec:\n  rules:\n    - host: exam.local\n      http:\n        paths:\n          - path: /\n            pathType: Prefix\n            backend:\n              service:\n                name: exam-backend\n                port:\n                  number: 80\nYAML",
+    "resource": "kubectl -n exam-workloads get ingress web --ignore-not-found -o json",
+    "checks": [
+      {
+        "description": "Host routes to the backend service",
+        "points": 4,
+        "expression": "any(.spec.rules[]?; .host == \"exam.local\" and any(.http.paths[]?; .path == \"/\" and .backend.service.name == \"exam-backend\" and .backend.service.port.number == 80))"
+      },
+      {
+        "description": "Path type is Prefix",
+        "points": 1,
+        "expression": "any(.spec.rules[]?.http.paths[]?; .pathType == \"Prefix\")"
+      }
+    ],
+    "explanation": "An Ingress is an API-level routing rule; an ingress controller (not installed here) is what actually programs a proxy from those rules."
+  },
+  {
+    "id": "networkpolicy",
+    "title": "Default deny ingress",
+    "points": 3,
+    "instructions": "Create a NetworkPolicy named `deny-ingress` in `exam-workloads` selecting all Pods and specifying default-deny ingress. The default Flannel lab CNI does not enforce policies; this task checks the resource configuration.",
+    "solution": "kubectl apply -f - <<'YAML'\napiVersion: networking.k8s.io/v1\nkind: NetworkPolicy\nmetadata:\n  name: deny-ingress\n  namespace: exam-workloads\nspec:\n  podSelector: {}\n  policyTypes: [Ingress]\nYAML",
+    "resource": "kubectl -n exam-workloads get networkpolicy deny-ingress --ignore-not-found -o json",
+    "checks": [
+      {
+        "description": "Default deny ingress",
+        "points": 3,
+        "expression": ".spec.podSelector == {} and (.spec.policyTypes | index(\"Ingress\") != null) and ((.spec.ingress // []) | length == 0)"
+      }
+    ],
+    "explanation": "A policy selecting all Pods with ingress and no allow rules specifies default-deny ingress. Enforcement requires a policy-capable CNI."
+  },
+  {
+    "id": "coredns",
+    "title": "Scale CoreDNS",
+    "points": 3,
+    "instructions": "Scale the CoreDNS Deployment in `kube-system` to three replicas and wait until all three are available.",
+    "solution": "kubectl -n kube-system scale deployment/coredns --replicas=3\nkubectl -n kube-system rollout status deployment/coredns --timeout=180s",
+    "resource": "kubectl -n kube-system get deployment coredns --ignore-not-found -o json",
+    "checks": [
+      {
+        "description": "Three replicas are requested",
+        "points": 1,
+        "expression": ".spec.replicas == 3"
+      },
+      {
+        "description": "Three replicas are available",
+        "points": 2,
+        "expression": ".status.availableReplicas == 3"
+      }
+    ],
+    "explanation": "Cluster DNS is served by the CoreDNS Deployment; running more than one replica removes the single point of failure."
+  },
+  {
+    "id": "repair",
+    "title": "Troubleshoot a deployment",
+    "points": 4,
+    "instructions": "The `broken-web` deployment in namespace `exam-repair` cannot start. Fix its image to `nginx:1.27` and ensure it has one available replica.",
+    "solution": "kubectl -n exam-repair set image deployment/broken-web web=nginx:1.27\nkubectl -n exam-repair rollout status deployment/broken-web --timeout=180s",
+    "resource": "kubectl -n exam-repair get deployment broken-web --ignore-not-found -o json",
+    "checks": [
+      {
+        "description": "Correct container image",
+        "points": 2,
+        "expression": "any(.spec.template.spec.containers[]?; .name == \"web\" and .image == \"nginx:1.27\")"
+      },
+      {
+        "description": "One available replica",
+        "points": 2,
+        "expression": ".status.availableReplicas == 1"
+      }
+    ],
+    "explanation": "A valid container image lets the Deployment controller create an available replica; `kubectl describe` and Pod events show the image pull failure."
+  },
+  {
+    "id": "svc-selector",
+    "title": "Repair a service",
+    "points": 4,
+    "instructions": "The Service `broken-endpoints` in `exam-repair` has no endpoints, so traffic never reaches the Pods of the `endpoint-target` Deployment. Repair the Service so that it has at least one ready endpoint.",
+    "solution": "kubectl -n exam-repair patch service broken-endpoints --type=merge -p '{\"spec\":{\"selector\":{\"app\":\"endpoint-target\"}}}'",
+    "resource": "kubectl -n exam-repair get endpointslice -l kubernetes.io/service-name=broken-endpoints -o json",
+    "checks": [
+      {
+        "description": "Service has at least one ready endpoint",
+        "points": 4,
+        "expression": "any(.items[]?; any(.endpoints[]?; (.conditions.ready != false) and (.addresses | length) > 0))"
+      }
+    ],
+    "explanation": "Endpoints are generated from the Service selector; a selector that matches no Pod labels leaves the Service without backends."
+  },
+  {
+    "id": "crashloop",
+    "title": "Recover a crashing workload",
+    "points": 4,
+    "instructions": "The Deployment `crashing` in `exam-repair` never becomes ready because its container exits immediately. Fix the workload so that exactly one replica is available.",
+    "solution": "kubectl -n exam-repair patch deployment crashing --type=json -p '[{\"op\":\"replace\",\"path\":\"/spec/template/spec/containers/0/command\",\"value\":[\"sh\",\"-c\",\"sleep 3600\"]}]'\nkubectl -n exam-repair rollout status deployment/crashing --timeout=180s",
+    "resource": "kubectl -n exam-repair get deployment crashing --ignore-not-found -o json",
+    "checks": [
+      {
+        "description": "One replica is available",
+        "points": 4,
+        "expression": ".status.availableReplicas == 1"
+      }
+    ],
+    "explanation": "A container that exits with a non-zero status is restarted in a CrashLoopBackOff; `kubectl logs` and `kubectl describe pod` reveal the immediate exit."
+  },
+  {
+    "id": "rbac",
+    "title": "Grant namespaced permissions",
+    "points": 4,
+    "instructions": "Create a Role named `pod-reader` in `exam-workloads` allowing get, list and watch on Pods, and bind it to ServiceAccount `binding-observer` in the same namespace with a RoleBinding named `read-pods`.",
+    "solution": "kubectl -n exam-workloads create role pod-reader --verb=get,list,watch --resource=pods\nkubectl -n exam-workloads create rolebinding read-pods --role=pod-reader --serviceaccount=exam-workloads:binding-observer",
+    "resource": "kubectl -n exam-workloads get role,rolebinding -o json",
+    "checks": [
+      {
+        "description": "Role grants pod read access",
+        "points": 2,
+        "expression": "any(.items[]?; .kind == \"Role\" and .metadata.name == \"pod-reader\" and any(.rules[]?; (.apiGroups | index(\"\") != null) and (.resources | index(\"pods\") != null) and (.verbs | index(\"get\") != null) and (.verbs | index(\"list\") != null) and (.verbs | index(\"watch\") != null)))"
+      },
+      {
+        "description": "RoleBinding connects the Role to the ServiceAccount",
+        "points": 2,
+        "expression": "any(.items[]?; .kind == \"RoleBinding\" and .metadata.name == \"read-pods\" and .roleRef.kind == \"Role\" and .roleRef.name == \"pod-reader\" and any(.subjects[]?; .kind == \"ServiceAccount\" and .name == \"binding-observer\" and .namespace == \"exam-workloads\"))"
+      }
+    ],
+    "explanation": "A Role lists permissions inside a namespace; a RoleBinding grants them to users, groups or ServiceAccounts. `kubectl auth can-i --as=system:serviceaccount:exam-workloads:binding-observer list pods` verifies the result."
+  },
+  {
+    "id": "cluster-rbac",
+    "title": "Grant cluster-wide permissions",
+    "points": 4,
+    "instructions": "Create a ClusterRole named `node-reader` allowing get, list and watch on nodes, and bind it to ServiceAccount `cluster-observer` in `exam-workloads` with a ClusterRoleBinding named `node-reader`.",
+    "solution": "kubectl create clusterrole node-reader --verb=get,list,watch --resource=nodes\nkubectl create clusterrolebinding node-reader --clusterrole=node-reader --serviceaccount=exam-workloads:cluster-observer",
+    "resource": "kubectl get clusterrole,clusterrolebinding -o json",
+    "checks": [
+      {
+        "description": "ClusterRole grants node read access",
+        "points": 2,
+        "expression": "any(.items[]?; .kind == \"ClusterRole\" and .metadata.name == \"node-reader\" and any(.rules[]?; (.resources | index(\"nodes\") != null) and (.verbs | index(\"get\") != null) and (.verbs | index(\"list\") != null) and (.verbs | index(\"watch\") != null)))"
+      },
+      {
+        "description": "ClusterRoleBinding connects the ClusterRole to the ServiceAccount",
+        "points": 2,
+        "expression": "any(.items[]?; .kind == \"ClusterRoleBinding\" and .metadata.name == \"node-reader\" and .roleRef.kind == \"ClusterRole\" and .roleRef.name == \"node-reader\" and any(.subjects[]?; .kind == \"ServiceAccount\" and .name == \"cluster-observer\" and .namespace == \"exam-workloads\"))"
+      }
+    ],
+    "explanation": "ClusterRoles and ClusterRoleBindings are cluster-scoped, so they can grant access to cluster-scoped resources such as nodes."
   }
 ]
