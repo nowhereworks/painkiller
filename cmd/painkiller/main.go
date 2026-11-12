@@ -1,31 +1,52 @@
 package main
 
 import (
+	"bytes"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/creack/pty"
 	"github.com/gorilla/websocket"
+	_ "github.com/mattn/go-sqlite3"
+	"painkiller/web"
 )
 
 type task struct {
 	ID, Title, Instructions, Check, Solution string
 	Points                                   int
+	Checks                                   []check
+}
+type check struct {
+	Description string
+	Points      int
+	Command     string
+}
+type checkResult struct {
+	Description string `json:"description"`
+	Points      int    `json:"points"`
+	Earned      int    `json:"earned"`
+	Error       string `json:"error,omitempty"`
 }
 type result struct {
-	ID     string `json:"id"`
-	Passed bool   `json:"passed"`
-	Error  string `json:"error,omitempty"`
+	ID     string        `json:"id"`
+	Passed bool          `json:"passed"`
+	Error  string        `json:"error,omitempty"`
+	Earned int           `json:"earned"`
+	Checks []checkResult `json:"checks,omitempty"`
 }
 type state struct {
 	Phase    string          `json:"phase"`
@@ -42,32 +63,23 @@ type app struct {
 	tasks     []task
 	terminals map[*os.File]*exec.Cmd
 	file      string
+	db        *sql.DB
+	duration  time.Duration
 }
 
-func (a *app) save() {
+func (a *app) save() error {
 	b, err := json.MarshalIndent(a.state, "", "  ")
-	if err == nil {
-		err = os.MkdirAll(filepath.Dir(a.file), 0700)
-	}
-	if err == nil {
-		var f *os.File
-		f, err = os.CreateTemp(filepath.Dir(a.file), ".state-*")
-		if err == nil {
-			name := f.Name()
-			defer os.Remove(name)
-			if err = f.Chmod(0600); err == nil {
-				_, err = f.Write(b)
-			}
-			if e := f.Close(); err == nil {
-				err = e
-			}
-			if err == nil {
-				err = os.Rename(name, a.file)
-			}
-		}
-	}
 	if err != nil {
-		log.Printf("save state: %v", err)
+		return err
+	}
+	_, err = a.db.Exec(`INSERT INTO attempt (id, state) VALUES (1, ?) ON CONFLICT(id) DO UPDATE SET state=excluded.state`, string(b))
+	return err
+}
+func (a *app) saveBackground() {
+	if err := a.save(); err != nil {
+		log.Printf("persist background operation: %v", err)
+		a.state.Phase = "error"
+		a.state.Message = "Could not persist operation result; check disk and restart before proceeding."
 	}
 }
 func (a *app) closeTerminals() {
@@ -81,7 +93,11 @@ func (a *app) expire() {
 	if a.state.Phase == "running" && !time.Now().Before(a.state.Deadline) {
 		a.state.Phase = "grading"
 		a.closeTerminals()
-		a.save()
+		if err := a.save(); err != nil {
+			log.Printf("persist expiration: %v", err)
+			a.state.Phase = "running" // fail closed and retry on the next tick
+			return
+		}
 		go a.grade()
 	}
 }
@@ -96,10 +112,37 @@ func output(name string, args ...string) (string, error) {
 	b, e := c.CombinedOutput()
 	return string(b), e
 }
+func (a *app) run(name string, args ...string) (string, error) {
+	f, err := os.OpenFile(filepath.Join(filepath.Dir(a.file), "operation.log"), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0600)
+	if err != nil {
+		return "", err
+	}
+	defer f.Close()
+	var b bytes.Buffer
+	c := exec.Command(name, args...)
+	c.Stdout = io.MultiWriter(f, &b)
+	c.Stderr = c.Stdout
+	err = c.Run()
+	text := b.String()
+	if len(text) > 8192 {
+		text = text[len(text)-8192:]
+	}
+	return text, err
+}
 func (a *app) prepare() {
-	out, err := output("scripts/create-lab.sh", "create")
+	if err := os.WriteFile(filepath.Join(filepath.Dir(a.file), "operation.log"), nil, 0600); err != nil {
+		a.mu.Lock()
+		a.state.Phase = "error"
+		a.state.Message = err.Error()
+		if e := a.save(); e != nil {
+			log.Print(e)
+		}
+		a.mu.Unlock()
+		return
+	}
+	out, err := a.run("scripts/create-lab.sh", "create")
 	if err == nil {
-		out, err = output("scripts/create-lab.sh", "provision")
+		out, err = a.run("scripts/create-lab.sh", "provision")
 	}
 	var host string
 	if err == nil {
@@ -136,7 +179,7 @@ func (a *app) prepare() {
 	} else {
 		a.state = state{Phase: "ready", Host: host}
 	}
-	a.save()
+	a.saveBackground()
 }
 func (a *app) grade() {
 	a.mu.Lock()
@@ -149,21 +192,34 @@ func (a *app) grade() {
 			results = append(results, result{ID: t.ID, Error: fmt.Sprintf("cluster unavailable: %v %s", err, strings.TrimSpace(health))})
 			continue
 		}
-		out, err := output("timeout", "30s", "ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", user+"@"+host, "bash -c "+shellQuote(t.Check))
-		res := result{ID: t.ID, Passed: err == nil}
-		if err != nil {
-			var e *exec.ExitError
-			if !errors.As(err, &e) || e.ExitCode() != 1 {
-				res.Error = fmt.Sprintf("check failed: %v %s", err, strings.TrimSpace(out))
-			}
+		checks := t.Checks
+		if len(checks) == 0 {
+			checks = []check{{Description: "Task requirements", Points: t.Points, Command: t.Check}}
 		}
+		res := result{ID: t.ID}
+		for _, c := range checks {
+			out, err := output("timeout", "30s", "ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", user+"@"+host, "bash -o pipefail -c "+shellQuote(c.Command))
+			cr := checkResult{Description: c.Description, Points: c.Points}
+			if err == nil {
+				cr.Earned = c.Points
+				res.Earned += c.Points
+			} else {
+				var e *exec.ExitError
+				if !strings.Contains(out, "(NotFound)") && (!errors.As(err, &e) || e.ExitCode() != 1 || strings.TrimSpace(out) != "") {
+					cr.Error = fmt.Sprintf("check failed: %v %s", err, strings.TrimSpace(out))
+					res.Error = "One or more checks could not be graded"
+				}
+			}
+			res.Checks = append(res.Checks, cr)
+		}
+		res.Passed = res.Earned == t.Points && res.Error == ""
 		results = append(results, res)
 	}
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	a.state.Results = results
 	a.state.Phase = "completed"
-	a.save()
+	a.saveBackground()
 }
 func shellQuote(s string) string { return "'" + strings.ReplaceAll(s, "'", "'\\''") + "'" }
 func env(k, d string) string {
@@ -180,6 +236,8 @@ func (a *app) action(w http.ResponseWriter, r *http.Request) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	a.expire()
+	before := a.state
+	var next func()
 	switch strings.TrimPrefix(r.URL.Path, "/api/") {
 	case "prepare":
 		if a.state.Phase != "idle" {
@@ -187,36 +245,52 @@ func (a *app) action(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		a.state.Phase = "preparing"
-		a.save()
-		go a.prepare()
+		next = a.prepare
 	case "start":
 		if a.state.Phase != "ready" {
 			http.Error(w, "lab is not ready", 409)
 			return
 		}
 		a.state.Phase = "running"
-		a.state.Deadline = time.Now().Add(120 * time.Minute)
+		duration := a.duration
+		if duration == 0 {
+			duration = 120 * time.Minute
+		}
+		a.state.Deadline = time.Now().Add(duration)
 		a.state.Flags = map[string]bool{}
 		a.state.Done = map[string]bool{}
-		a.save()
 	case "submit":
-		if a.state.Phase != "running" {
+		if a.state.Phase != "running" || !time.Now().Before(a.state.Deadline) {
 			http.Error(w, "exam is not running", 409)
 			return
 		}
 		a.state.Phase = "grading"
-		a.closeTerminals()
-		a.save()
-		go a.grade()
+		next = a.grade
+	case "regrade":
+		if a.state.Phase != "completed" {
+			http.Error(w, "results are not ready", 409)
+			return
+		}
+		hasError := false
+		for _, r := range a.state.Results {
+			if r.Error != "" {
+				hasError = true
+			}
+		}
+		if !hasError {
+			http.Error(w, "no grading errors", 409)
+			return
+		}
+		a.state.Phase = "grading"
+		next = a.grade
 	case "reset":
 		if a.state.Phase == "running" || a.state.Phase == "preparing" || a.state.Phase == "grading" || a.state.Phase == "resetting" {
 			http.Error(w, "operation in progress", 409)
 			return
 		}
 		a.state.Phase = "resetting"
-		a.save()
-		go func() {
-			out, err := output("scripts/create-lab.sh", "destroy")
+		next = func() {
+			out, err := a.run("scripts/create-lab.sh", "destroy")
 			a.mu.Lock()
 			defer a.mu.Unlock()
 			if err != nil {
@@ -225,10 +299,10 @@ func (a *app) action(w http.ResponseWriter, r *http.Request) {
 			} else {
 				a.state = state{Phase: "idle"}
 			}
-			a.save()
-		}()
+			a.saveBackground()
+		}
 	case "marks":
-		if a.state.Phase != "running" {
+		if a.state.Phase != "running" || !time.Now().Before(a.state.Deadline) {
 			http.Error(w, "exam is not running", 409)
 			return
 		}
@@ -239,10 +313,21 @@ func (a *app) action(w http.ResponseWriter, r *http.Request) {
 		}
 		a.state.Flags = marks.Flags
 		a.state.Done = marks.Done
-		a.save()
 	default:
 		http.NotFound(w, r)
 		return
+	}
+	if err := a.save(); err != nil {
+		a.state = before
+		http.Error(w, "could not persist attempt state", http.StatusServiceUnavailable)
+		log.Printf("persist action: %v", err)
+		return
+	}
+	if a.state.Phase == "grading" && before.Phase == "running" {
+		a.closeTerminals()
+	}
+	if next != nil {
+		go next()
 	}
 	w.WriteHeader(http.StatusNoContent)
 }
@@ -260,7 +345,7 @@ func sameOrigin(r *http.Request) bool {
 func (a *app) terminal(w http.ResponseWriter, r *http.Request) {
 	a.mu.Lock()
 	a.expire()
-	if a.state.Phase != "running" {
+	if a.state.Phase != "running" || !time.Now().Before(a.state.Deadline) {
 		a.mu.Unlock()
 		http.Error(w, "exam is not running", 409)
 		return
@@ -326,21 +411,74 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	a := &app{file: env("PAINKILLER_STATE", "data/state.json"), terminals: map[*os.File]*exec.Cmd{}, state: state{Phase: "idle"}}
+	a := &app{file: env("PAINKILLER_STATE", "data/state.db"), terminals: map[*os.File]*exec.Cmd{}, state: state{Phase: "idle"}}
 	if err = json.Unmarshal(b, &a.tasks); err != nil {
 		log.Fatal(err)
 	}
-	if b, err = os.ReadFile(a.file); err == nil {
-		if err = json.Unmarshal(b, &a.state); err != nil {
+	if err = validateTasks(a.tasks); err != nil {
+		log.Fatal(err)
+	}
+	minutes, err := strconv.Atoi(env("PAINKILLER_MINUTES", "120"))
+	if err != nil || minutes < 1 || minutes > 1440 {
+		log.Fatal("PAINKILLER_MINUTES must be between 1 and 1440")
+	}
+	a.duration = time.Duration(minutes) * time.Minute
+	if err = os.MkdirAll(filepath.Dir(a.file), 0700); err != nil {
+		log.Fatal(err)
+	}
+	lock, err := os.OpenFile(a.file+".lock", os.O_CREATE|os.O_RDWR, 0600)
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer lock.Close()
+	if err = syscall.Flock(int(lock.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
+		log.Fatal("another server holds the state lock: ", err)
+	}
+	f, err := os.OpenFile(a.file, os.O_CREATE|os.O_RDWR, 0600)
+	if err != nil {
+		log.Fatal(err)
+	}
+	if err = f.Chmod(0600); err != nil {
+		log.Fatal(err)
+	}
+	f.Close()
+	a.db, err = sql.Open("sqlite3", a.file)
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer a.db.Close()
+	if _, err = a.db.Exec(`CREATE TABLE IF NOT EXISTS attempt (id INTEGER PRIMARY KEY CHECK (id=1), state TEXT NOT NULL)`); err != nil {
+		log.Fatal(err)
+	}
+	var stored string
+	err = a.db.QueryRow(`SELECT state FROM attempt WHERE id=1`).Scan(&stored)
+	if err == nil {
+		if err = json.Unmarshal([]byte(stored), &a.state); err != nil {
 			log.Fatal(err)
 		}
-	} else if !os.IsNotExist(err) {
+	} else if errors.Is(err, sql.ErrNoRows) {
+		// Preserve the previous release's attempt when upgrading the default installation.
+		if a.file == "data/state.db" {
+			if legacy, e := os.ReadFile("data/state.json"); e == nil {
+				if e = json.Unmarshal(legacy, &a.state); e != nil {
+					log.Fatal(e)
+				}
+			} else if !os.IsNotExist(e) {
+				log.Fatal(e)
+			}
+		}
+		if err = a.save(); err != nil {
+			log.Fatal(err)
+		}
+	} else {
 		log.Fatal(err)
 	}
 	if a.state.Phase == "preparing" || a.state.Phase == "resetting" {
 		a.state.Phase = "error"
 		a.state.Message = "Service restarted during a lab operation. Inspect the lab and reset it."
-		a.save()
+		if err = a.save(); err != nil {
+			log.Fatal(err)
+		}
 	}
 	if a.state.Phase == "grading" {
 		go a.grade()
@@ -353,6 +491,22 @@ func main() {
 		}
 	}()
 	http.HandleFunc("/api/status", a.status)
+	http.HandleFunc("/api/log", func(w http.ResponseWriter, r *http.Request) {
+		f, err := os.Open(filepath.Join(filepath.Dir(a.file), "operation.log"))
+		if err != nil {
+			if os.IsNotExist(err) {
+				return
+			}
+			http.Error(w, "log unavailable", 500)
+			return
+		}
+		defer f.Close()
+		if stat, e := f.Stat(); e == nil && stat.Size() > 32768 {
+			_, _ = f.Seek(-32768, io.SeekEnd)
+		}
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		_, _ = io.Copy(w, io.LimitReader(f, 32768))
+	})
 	http.HandleFunc("/api/tasks", func(w http.ResponseWriter, r *http.Request) {
 		a.mu.Lock()
 		defer a.mu.Unlock()
@@ -382,8 +536,40 @@ func main() {
 		}
 		a.action(w, r)
 	})
-	http.Handle("/", http.FileServer(http.Dir("web")))
+	http.Handle("/", http.FileServer(http.FS(web.Files)))
 	addr := env("PAINKILLER_LISTEN", "127.0.0.1:8080")
 	log.Printf("listening on %s", addr)
 	log.Fatal(http.ListenAndServe(addr, nil))
+}
+
+func validateTasks(tasks []task) error {
+	seen := map[string]bool{}
+	total := 0
+	for _, t := range tasks {
+		if t.ID == "" || seen[t.ID] || t.Points <= 0 || t.Title == "" || t.Instructions == "" || t.Solution == "" {
+			return fmt.Errorf("invalid task %q", t.ID)
+		}
+		seen[t.ID] = true
+		total += t.Points
+		if len(t.Checks) == 0 {
+			if t.Check == "" {
+				return fmt.Errorf("task %s has no check", t.ID)
+			}
+			continue
+		}
+		n := 0
+		for _, c := range t.Checks {
+			if c.Description == "" || c.Command == "" || c.Points <= 0 {
+				return fmt.Errorf("invalid check for %s", t.ID)
+			}
+			n += c.Points
+		}
+		if n != t.Points {
+			return fmt.Errorf("check points do not sum to task %s", t.ID)
+		}
+	}
+	if total != 100 {
+		return fmt.Errorf("exam points total %d, expected 100", total)
+	}
+	return nil
 }

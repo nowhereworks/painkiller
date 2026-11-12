@@ -21,3 +21,43 @@ spec:
       containers:
         - name: web
           image: nginx:does-not-exist
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: exam-workloads
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: service-target
+  namespace: exam-workloads
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: service-target
+  template:
+    metadata:
+      labels:
+        app: service-target
+    spec:
+      containers:
+        - name: web
+          image: nginx:1.27
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: binding-observer
+  namespace: exam-workloads
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: binding-reader
+  namespace: exam-workloads
+rules:
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list", "watch"]

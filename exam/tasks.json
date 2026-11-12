@@ -3,9 +3,9 @@
     "id": "namespace",
     "title": "Create a namespace",
     "points": 6,
-    "instructions": "Create a namespace named `exam-workloads`.",
-    "check": "kubectl get namespace exam-workloads -o name",
-    "solution": "kubectl create namespace exam-workloads"
+    "instructions": "Create a namespace named `exam-sandbox`.",
+    "check": "kubectl get namespace exam-sandbox -o name",
+    "solution": "kubectl create namespace exam-sandbox"
   },
   {
     "id": "pod",
@@ -20,16 +20,27 @@
     "title": "Create a deployment",
     "points": 6,
     "instructions": "In namespace `exam-workloads`, create a deployment named `api` using image `nginx:1.27` with 2 replicas.",
-    "check": "test \"$(kubectl -n exam-workloads get deployment api -o jsonpath='{.spec.replicas} {.spec.template.spec.containers[0].image}')\" = '2 nginx:1.27'",
-    "solution": "kubectl -n exam-workloads create deployment api --image=nginx:1.27 --replicas=2"
+    "solution": "kubectl -n exam-workloads create deployment api --image=nginx:1.27 --replicas=2",
+    "checks": [
+      {
+        "description": "Deployment uses nginx:1.27",
+        "points": 3,
+        "command": "test \"$(kubectl -n exam-workloads get deployment api -o jsonpath='{.spec.template.spec.containers[0].image}')\" = nginx:1.27"
+      },
+      {
+        "description": "Deployment requests two replicas",
+        "points": 3,
+        "command": "test \"$(kubectl -n exam-workloads get deployment api -o jsonpath='{.spec.replicas}')\" = 2"
+      }
+    ]
   },
   {
     "id": "service",
     "title": "Expose a deployment",
     "points": 6,
-    "instructions": "Expose deployment `api` in namespace `exam-workloads` as a ClusterIP service named `api` on port 80 targeting port 80.",
-    "check": "test \"$(kubectl -n exam-workloads get service api -o jsonpath='{.spec.type} {.spec.ports[0].port} {.spec.ports[0].targetPort}')\" = 'ClusterIP 80 80'",
-    "solution": "kubectl -n exam-workloads expose deployment api --port=80 --target-port=80"
+    "instructions": "Expose the existing deployment `service-target` in namespace `exam-workloads` as a ClusterIP service named `api` on port 80 targeting port 80.",
+    "check": "kubectl -n exam-workloads get service api -o json | jq -e '.spec.type == \"ClusterIP\" and .spec.selector.app == \"service-target\" and any(.spec.ports[]; .port == 80 and .targetPort == 80)' >/dev/null",
+    "solution": "kubectl -n exam-workloads expose deployment service-target --name=api --port=80 --target-port=80"
   },
   {
     "id": "configmap",
@@ -115,17 +126,28 @@
     "id": "rolebinding",
     "title": "Bind a Role",
     "points": 6,
-    "instructions": "Bind Role `pod-reader` to ServiceAccount `observer` in namespace `exam-workloads` using a RoleBinding named `read-pods`.",
-    "check": "kubectl -n exam-workloads get rolebinding read-pods -o json | jq -e '.roleRef.kind == \"Role\" and .roleRef.name == \"pod-reader\" and any(.subjects[]; .kind == \"ServiceAccount\" and .name == \"observer\" and .namespace == \"exam-workloads\")' >/dev/null",
-    "solution": "kubectl -n exam-workloads create rolebinding read-pods --role=pod-reader --serviceaccount=exam-workloads:observer"
+    "instructions": "Bind the existing Role `binding-reader` to ServiceAccount `binding-observer` in namespace `exam-workloads` using a RoleBinding named `read-pods`.",
+    "check": "kubectl -n exam-workloads get rolebinding read-pods -o json | jq -e '.roleRef.kind == \"Role\" and .roleRef.name == \"binding-reader\" and any(.subjects[]; .kind == \"ServiceAccount\" and .name == \"binding-observer\" and .namespace == \"exam-workloads\")' >/dev/null",
+    "solution": "kubectl -n exam-workloads create rolebinding read-pods --role=binding-reader --serviceaccount=exam-workloads:binding-observer"
   },
   {
     "id": "repair",
     "title": "Troubleshoot a deployment",
     "points": 6,
     "instructions": "The `broken-web` deployment in namespace `exam-repair` cannot start. Fix its image to `nginx:1.27` and ensure it has one available replica.",
-    "check": "test \"$(kubectl -n exam-repair get deployment broken-web -o jsonpath='{.spec.template.spec.containers[0].image} {.status.availableReplicas}')\" = \"nginx:1.27 1\"",
-    "solution": "kubectl -n exam-repair set image deployment/broken-web web=nginx:1.27\nkubectl -n exam-repair rollout status deployment/broken-web"
+    "solution": "kubectl -n exam-repair set image deployment/broken-web web=nginx:1.27\nkubectl -n exam-repair rollout status deployment/broken-web",
+    "checks": [
+      {
+        "description": "Correct container image",
+        "points": 3,
+        "command": "test \"$(kubectl -n exam-repair get deployment broken-web -o jsonpath='{.spec.template.spec.containers[0].image}')\" = nginx:1.27"
+      },
+      {
+        "description": "One available replica",
+        "points": 3,
+        "command": "test \"$(kubectl -n exam-repair get deployment broken-web -o jsonpath='{.status.availableReplicas}')\" = 1"
+      }
+    ]
   },
   {
     "id": "cronjob",
