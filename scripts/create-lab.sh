@@ -1,12 +1,14 @@
 #!/usr/bin/env bash
 # Manage only VMs explicitly marked as belonging to this lab.
+# Template 9010 is pre-configured (SSH keys, DNS, DHCP identity); clones only
+# need to be started and waited for. No net0/cloud-init/identity manipulation.
 set -Eeuo pipefail
 command=${1:-help}
 host=${LAB_PROXMOX_HOST:-root@prox-k12}
 template=${LAB_TEMPLATE_ID:-9010}
 start=${LAB_VM_START:-3000}
-end=${LAB_VM_END:-3004}
-controllers=${LAB_CONTROLLERS:-3}
+end=${LAB_VM_END:-3002}
+controllers=${LAB_CONTROLLERS:-1}
 marker=${LAB_MARKER:-painkiller-mvp}
 prefix=${LAB_IP_PREFIX:-192.168.254.}
 timeout=${LAB_READY_TIMEOUT:-600}
@@ -14,11 +16,31 @@ ssh_user=${LAB_SSH_USER:-milkman}
 playbooks=${LAB_PLAYBOOKS_DIR:-$HOME/repo/_nowhereworks/lab-ansible-playbooks}
 revision=${LAB_PLAYBOOKS_REV:-8ec676e93017ce3e110c27485e25d1f32d541056}
 memory=${LAB_VM_MEMORY:-3072}
+known_hosts=${LAB_KNOWN_HOSTS:-$PWD/data/lab_known_hosts}
 
 [[ $start =~ ^[0-9]+$ && $end =~ ^[0-9]+$ && $template =~ ^[0-9]+$ && $controllers =~ ^[0-9]+$ && $timeout =~ ^[0-9]+$ && $memory =~ ^[0-9]+$ ]] || { echo 'Invalid numeric configuration' >&2; exit 1; }
-[[ $start -le $end && $controllers -gt 0 && $controllers -le $((end-start+1)) && $timeout -gt 0 ]] || { echo 'Invalid VM range or controller count' >&2; exit 1; }
+[[ $start -ge 3000 && $end -le 3004 && $start -le $end && $controllers -gt 0 && $controllers -le $((end-start+1)) && $timeout -gt 0 ]] || { echo 'VM range must be within 3000–3004 and controller count must be valid' >&2; exit 1; }
 [[ $marker =~ ^[a-zA-Z0-9_-]+$ && $prefix =~ ^[0-9.]+$ && $ssh_user =~ ^[a-zA-Z0-9_-]+$ ]] || { echo 'Invalid marker, IP prefix, or SSH user' >&2; exit 1; }
-remote() { ssh -o BatchMode=yes -o ConnectTimeout=10 "$host" "$@"; }
+remote() {
+  # Retry only when the SSH connection itself could not be established (e.g. a
+  # transient DNS blip), never on a command error, so non-idempotent commands
+  # such as `qm clone` are not repeated.
+  local out err errfile
+  errfile=$(mktemp) || return 1
+  for _ in 1 2 3 4 5 6; do
+    if out=$(ssh -o BatchMode=yes -o ConnectTimeout=10 "$host" "$@" 2>"$errfile"); then
+      if [[ -s $errfile ]]; then cat "$errfile" >&2; fi
+      rm -f "$errfile"; printf '%s\n' "$out"; return 0
+    fi
+    err=$(cat "$errfile" 2>/dev/null || true)
+    case "$err" in
+      *"Could not resolve hostname"*|*"Temporary failure in name resolution"*|*"Connection refused"*|*"Connection timed out"*|*"Network is unreachable"*|*"No route to host"*) sleep 3 ;;
+      *) printf '%s\n' "$err" >&2; rm -f "$errfile"; return 1 ;;
+    esac
+  done
+  printf '%s\n' "$err" >&2; rm -f "$errfile"; return 1
+}
+node_ssh() { ssh -o BatchMode=yes -o ConnectTimeout=10 -o StrictHostKeyChecking=yes -o GlobalKnownHostsFile=/dev/null -o "UserKnownHostsFile=$known_hosts" "$@"; }
 list_vms() { vm_list=$(remote 'qm list') || { echo 'Could not list VMs; refusing operation' >&2; exit 1; }; }
 exists() { awk -v id="$1" '$1 == id { found=1 } END { exit !found }' <<<"$vm_list"; }
 owned() { remote "qm config $1" | grep -Fxq "description: $marker"; }
@@ -34,11 +56,26 @@ ip_for() {
   [[ $(grep -c . <<<"$ips") == 1 ]] || return 1
   printf '%s\n' "$ips"
 }
+guest_host_key() {
+  local id=$1 result key
+  result=$(remote "qm guest exec $id -- cat /etc/ssh/ssh_host_ed25519_key.pub") || return 1
+  key=$(jq -er 'select(.exited == 1 and .exitcode == 0) | ."out-data"' <<<"$result") || return 1
+  [[ $key =~ ^ssh-ed25519\ [a-zA-Z0-9+/=]+(\ .*)?$ ]] || return 1
+  printf '%s\n' "$key"
+}
+trust_guest() {
+  local id=$1 ip=$2 key line
+  key=$(guest_host_key "$id") || return 1
+  line="$ip $key"
+  grep -Fxq "$line" "$known_hosts" || printf '%s\n' "$line" >> "$known_hosts"
+}
 wait_ip() {
   local id=$1 deadline=$((SECONDS+timeout)) ip
   while (( SECONDS < deadline )); do
-    if ip=$(ip_for "$id" 2>/dev/null) && ssh -o BatchMode=yes -o ConnectTimeout=5 "$ssh_user@$ip" true </dev/null >/dev/null 2>&1; then printf '%s\n' "$ip"; return; fi
-    sleep 5
+    if ip=$(ip_for "$id" 2>/dev/null) && trust_guest "$id" "$ip" && node_ssh "$ssh_user@$ip" true </dev/null >/dev/null 2>&1; then
+      printf '%s\n' "$ip"; return
+    fi
+    sleep 3
   done
   echo "Timed out waiting for guest agent and SSH on VM $id" >&2; return 1
 }
@@ -51,24 +88,35 @@ case "$command" in
     for ((id=start; id<=end; id++)); do
       if exists "$id"; then echo "VM $id already exists; refusing to create" >&2; exit 1; fi
     done
+    [[ $known_hosts != *[[:space:]]* && $known_hosts != *"'"* && ! -L $known_hosts ]] || { echo 'Unsafe known-hosts path' >&2; exit 1; }
+    if [[ -e $known_hosts ]] && [[ $(head -n 1 "$known_hosts") != '# Painkiller managed host keys' ]]; then
+      echo "Refusing to overwrite unmanaged $known_hosts" >&2; exit 1
+    fi
+    mkdir -p "$(dirname "$known_hosts")"
+    (umask 077; printf '%s\n' '# Painkiller managed host keys' > "$known_hosts")
     available=$(remote "awk '/MemAvailable:/ {print int(\$2/1024)}' /proc/meminfo")
-    [[ $available =~ ^[0-9]+$ ]] && (( available >= (end-start+1)*memory + 4096 )) || { echo 'Insufficient available host memory (including 4 GiB reserve)' >&2; exit 1; }
+    if ! [[ $available =~ ^[0-9]+$ ]] || (( available < (end-start+1)*memory + 4096 )); then
+      echo 'Insufficient available host memory (including 4 GiB reserve)' >&2; exit 1
+    fi
     for ((id=start; id<=end; id++)); do
-      echo "Creating VM $id" >&2
-      remote "qm clone $template $id --name k8s-$id --full 0"
-      # Mark immediately; if this fails, manual cleanup is required.
-      remote "qm set $id --description $marker"
+      echo "Creating linked clone VM $id" >&2
+      remote "qm clone $template $id --name k8s-$id --full 0 --description $marker"
+      require_owned "$id"
       remote "qm set $id --memory $memory"
       remote "qm start $id"
     done
     echo 'Waiting for guest agents and SSH...' >&2
-    for ((id=start; id<=end; id++)); do wait_ip "$id" >/dev/null; done
+    for ((id=start; id<=end; id++)); do
+      if ! wait_ip "$id" >/dev/null; then
+        echo "Lab VM $id did not become reachable; inspect it and reset" >&2; exit 1
+      fi
+    done
     "$0" status
     ;;
   status)
     ips=()
     for ((id=start; id<=end; id++)); do require_owned "$id"; ips+=("$(ip_for "$id")"); done
-    [[ $(printf '%s\n' "${ips[@]}" | sort -u | wc -l) -eq ${#ips[@]} ]] || { echo 'Duplicate guest IPs detected; check template machine IDs and DHCP' >&2; exit 1; }
+    [[ $(printf '%s\n' "${ips[@]}" | sort -u | wc -l) -eq ${#ips[@]} ]] || { echo 'Duplicate guest IPs detected; check DHCP and reset the lab' >&2; exit 1; }
     control_ips=$(IFS=,; echo "${ips[*]:0:controllers}")
     worker_ips=$(IFS=,; echo "${ips[*]:controllers}")
     jq -n --arg control "$control_ips" --arg workers "$worker_ips" '{controller_ips:$control,worker_ips:$workers}'
@@ -78,14 +126,27 @@ case "$command" in
     state=$("$0" status)
     control_ips=$(jq -r .controller_ips <<<"$state")
     worker_ips=$(jq -r .worker_ips <<<"$state")
-    args=( -i localhost, -c local "$playbooks/kubeadm-cluster/kubeadm-cluster.yml" -e "controller_ips=$control_ips worker_ips=$worker_ips ansible_ssh_user=$ssh_user kubernetes_version=${LAB_KUBERNETES_VERSION:-1.36.1} cni_plugin=${LAB_CNI_PLUGIN:-flannel}" )
+    [[ -f $known_hosts && ! -L $known_hosts && $(head -n 1 "$known_hosts") == '# Painkiller managed host keys' ]] || { echo 'Missing or unmanaged lab host-key file; reset the lab' >&2; exit 1; }
+    # Only marked VMs in the authorized range receive this disposable lab policy.
+    for ((id=start; id<=end; id++)); do
+      ip=$(ip_for "$id") || { echo "VM $id address unavailable" >&2; exit 1; }
+      trust_guest "$id" "$ip" || { echo "Could not verify the host key for VM $id" >&2; exit 1; }
+      result=$(remote "qm guest exec $id -- sh -c 'set -e; id $ssh_user >/dev/null; mkdir -p /etc/sudoers.d; printf \"%s ALL=(ALL) NOPASSWD:ALL\\n\" $ssh_user > /etc/sudoers.d/painkiller-shell; chmod 440 /etc/sudoers.d/painkiller-shell; visudo -cf /etc/sudoers.d/painkiller-shell >/dev/null'")
+      jq -e '.exited == 1 and .exitcode == 0' <<<"$result" >/dev/null || { echo "Failed to configure lab sudo on VM $id: $result" >&2; exit 1; }
+    done
+    mkdir -p "$PWD/data/kubeconfigs"
+    kubeconfig_dir=$(mktemp -d "$PWD/data/kubeconfigs/exam.XXXXXXXX")
+    kubeconfig_vars=$(jq -nc --arg dir "$kubeconfig_dir" '{local_kubeconfig_dir:$dir}')
+    args=( -i 'localhost,' -c local "$playbooks/kubeadm-cluster/kubeadm-cluster.yml" -e "controller_ips=$control_ips worker_ips=$worker_ips ansible_ssh_user=$ssh_user kubernetes_version=${LAB_KUBERNETES_VERSION:-1.36.1} cni_plugin=${LAB_CNI_PLUGIN:-flannel}" -e "$kubeconfig_vars" )
     if [[ -n ${LAB_CONTROL_PLANE_ENDPOINT:-} ]]; then args+=( -e "control_plane_endpoint=$LAB_CONTROL_PLANE_ENDPOINT" ); fi
-    ansible-playbook "${args[@]}"
+    ansible-playbook "${args[@]}" --ssh-common-args "-o UserKnownHostsFile=$known_hosts -o GlobalKnownHostsFile=/dev/null -o StrictHostKeyChecking=yes"
     first=${control_ips%%,*}
-    ssh -o BatchMode=yes -o ConnectTimeout=10 "$ssh_user@$first" 'set -eu; mkdir -p "$HOME/.kube"; chmod 700 "$HOME/.kube"; sudo -n install -m 600 -o "$(id -u)" -g "$(id -g)" /etc/kubernetes/admin.conf "$HOME/.kube/config"; if ! command -v jq >/dev/null; then sudo -n apt-get update && sudo -n apt-get install -y jq; fi'
-    node_count=$(ssh -o BatchMode=yes -o ConnectTimeout=10 "$ssh_user@$first" 'kubectl get nodes --no-headers' | wc -l)
+    # Expand the home directory and user IDs on the guest, not on the management host.
+    # shellcheck disable=SC2016
+    node_ssh "$ssh_user@$first" 'set -eu; mkdir -p "$HOME/.kube"; chmod 700 "$HOME/.kube"; sudo -n install -m 600 -o "$(id -u)" -g "$(id -g)" /etc/kubernetes/admin.conf "$HOME/.kube/config"; if ! command -v jq >/dev/null; then sudo -n apt-get update && sudo -n apt-get install -y jq; fi'
+    node_count=$(node_ssh "$ssh_user@$first" 'kubectl get nodes --no-headers' | wc -l)
     [[ $node_count -eq $((end-start+1)) ]] || { echo "Expected $((end-start+1)) nodes, got $node_count" >&2; exit 1; }
-    ssh -o BatchMode=yes -o ConnectTimeout=10 "$ssh_user@$first" "kubectl wait --for=condition=Ready nodes --all --timeout=${timeout}s"
+    node_ssh "$ssh_user@$first" "kubectl wait --for=condition=Ready nodes --all --timeout=${timeout}s"
     ;;
   start|stop|destroy)
     # Check all VMs before acting, so a mixed range is never partially operated on.

@@ -26,14 +26,20 @@ import (
 )
 
 type task struct {
-	ID, Title, Instructions, Check, Solution string
-	Points                                   int
-	Checks                                   []check
+	ID, Title, Instructions, Check, Solution, Explanation string
+	Resource                                              string
+	Points                                                int
+	Checks                                                []check
 }
 type check struct {
 	Description string
 	Points      int
 	Command     string
+	Expression  string
+}
+type answerSnapshot struct {
+	Data  json.RawMessage `json:"data,omitempty"`
+	Error string          `json:"error,omitempty"`
 }
 type checkResult struct {
 	Description string `json:"description"`
@@ -49,13 +55,16 @@ type result struct {
 	Checks []checkResult `json:"checks,omitempty"`
 }
 type state struct {
-	Phase    string          `json:"phase"`
-	Deadline time.Time       `json:"deadline,omitempty"`
-	Results  []result        `json:"results,omitempty"`
-	Flags    map[string]bool `json:"flags,omitempty"`
-	Done     map[string]bool `json:"done,omitempty"`
-	Message  string          `json:"message,omitempty"`
-	Host     string          `json:"host,omitempty"`
+	Phase           string                    `json:"phase"`
+	Deadline        time.Time                 `json:"deadline,omitempty"`
+	Results         []result                  `json:"results,omitempty"`
+	Flags           map[string]bool           `json:"flags,omitempty"`
+	Done            map[string]bool           `json:"done,omitempty"`
+	Message         string                    `json:"message,omitempty"`
+	FailedOperation string                    `json:"failed_operation,omitempty"`
+	Host            string                    `json:"host,omitempty"`
+	Selected        string                    `json:"selected,omitempty"`
+	Answers         map[string]answerSnapshot `json:"answers,omitempty"`
 }
 type app struct {
 	mu        sync.Mutex
@@ -63,6 +72,7 @@ type app struct {
 	tasks     []task
 	terminals map[*os.File]*exec.Cmd
 	file      string
+	lockDir   string
 	db        *sql.DB
 	duration  time.Duration
 }
@@ -79,6 +89,7 @@ func (a *app) saveBackground() {
 	if err := a.save(); err != nil {
 		log.Printf("persist background operation: %v", err)
 		a.state.Phase = "error"
+		a.state.FailedOperation = "persistence"
 		a.state.Message = "Could not persist operation result; check disk and restart before proceeding."
 	}
 }
@@ -105,7 +116,9 @@ func (a *app) status(w http.ResponseWriter, r *http.Request) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	a.expire()
-	json.NewEncoder(w).Encode(a.state)
+	public := a.state
+	public.Answers = nil // snapshots can contain secrets
+	json.NewEncoder(w).Encode(public)
 }
 func output(name string, args ...string) (string, error) {
 	c := exec.Command(name, args...)
@@ -119,30 +132,67 @@ func (a *app) run(name string, args ...string) (string, error) {
 	}
 	defer f.Close()
 	var b bytes.Buffer
-	c := exec.Command(name, args...)
+	// The lock is inherited by child processes after the server exits.
+	lockDir := a.lockDir
+	if lockDir == "" {
+		lockDir = filepath.Dir(a.file)
+	}
+	command := append([]string{"-n", "-E", "75", filepath.Join(lockDir, "lab-operation.lock"), name}, args...)
+	c := exec.Command("flock", command...)
 	c.Stdout = io.MultiWriter(f, &b)
 	c.Stderr = c.Stdout
 	err = c.Run()
 	text := b.String()
+	var exit *exec.ExitError
+	if errors.As(err, &exit) && exit.ExitCode() == 75 {
+		return "Another lab operation is still running; retry after it finishes.", err
+	}
 	if len(text) > 8192 {
 		text = text[len(text)-8192:]
 	}
 	return text, err
 }
 func (a *app) prepare() {
-	if err := os.WriteFile(filepath.Join(filepath.Dir(a.file), "operation.log"), nil, 0600); err != nil {
+	a.prepareLab(true)
+}
+func (a *app) prepareLab(create bool) {
+	logPath := filepath.Join(filepath.Dir(a.file), "operation.log")
+	var logErr error
+	if create {
+		logErr = os.WriteFile(logPath, nil, 0600)
+	} else {
+		var f *os.File
+		f, logErr = os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0600)
+		if logErr == nil {
+			_, logErr = fmt.Fprintln(f, "\n--- Retrying preparation ---")
+			if e := f.Close(); logErr == nil {
+				logErr = e
+			}
+		}
+	}
+	if logErr != nil {
 		a.mu.Lock()
 		a.state.Phase = "error"
-		a.state.Message = err.Error()
+		a.state.FailedOperation = "prepare"
+		a.state.Message = logErr.Error()
 		if e := a.save(); e != nil {
 			log.Print(e)
 		}
 		a.mu.Unlock()
 		return
 	}
-	out, err := a.run("scripts/create-lab.sh", "create")
+	var out string
+	var err error
+	if create {
+		out, err = a.run("scripts/create-lab.sh", "create")
+	} else {
+		out, err = a.run("scripts/create-lab.sh", "status")
+	}
 	if err == nil {
 		out, err = a.run("scripts/create-lab.sh", "provision")
+	}
+	if err == nil {
+		out, err = a.run("scripts/configure-exam-access.sh")
 	}
 	var host string
 	if err == nil {
@@ -164,7 +214,9 @@ func (a *app) prepare() {
 		setup, err = os.Open("exam/setup.yaml")
 		if err == nil {
 			defer setup.Close()
-			cmd := exec.Command("ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", env("LAB_SSH_USER", "milkman")+"@"+host, "kubectl apply -f -")
+			args := append([]string{"120s", "ssh"}, labSSHArgs()...)
+			args = append(args, env("LAB_SSH_USER", "milkman")+"@"+host, "kubectl apply -f -")
+			cmd := exec.Command("timeout", args...)
 			cmd.Stdin = setup
 			var b []byte
 			b, err = cmd.CombinedOutput()
@@ -175,6 +227,7 @@ func (a *app) prepare() {
 	defer a.mu.Unlock()
 	if err != nil {
 		a.state.Phase = "error"
+		a.state.FailedOperation = "prepare"
 		a.state.Message = fmt.Sprintf("%v: %s", err, out)
 	} else {
 		a.state = state{Phase: "ready", Host: host}
@@ -184,13 +237,74 @@ func (a *app) prepare() {
 func (a *app) grade() {
 	a.mu.Lock()
 	host := a.state.Host
+	answers := a.state.Answers
+	if answers == nil {
+		answers = make(map[string]answerSnapshot)
+	}
 	a.mu.Unlock()
 	user := env("LAB_SSH_USER", "milkman")
+	// Capture each answer once, before evaluating any checks. Successfully
+	// captured resources are immutable even when a failed capture is retried.
+	for _, t := range a.tasks {
+		if t.Resource == "" {
+			continue
+		}
+		if saved, ok := answers[t.ID]; ok && saved.Error == "" {
+			continue
+		}
+		args := append([]string{"30s", "ssh"}, labSSHArgs()...)
+		args = append(args, user+"@"+host, t.Resource)
+		var out string
+		var err error
+		for attempt := 0; attempt < 2; attempt++ {
+			out, err = output("timeout", args...)
+			if err == nil || strings.Contains(out, "(NotFound)") {
+				break
+			}
+			if attempt == 0 {
+				time.Sleep(time.Second)
+			}
+		}
+		snap := answerSnapshot{Data: json.RawMessage("null")}
+		if err != nil && strings.Contains(out, "(NotFound)") {
+			// A deleted namespace or object is an incorrect answer, not a grader outage.
+		} else if err != nil {
+			snap.Error = fmt.Sprintf("capture failed: %v %s", err, strings.TrimSpace(out))
+		} else if strings.TrimSpace(out) != "" {
+			if !json.Valid([]byte(out)) {
+				snap.Error = "capture returned invalid JSON"
+			} else {
+				snap.Data = json.RawMessage(out)
+			}
+		}
+		answers[t.ID] = snap
+		a.mu.Lock()
+		a.state.Answers = answers
+		saveErr := a.save()
+		a.mu.Unlock()
+		if saveErr != nil {
+			log.Printf("persist answer snapshot: %v", saveErr)
+			a.mu.Lock()
+			a.state.Phase = "error"
+			a.state.FailedOperation = "persistence"
+			a.state.Message = "Could not persist captured answers; restart to retry grading."
+			a.mu.Unlock()
+			return
+		}
+	}
 	results := make([]result, 0, len(a.tasks))
 	for _, t := range a.tasks {
-		if health, err := output("timeout", "30s", "ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", user+"@"+host, "kubectl get --raw=/readyz"); err != nil {
-			results = append(results, result{ID: t.ID, Error: fmt.Sprintf("cluster unavailable: %v %s", err, strings.TrimSpace(health))})
+		if t.Resource != "" && answers[t.ID].Error != "" {
+			results = append(results, result{ID: t.ID, Error: answers[t.ID].Error})
 			continue
+		}
+		if t.Resource == "" {
+			args := append([]string{"30s", "ssh"}, labSSHArgs()...)
+			args = append(args, user+"@"+host, "kubectl get --raw=/readyz")
+			if health, err := output("timeout", args...); err != nil {
+				results = append(results, result{ID: t.ID, Error: fmt.Sprintf("cluster unavailable: %v %s", err, strings.TrimSpace(health))})
+				continue
+			}
 		}
 		checks := t.Checks
 		if len(checks) == 0 {
@@ -198,7 +312,22 @@ func (a *app) grade() {
 		}
 		res := result{ID: t.ID}
 		for _, c := range checks {
-			out, err := output("timeout", "30s", "ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", user+"@"+host, "bash -o pipefail -c "+shellQuote(c.Command))
+			var out string
+			var err error
+			if t.Resource != "" {
+				cmd := exec.Command("timeout", "30s", "jq", "-e", "try ("+c.Expression+") catch false")
+				cmd.Stdin = bytes.NewReader(answers[t.ID].Data)
+				var b []byte
+				b, err = cmd.CombinedOutput()
+				out = strings.TrimSpace(string(b))
+				if out == "false" || out == "null" {
+					out = ""
+				}
+			} else {
+				args := append([]string{"30s", "ssh"}, labSSHArgs()...)
+				args = append(args, user+"@"+host, "bash -o pipefail -c "+shellQuote(c.Command))
+				out, err = output("timeout", args...)
+			}
 			cr := checkResult{Description: c.Description, Points: c.Points}
 			if err == nil {
 				cr.Earned = c.Points
@@ -228,6 +357,9 @@ func env(k, d string) string {
 	}
 	return d
 }
+func labSSHArgs() []string {
+	return []string{"-o", "BatchMode=yes", "-o", "ConnectTimeout=10", "-o", "StrictHostKeyChecking=yes", "-o", "GlobalKnownHostsFile=/dev/null", "-o", "UserKnownHostsFile=" + env("LAB_KNOWN_HOSTS", "data/lab_known_hosts")}
+}
 func (a *app) action(w http.ResponseWriter, r *http.Request) {
 	if r.Method != "POST" {
 		http.Error(w, "method not allowed", 405)
@@ -246,6 +378,15 @@ func (a *app) action(w http.ResponseWriter, r *http.Request) {
 		}
 		a.state.Phase = "preparing"
 		next = a.prepare
+	case "retry":
+		if a.state.Phase != "error" || a.state.FailedOperation != "prepare" {
+			http.Error(w, "lab preparation is not retryable", 409)
+			return
+		}
+		a.state.Phase = "preparing"
+		a.state.FailedOperation = ""
+		a.state.Message = ""
+		next = func() { a.prepareLab(false) }
 	case "start":
 		if a.state.Phase != "ready" {
 			http.Error(w, "lab is not ready", 409)
@@ -289,12 +430,15 @@ func (a *app) action(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		a.state.Phase = "resetting"
+		a.state.Message = ""
+		a.state.FailedOperation = ""
 		next = func() {
 			out, err := a.run("scripts/create-lab.sh", "destroy")
 			a.mu.Lock()
 			defer a.mu.Unlock()
 			if err != nil {
 				a.state.Phase = "error"
+				a.state.FailedOperation = "reset"
 				a.state.Message = fmt.Sprintf("%v: %s", err, out)
 			} else {
 				a.state = state{Phase: "idle"}
@@ -313,6 +457,64 @@ func (a *app) action(w http.ResponseWriter, r *http.Request) {
 		}
 		a.state.Flags = marks.Flags
 		a.state.Done = marks.Done
+	case "mark":
+		if a.state.Phase != "running" || !time.Now().Before(a.state.Deadline) {
+			http.Error(w, "exam is not running", 409)
+			return
+		}
+		var mark struct {
+			ID         string
+			Flag, Done bool
+		}
+		if json.NewDecoder(http.MaxBytesReader(w, r.Body, 1024)).Decode(&mark) != nil {
+			http.Error(w, "invalid mark", 400)
+			return
+		}
+		found := false
+		for _, task := range a.tasks {
+			if task.ID == mark.ID {
+				found = true
+				break
+			}
+		}
+		if !found {
+			http.Error(w, "unknown task", 400)
+			return
+		}
+		flags := make(map[string]bool, len(a.state.Flags)+1)
+		for k, v := range a.state.Flags {
+			flags[k] = v
+		}
+		flags[mark.ID] = mark.Flag
+		done := make(map[string]bool, len(a.state.Done)+1)
+		for k, v := range a.state.Done {
+			done[k] = v
+		}
+		done[mark.ID] = mark.Done
+		a.state.Flags = flags
+		a.state.Done = done
+	case "select":
+		if a.state.Phase != "running" || !time.Now().Before(a.state.Deadline) {
+			http.Error(w, "exam is not running", 409)
+			return
+		}
+		var selection struct{ ID string }
+		if json.NewDecoder(http.MaxBytesReader(w, r.Body, 1024)).Decode(&selection) != nil {
+			http.Error(w, "invalid selection", 400)
+			return
+		}
+		found := false
+		for _, task := range a.tasks {
+			if task.ID == selection.ID {
+				found = true
+				break
+			}
+		}
+		if !found {
+			http.Error(w, "unknown task", 400)
+			return
+		}
+		a.state.Selected = selection.ID
 	default:
 		http.NotFound(w, r)
 		return
@@ -356,7 +558,9 @@ func (a *app) terminal(w http.ResponseWriter, r *http.Request) {
 		a.mu.Unlock()
 		return
 	}
-	cmd := exec.Command("ssh", "-tt", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", env("LAB_SSH_USER", "milkman")+"@"+host)
+	args := append([]string{"-tt"}, labSSHArgs()...)
+	args = append(args, env("LAB_SSH_USER", "milkman")+"@"+host)
+	cmd := exec.Command("ssh", args...)
 	f, err := pty.Start(cmd)
 	if err != nil {
 		a.mu.Unlock()
@@ -411,7 +615,7 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	a := &app{file: env("PAINKILLER_STATE", "data/state.db"), terminals: map[*os.File]*exec.Cmd{}, state: state{Phase: "idle"}}
+	a := &app{file: env("PAINKILLER_STATE", "data/state.db"), lockDir: env("PAINKILLER_LAB_LOCK_DIR", "data"), terminals: map[*os.File]*exec.Cmd{}, state: state{Phase: "idle"}}
 	if err = json.Unmarshal(b, &a.tasks); err != nil {
 		log.Fatal(err)
 	}
@@ -425,6 +629,17 @@ func main() {
 	a.duration = time.Duration(minutes) * time.Minute
 	if err = os.MkdirAll(filepath.Dir(a.file), 0700); err != nil {
 		log.Fatal(err)
+	}
+	if err = os.MkdirAll(a.lockDir, 0700); err != nil {
+		log.Fatal(err)
+	}
+	labLock, err := os.OpenFile(filepath.Join(a.lockDir, "lab-server.lock"), os.O_CREATE|os.O_RDWR, 0600)
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer labLock.Close()
+	if err = syscall.Flock(int(labLock.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
+		log.Fatal("another server controls this lab: ", err)
 	}
 	lock, err := os.OpenFile(a.file+".lock", os.O_CREATE|os.O_RDWR, 0600)
 	if err != nil {
@@ -473,7 +688,18 @@ func main() {
 	} else {
 		log.Fatal(err)
 	}
+	if normalizeLegacyScores(&a.state, a.tasks) {
+		if err = a.save(); err != nil {
+			log.Fatal(err)
+		}
+	}
 	if a.state.Phase == "preparing" || a.state.Phase == "resetting" {
+		a.state.FailedOperation = a.state.Phase
+		if a.state.FailedOperation == "preparing" {
+			a.state.FailedOperation = "prepare"
+		} else {
+			a.state.FailedOperation = "reset"
+		}
 		a.state.Phase = "error"
 		a.state.Message = "Service restarted during a lab operation. Inspect the lab and reset it."
 		if err = a.save(); err != nil {
@@ -515,6 +741,7 @@ func main() {
 			ID, Title, Instructions string
 			Points                  int
 			Solution                string `json:",omitempty"`
+			Explanation             string `json:",omitempty"`
 		}
 		ts := []publicTask{}
 		if a.state.Phase == "running" || a.state.Phase == "completed" {
@@ -522,6 +749,7 @@ func main() {
 				p := publicTask{ID: t.ID, Title: t.Title, Instructions: t.Instructions, Points: t.Points}
 				if a.state.Phase == "completed" {
 					p.Solution = t.Solution
+					p.Explanation = t.Explanation
 				}
 				ts = append(ts, p)
 			}
@@ -542,6 +770,24 @@ func main() {
 	log.Fatal(http.ListenAndServe(addr, nil))
 }
 
+func normalizeLegacyScores(s *state, tasks []task) bool {
+	changed := false
+	for i := range s.Results {
+		r := &s.Results[i]
+		if !r.Passed || r.Earned != 0 {
+			continue
+		}
+		for _, t := range tasks {
+			if t.ID == r.ID {
+				r.Earned = t.Points
+				changed = true
+				break
+			}
+		}
+	}
+	return changed
+}
+
 func validateTasks(tasks []task) error {
 	seen := map[string]bool{}
 	total := 0
@@ -559,7 +805,7 @@ func validateTasks(tasks []task) error {
 		}
 		n := 0
 		for _, c := range t.Checks {
-			if c.Description == "" || c.Command == "" || c.Points <= 0 {
+			if c.Description == "" || (t.Resource == "" && c.Command == "") || (t.Resource != "" && c.Expression == "") || c.Points <= 0 {
 				return fmt.Errorf("invalid check for %s", t.ID)
 			}
 			n += c.Points
