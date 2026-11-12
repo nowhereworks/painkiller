@@ -3,8 +3,10 @@ package proxmox
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"reflect"
 	"strings"
 	"testing"
@@ -214,5 +216,40 @@ func TestCloneVMLinkedMode(t *testing.T) {
 	}
 	if got != 1234 {
 		t.Fatalf("CloneVM = %d, want 1234", got)
+	}
+}
+
+func TestConfigureVMEncodesSSHKeysForProxmox(t *testing.T) {
+	var captured url.Values
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPut || r.URL.Path != "/api2/json/nodes/pve1/qemu/123/config" {
+			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
+		}
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			t.Fatalf("read request body: %v", err)
+		}
+		captured, err = url.ParseQuery(string(body))
+		if err != nil {
+			t.Fatalf("parse request body: %v", err)
+		}
+		_, _ = w.Write([]byte(`{"data":null}`))
+	}))
+	defer server.Close()
+
+	client := NewClient(Config{APIURL: server.URL, Node: "pve1"})
+	err := client.ConfigureVM(context.Background(), 123, map[string]string{
+		"sshkeys":   "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIBq0Ti2rBvil878oPWqhSDKOK07+KGdRB1/GlSu2VR/i",
+		"ipconfig0": "ip=dhcp",
+	})
+	if err != nil {
+		t.Fatalf("ConfigureVM failed: %v", err)
+	}
+
+	if got := captured.Get("sshkeys"); !strings.Contains(got, "+") || !strings.Contains(got, "%2F") {
+		t.Fatalf("sshkeys = %q, want url-escaped payload", got)
+	}
+	if got := captured.Get("ipconfig0"); got != "ip=dhcp" {
+		t.Fatalf("ipconfig0 = %q, want ip=dhcp", got)
 	}
 }

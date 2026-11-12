@@ -262,6 +262,9 @@ func (c *Client) ConfigureVM(ctx context.Context, vmID int, config map[string]st
 	path := fmt.Sprintf("/nodes/%s/qemu/%d/config", c.config.Node, vmID)
 	formData := url.Values{}
 	for k, v := range config {
+		if k == "sshkeys" {
+			v = url.QueryEscape(v)
+		}
 		formData.Set(k, v)
 	}
 

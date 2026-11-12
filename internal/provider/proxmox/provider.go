@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/url"
 	"strings"
 	"time"
 
@@ -46,9 +47,21 @@ func (p *ProxmoxProvider) waitForIP(ctx context.Context, vmID int) (string, erro
 func (p *ProxmoxProvider) renderProfileConfig(profile CloneProfile, vm provider.VMRequest) map[string]string {
 	cfg := make(map[string]string, len(profile.Config))
 	for key, value := range profile.Config {
-		cfg[key] = renderProfileValue(value, vm)
+		rendered := renderProfileValue(value, vm)
+		if key == "sshkeys" {
+			rendered = sanitizeSSHKeysValue(rendered)
+		}
+		cfg[key] = rendered
 	}
 	return cfg
+}
+
+func sanitizeSSHKeysValue(value string) string {
+	value = strings.TrimSpace(value)
+	value = strings.ReplaceAll(value, "\r", "")
+	value = strings.ReplaceAll(value, "\n", "")
+	value = strings.Replace(url.QueryEscape(value), "+", "%20", 1)
+	return value
 }
 
 func renderProfileValue(value string, vm provider.VMRequest) string {

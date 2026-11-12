@@ -140,6 +140,20 @@ func TestRenderProfileConfig(t *testing.T) {
 	}
 }
 
+func TestRenderProfileConfigSanitizesSSHKeys(t *testing.T) {
+	p := &ProxmoxProvider{}
+	got := p.renderProfileConfig(CloneProfile{Config: map[string]string{
+		"sshkeys": "\n  {{ ssh_public_key }}\r\n",
+	}}, provider.VMRequest{SSHPublicKey: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAITestKey\n"})
+
+	if strings.Contains(got["sshkeys"], "\n") || strings.Contains(got["sshkeys"], "\r") {
+		t.Fatalf("sshkeys = %q, want single-line value", got["sshkeys"])
+	}
+	if got["sshkeys"] != "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAITestKey" {
+		t.Fatalf("sshkeys = %q, want sanitized key", got["sshkeys"])
+	}
+}
+
 func TestProfileForUnknownProfile(t *testing.T) {
 	p := &ProxmoxProvider{config: Config{Profiles: map[string]CloneProfile{}}}
 	_, err := p.profileFor("missing")

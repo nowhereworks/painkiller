@@ -348,13 +348,19 @@ journalctl -u painkiller | grep "provision_environment"
    ```
    **Solution:** Clean up old VMs or expand storage
 
-4. **Missing Proxmox clone VMID:**
+6. **Invalid `sshkeys` format:**
+   ```
+   Error: failed to configure workstation: proxmox API error (status 400): {"errors":{"sshkeys":"invalid format - invalid urlencoded string: ssh-ed25519 ...\n"}}
+   ```
+   **Solution:** Ensure clone profiles use `sshkeys: "{{ ssh_public_key }}"` (not YAML block styles like `|`/`>`), then rebuild and redeploy the server with the current Proxmox client fix. Painkiller now strips trailing CR/LF and sends `sshkeys` in the encoding format Proxmox expects for cloud-init.
+
+7. **Missing Proxmox clone VMID:**
    ```
    errors":{"newid":"property is missing and it is not optional"}
    ```
    **Solution:** Rebuild and redeploy the Painkiller server. Current versions call Proxmox `/cluster/nextid`, send that value as `newid` on clone requests, and retry with a fresh VMID if another process uses the same ID first.
 
-5. **Provision attempt already failed:**
+8. **Provision attempt already failed:**
    ```
    invalid state transition: provision_failed -> environment_provisioning
    ```

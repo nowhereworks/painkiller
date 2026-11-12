@@ -1,4 +1,4 @@
-.PHONY: run test lint migrate-up migrate-down web-install web-dev web-build docs-serve docs-build
+.PHONY: run test lint migrate-up migrate-down web-install web-dev web-build docs-serve docs-build run-dev run-dev-clean
 
 run:
 	go run ./cmd/server
@@ -30,6 +30,10 @@ docs-serve:
 docs-build:
 	hugo --minify
 
-.PHONY: run-dev
 run-dev:
 	docker compose -f resources/docker-compose-dev-ephemeral.yaml up --build
+
+run-dev-clean:
+	docker compose -f resources/docker-compose-dev-ephemeral.yaml down -v --remove-orphans
+	docker compose -f resources/docker-compose-dev-ephemeral.yaml build --no-cache --pull
+	docker compose -f resources/docker-compose-dev-ephemeral.yaml up --force-recreate
