@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 # Manage only VMs explicitly marked as belonging to this lab.
-# Template 9010 is pre-configured (SSH keys, DNS, DHCP identity); clones only
+# Templates are pre-configured (SSH keys, DNS, DHCP identity); clones only
 # need to be started and waited for. No net0/cloud-init/identity manipulation.
 set -Eeuo pipefail
 command=${1:-help}
 host=${LAB_PROXMOX_HOST:-root@prox-k12}
-mode=${LAB_PROVISION_MODE:-legacy}
+mode=${LAB_PROVISION_MODE:-prebaked}
 if [[ $mode == prebaked ]]; then template=${LAB_TEMPLATE_ID:-9100}; else template=${LAB_TEMPLATE_ID:-9010}; fi
 start=${LAB_VM_START:-3000}
 end=${LAB_VM_END:-3002}
@@ -14,8 +14,8 @@ marker=${LAB_MARKER:-painkiller-mvp}
 prefix=${LAB_IP_PREFIX:-192.168.254.}
 timeout=${LAB_READY_TIMEOUT:-600}
 ssh_user=${LAB_SSH_USER:-milkman}
-playbooks=${LAB_PLAYBOOKS_DIR:-$HOME/repo/_nowhereworks/lab-ansible-playbooks}
-revision=${LAB_PLAYBOOKS_REV:-8ec676e93017ce3e110c27485e25d1f32d541056}
+# shellcheck source=scripts/playbooks.sh
+source "$(dirname -- "${BASH_SOURCE[0]}")/playbooks.sh"
 memory=${LAB_VM_MEMORY:-3072}
 known_hosts=${LAB_KNOWN_HOSTS:-$PWD/data/lab_known_hosts}
 version=${LAB_KUBERNETES_VERSION:-1.36.1}
@@ -25,7 +25,7 @@ version=${LAB_KUBERNETES_VERSION:-1.36.1}
 [[ $marker =~ ^[a-zA-Z0-9_-]+$ && $prefix =~ ^[0-9.]+$ && $ssh_user =~ ^[a-zA-Z0-9_-]+$ ]] || { echo 'Invalid marker, IP prefix, or SSH user' >&2; exit 1; }
 [[ $mode == legacy || $mode == prebaked ]] || { echo 'Invalid provisioning mode' >&2; exit 1; }
 if [[ $mode == prebaked ]]; then
-  [[ $template -ge 9100 && $template -le 9200 && $controllers == 1 && ${LAB_CNI_PLUGIN:-flannel} == flannel && $version =~ ^[0-9]+\.[0-9]+\.[0-9]+$ && $revision =~ ^[a-f0-9]{40}$ && -z ${LAB_CONTROL_PLANE_ENDPOINT:-} ]] || { echo 'Prebaked mode requires a Painkiller template, one controller, Flannel, and no custom endpoint' >&2; exit 1; }
+  [[ $template -ge 9100 && $template -le 9200 && $controllers == 1 && ${LAB_CNI_PLUGIN:-flannel} == flannel && $version =~ ^[0-9]+\.[0-9]+\.[0-9]+$ && -z ${LAB_CONTROL_PLANE_ENDPOINT:-} ]] || { echo 'Prebaked mode requires a Painkiller template, one controller, Flannel, and no custom endpoint' >&2; exit 1; }
 fi
 remote() {
   # Retry only when the SSH connection itself could not be established (e.g. a
@@ -51,10 +51,6 @@ list_vms() { vm_list=$(remote 'qm list') || { echo 'Could not list VMs; refusing
 exists() { awk -v id="$1" '$1 == id { found=1 } END { exit !found }' <<<"$vm_list"; }
 owned() { remote "qm config $1" | grep -Fxq "description: $marker"; }
 require_owned() { owned "$1" || { echo "VM $1 is not marked $marker; refusing operation" >&2; exit 1; }; }
-check_playbooks() {
-  [[ $(git -C "$playbooks" rev-parse HEAD) == "$revision" ]] || { echo "Playbooks revision differs from pinned $revision" >&2; return 1; }
-  git -C "$playbooks" diff --quiet HEAD -- kubeadm-cluster || { echo 'Playbook has local modifications' >&2; return 1; }
-}
 ip_for() {
   local json ips
   json=$(remote "qm agent $1 network-get-interfaces") || return 1

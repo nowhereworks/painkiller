@@ -1,0 +1,1067 @@
+---
+- name: Build in-memory inventory from controller_ips and worker_ips
+  hosts: localhost
+  gather_facts: false
+
+  vars:
+    ssh_user: "{{ ansible_ssh_user | default('milkman') }}"
+    kubernetes_version: "1.36.1"
+    kubernetes_repo_minor: "v{{ (kubernetes_version | regex_search('^([0-9]+\\.[0-9]+)')) }}"
+    flannel_version: "0.28.4"
+    calico_version: "3.32.0"
+    cilium_version: "1.19.4"
+    helm_version: "v3.19.0"
+    # choose from flannel, calico, cilium
+    cni_plugin: "flannel"
+
+  tasks:
+    - name: Validate controller_ips was provided
+      ansible.builtin.assert:
+        that:
+          - controller_ips is defined
+          - controller_ips | length > 0
+        fail_msg: >-
+          You must provide at least one controller IP.
+          Example:
+          -e "controller_ips=192.168.1.101 worker_ips=192.168.1.102,192.168.1.103"
+
+    - name: Normalize controller IP list
+      ansible.builtin.set_fact:
+        kubeadm_controller_ips: "{{ controller_ips.split(',') if controller_ips is string else controller_ips }}"
+
+    - name: Normalize worker IP list
+      ansible.builtin.set_fact:
+        kubeadm_worker_ips: >-
+          {{
+            worker_ips.split(',')
+            if worker_ips is defined and worker_ips is string and worker_ips | length > 0
+            else (worker_ips if worker_ips is defined else [])
+          }}
+
+    - name: Add controllers to in-memory inventory
+      ansible.builtin.add_host:
+        name: "{{ item }}"
+        groups:
+          - kubeadm_controllers
+          - kubeadm_nodes
+        ansible_host: "{{ item }}"
+        ansible_connection: ssh
+        ansible_user: "{{ ssh_user }}"
+        ansible_become: true
+        ansible_become_method: sudo
+        kubernetes_version: "{{ kubernetes_version }}"
+        kubernetes_repo_minor: "{{ kubernetes_repo_minor }}"
+        cni_plugin: "{{ cni_plugin }}"
+        flannel_version: "{{ flannel_version }}"
+        calico_version: "{{ calico_version }}"
+        cilium_version: "{{ cilium_version }}"
+        helm_version: "{{ helm_version }}"
+      loop: "{{ kubeadm_controller_ips }}"
+
+    - name: Add workers to in-memory inventory
+      ansible.builtin.add_host:
+        name: "{{ item }}"
+        groups:
+          - kubeadm_workers
+          - kubeadm_nodes
+        ansible_host: "{{ item }}"
+        ansible_connection: ssh
+        ansible_user: "{{ ssh_user }}"
+        ansible_become: true
+        ansible_become_method: sudo
+        kubernetes_version: "{{ kubernetes_version }}"
+        kubernetes_repo_minor: "{{ kubernetes_repo_minor }}"
+        cni_plugin: "{{ cni_plugin }}"
+        flannel_version: "{{ flannel_version }}"
+        calico_version: "{{ calico_version }}"
+        cilium_version: "{{ cilium_version }}"
+        helm_version: "{{ helm_version }}"
+      loop: "{{ kubeadm_worker_ips }}"
+
+
+- name: Prepare all kubeadm nodes
+  hosts: kubeadm_nodes
+  become: true
+  gather_facts: true
+
+  vars:
+    kubernetes_apt_keyring: "/etc/apt/keyrings/kubernetes-apt-keyring.gpg"
+    kubernetes_apt_repo: "https://pkgs.k8s.io/core:/stable:/{{ kubernetes_repo_minor }}/deb/"
+    containerd_config_file: "/etc/containerd/config.toml"
+
+  tasks:
+    - name: Validate kubernetes_version format
+      ansible.builtin.assert:
+        that:
+          - kubernetes_version is match('^[0-9]+\\.[0-9]+\\.[0-9]+$')
+        fail_msg: "kubernetes_version must be in X.Y.Z format (example: 1.36.2)."
+
+    - name: Fail if host is not Debian family
+      ansible.builtin.assert:
+        that:
+          - ansible_os_family == "Debian"
+        fail_msg: "This playbook currently supports Debian/Ubuntu only."
+
+    - name: Disable swap immediately
+      ansible.builtin.command: swapoff -a
+      changed_when: false
+
+    - name: Disable swap permanently in fstab
+      ansible.builtin.replace:
+        path: /etc/fstab
+        regexp: '^([^#].*\sswap\s.*)$'
+        replace: '# \1'
+
+    - name: Load required kernel modules now
+      community.general.modprobe:
+        name: "{{ item }}"
+        state: present
+      loop:
+        - overlay
+        - br_netfilter
+
+    - name: Persist required kernel modules
+      ansible.builtin.copy:
+        dest: /etc/modules-load.d/k8s.conf
+        owner: root
+        group: root
+        mode: "0644"
+        content: |
+          overlay
+          br_netfilter
+
+    - name: Configure Kubernetes networking sysctl
+      ansible.builtin.copy:
+        dest: /etc/sysctl.d/99-kubernetes-cri.conf
+        owner: root
+        group: root
+        mode: "0644"
+        content: |
+          net.bridge.bridge-nf-call-iptables = 1
+          net.bridge.bridge-nf-call-ip6tables = 1
+          net.ipv4.ip_forward = 1
+
+    - name: Apply sysctl settings
+      ansible.builtin.command: sysctl --system
+      changed_when: false
+
+    - name: Install base packages
+      ansible.builtin.apt:
+        name:
+          - apt-transport-https
+          - ca-certificates
+          - curl
+          - gpg
+          - containerd
+        state: present
+        update_cache: true
+
+    - name: Ensure containerd config directory exists
+      ansible.builtin.file:
+        path: /etc/containerd
+        state: directory
+        mode: "0755"
+
+    - name: Check if containerd config exists
+      ansible.builtin.stat:
+        path: "{{ containerd_config_file }}"
+      register: containerd_config
+
+    - name: Generate default containerd config
+      ansible.builtin.shell: |
+        containerd config default > {{ containerd_config_file }}
+      args:
+        executable: /bin/bash
+      when: not containerd_config.stat.exists
+
+    - name: Ensure containerd CRI plugin is not disabled
+      ansible.builtin.replace:
+        path: "{{ containerd_config_file }}"
+        regexp: '^disabled_plugins = \["cri"\]'
+        replace: 'disabled_plugins = []'
+      notify: Restart containerd
+
+    - name: Configure containerd to use systemd cgroups
+      ansible.builtin.replace:
+        path: "{{ containerd_config_file }}"
+        regexp: 'SystemdCgroup = false'
+        replace: 'SystemdCgroup = true'
+      notify: Restart containerd
+
+    - name: Restart containerd before kubeadm uses it
+      ansible.builtin.meta: flush_handlers
+
+    - name: Ensure containerd is started and enabled
+      ansible.builtin.systemd:
+        name: containerd
+        state: started
+        enabled: true
+        daemon_reload: true
+
+    - name: Configure crictl to use containerd
+      ansible.builtin.copy:
+        dest: /etc/crictl.yaml
+        content: |
+          runtime-endpoint: unix:///run/containerd/containerd.sock
+          image-endpoint: unix:///run/containerd/containerd.sock
+          timeout: 10
+        mode: '0644'
+
+    - name: Validate containerd daemon is reachable
+      ansible.builtin.command: ctr version
+      register: ctr_version
+      changed_when: false
+      retries: 10
+      delay: 3
+      until: ctr_version.rc == 0
+
+    - name: Ensure apt keyrings directory exists
+      ansible.builtin.file:
+        path: /etc/apt/keyrings
+        state: directory
+        mode: "0755"
+
+    - name: Download Kubernetes apt repository signing key
+      ansible.builtin.shell: |
+        set -o pipefail
+        curl -fsSL {{ kubernetes_apt_repo }}/Release.key \
+          | gpg --dearmor -o {{ kubernetes_apt_keyring }}
+      args:
+        executable: /bin/bash
+        creates: "{{ kubernetes_apt_keyring }}"
+
+    - name: Add Kubernetes apt repository
+      ansible.builtin.copy:
+        dest: /etc/apt/sources.list.d/kubernetes.list
+        owner: root
+        group: root
+        mode: "0644"
+        content: |
+          deb [signed-by={{ kubernetes_apt_keyring }}] {{ kubernetes_apt_repo }} /
+
+    - name: Install kubelet, kubeadm and kubectl
+      ansible.builtin.apt:
+        name:
+          - cri-tools
+          - kubelet
+          - kubeadm
+          - kubectl
+        state: present
+        update_cache: true
+
+    - name: Validate containerd CRI is working
+      ansible.builtin.command: crictl info
+      register: crictl_info
+      changed_when: false
+      retries: 10
+      delay: 3
+      until: crictl_info.rc == 0
+
+    - name: Hold Kubernetes packages
+      ansible.builtin.dpkg_selections:
+        name: "{{ item }}"
+        selection: hold
+      loop:
+        - kubelet
+        - kubeadm
+        - kubectl
+
+    - name: Enable kubelet
+      ansible.builtin.systemd:
+        name: kubelet
+        enabled: true
+        daemon_reload: true
+
+  handlers:
+    - name: Restart containerd
+      ansible.builtin.systemd:
+        name: containerd
+        state: restarted
+        enabled: true
+
+
+- name: Bootstrap first kubeadm control-plane node
+  hosts: kubeadm_controllers[0]
+  become: true
+  gather_facts: false
+
+  vars:
+    pod_network_cidr: "10.244.0.0/16"
+    service_cidr: "10.96.0.0/12"
+    first_controller_ip: "{{ groups['kubeadm_controllers'][0] }}"
+    kube_apiserver_endpoint: "{{ control_plane_endpoint | default(first_controller_ip ~ ':6443') }}"
+    selected_cni_plugin: "{{ cni_plugin }}"
+    flannel_manifest_url: "https://github.com/flannel-io/flannel/releases/download/v{{ flannel_version }}/kube-flannel.yml"
+    calico_manifest_url: "https://raw.githubusercontent.com/projectcalico/calico/v{{ calico_version }}/manifests/calico.yaml"
+    cilium_helm_repo_url: "https://helm.cilium.io/"
+
+  tasks:
+    - name: Check if Kubernetes control plane is already initialized
+      ansible.builtin.stat:
+        path: /etc/kubernetes/admin.conf
+      register: kubeadm_admin_conf
+
+    - name: Check if existing etcd manifest references a different IP
+      ansible.builtin.shell: |
+        set -o pipefail
+        grep -oP 'advertise-client-urls=https://\K[0-9.]+' /etc/kubernetes/manifests/etcd.yaml 2>/dev/null || true
+      args:
+        executable: /bin/bash
+      register: existing_etcd_ip
+      changed_when: false
+      when: kubeadm_admin_conf.stat.exists
+
+    - name: Check if existing control plane is healthy
+      ansible.builtin.command: kubectl --kubeconfig=/etc/kubernetes/admin.conf get --raw=/readyz
+      register: existing_cluster_ready
+      changed_when: false
+      failed_when: false
+      when: kubeadm_admin_conf.stat.exists
+
+    - name: Determine if kubeadm reset is needed
+      ansible.builtin.set_fact:
+        kubeadm_reset_needed: >-
+          {{
+            (force_reset | default(false) | bool)
+            or
+            (
+              kubeadm_admin_conf.stat.exists
+              and existing_etcd_ip.stdout | default('') | length > 0
+              and existing_etcd_ip.stdout != first_controller_ip
+            )
+            or
+            (
+              kubeadm_admin_conf.stat.exists
+              and existing_cluster_ready is defined
+              and existing_cluster_ready.rc != 0
+            )
+          }}
+
+    - name: Show reset reason
+      ansible.builtin.debug:
+        msg: "kubeadm reset triggered: existing etcd IP {{ existing_etcd_ip.stdout }} does not match target IP {{ first_controller_ip }}"
+      when:
+        - kubeadm_reset_needed | bool
+        - not (force_reset | default(false) | bool)
+        - existing_etcd_ip.stdout | default('') | length > 0
+        - existing_etcd_ip.stdout != first_controller_ip
+
+    - name: Show reset reason for unhealthy control plane
+      ansible.builtin.debug:
+        msg: "kubeadm reset triggered: existing admin.conf found but API health check failed"
+      when:
+        - kubeadm_reset_needed | bool
+        - not (force_reset | default(false) | bool)
+        - kubeadm_admin_conf.stat.exists
+        - existing_cluster_ready is defined
+        - existing_cluster_ready.rc != 0
+
+    - name: Reset kubeadm if IP mismatch or force_reset requested
+      ansible.builtin.command: kubeadm reset -f
+      when: kubeadm_reset_needed | bool
+
+    - name: Clean up stale etcd data directory
+      ansible.builtin.file:
+        path: /var/lib/etcd
+        state: absent
+      when: kubeadm_reset_needed | bool
+
+    - name: Recreate etcd data directory
+      ansible.builtin.file:
+        path: /var/lib/etcd
+        state: directory
+        mode: '0700'
+      when: kubeadm_reset_needed | bool
+
+    - name: Update admin.conf fact after reset
+      ansible.builtin.set_fact:
+        kubeadm_admin_conf:
+          stat:
+            exists: false
+      when: kubeadm_reset_needed | bool
+
+    - name: Pre-pull Kubernetes control plane images
+      ansible.builtin.command: >
+        kubeadm config images pull
+        --kubernetes-version={{ kubernetes_version }}
+      register: image_pull
+      changed_when: "'already present' not in image_pull.stdout"
+      retries: 3
+      delay: 5
+      until: image_pull.rc == 0
+
+    - name: Initialize first control-plane node
+      ansible.builtin.command: >
+        kubeadm init
+        --kubernetes-version={{ kubernetes_version }}
+        --apiserver-advertise-address={{ first_controller_ip }}
+        --control-plane-endpoint={{ kube_apiserver_endpoint }}
+        --pod-network-cidr={{ pod_network_cidr }}
+        --service-cidr={{ service_cidr }}
+        --upload-certs
+      register: kubeadm_init
+      async: 600
+      poll: 10
+      failed_when: false
+      when: not kubeadm_admin_conf.stat.exists
+
+    - name: Collect diagnostics if kubeadm init failed
+      when:
+        - kubeadm_init is defined
+        - kubeadm_init.rc is defined
+        - kubeadm_init.rc != 0
+      block:
+        - name: Check etcd pod status
+          ansible.builtin.command: crictl pods --name etcd
+          register: etcd_pod_check
+          changed_when: false
+          failed_when: false
+
+        - name: Check etcd container status
+          ansible.builtin.command: crictl ps -a --name etcd
+          register: etcd_container_check
+          changed_when: false
+          failed_when: false
+
+        - name: Get etcd container logs
+          ansible.builtin.shell: |
+            set -o pipefail
+            crictl logs $(crictl ps -a --name etcd -q | head -1) 2>&1 | tail -50
+          args:
+            executable: /bin/bash
+          register: etcd_init_logs
+          changed_when: false
+          failed_when: false
+
+        - name: Check kubelet status
+          ansible.builtin.command: systemctl status kubelet --no-pager -l
+          register: kubelet_status_check
+          changed_when: false
+          failed_when: false
+
+        - name: Fail with kubeadm init diagnostics
+          ansible.builtin.fail:
+            msg: |
+              kubeadm init failed after {{ kubeadm_init.delta | default('unknown time') }}.
+
+              === kubeadm init stdout ===
+              {{ kubeadm_init.stdout | default('') }}
+
+              === kubeadm init stderr ===
+              {{ kubeadm_init.stderr | default('') }}
+
+              === etcd Pod Status ===
+              {{ etcd_pod_check.stdout | default('No etcd pod found') }}
+
+              === etcd Container Status ===
+              {{ etcd_container_check.stdout | default('No etcd container found') }}
+
+              === etcd Container Logs ===
+              {{ etcd_init_logs.stdout | default('No logs available') }}
+
+              === Kubelet Status ===
+              {{ kubelet_status_check.stdout | default('Unable to get kubelet status') }}
+
+    - name: Wait for admin kubeconfig to exist
+      ansible.builtin.wait_for:
+        path: /etc/kubernetes/admin.conf
+        timeout: 180
+
+    - name: Verify kube-apiserver manifest exists
+      ansible.builtin.stat:
+        path: /etc/kubernetes/manifests/kube-apiserver.yaml
+      register: apiserver_manifest
+
+    - name: Fail if kube-apiserver manifest is missing
+      ansible.builtin.fail:
+        msg: "kube-apiserver.yaml manifest not found in /etc/kubernetes/manifests/"
+      when: not apiserver_manifest.stat.exists
+
+    - name: Check kubelet is active
+      ansible.builtin.command: systemctl is-active kubelet
+      register: kubelet_status
+      changed_when: false
+      failed_when: false
+
+    - name: Show kubelet journal if not active
+      ansible.builtin.command: journalctl -u kubelet --no-pager -n 50
+      register: kubelet_journal
+      changed_when: false
+      when: kubelet_status.rc != 0
+
+    - name: Fail if kubelet is not active
+      ansible.builtin.fail:
+        msg: |
+          kubelet is not active (status: {{ kubelet_status.stdout | default('unknown') }}).
+          Recent kubelet logs:
+          {{ kubelet_journal.stdout | default('') }}
+      when: kubelet_status.rc != 0
+
+    - name: Verify containerd is running containers
+      ansible.builtin.command: crictl ps
+      register: crictl_ps
+      changed_when: false
+      failed_when: false
+      retries: 10
+      delay: 5
+      until: crictl_ps.rc == 0
+
+    - name: Wait for etcd container to be running
+      block:
+        - name: Verify etcd manifest exists
+          ansible.builtin.stat:
+            path: /etc/kubernetes/manifests/etcd.yaml
+          register: etcd_manifest
+
+        - name: Fail if etcd manifest is missing
+          ansible.builtin.fail:
+            msg: "etcd.yaml manifest not found in /etc/kubernetes/manifests/"
+          when: not etcd_manifest.stat.exists
+
+        - name: Wait for etcd container to be running
+          ansible.builtin.shell: |
+            set -o pipefail
+            crictl ps --name etcd --state running | grep -q etcd
+          args:
+            executable: /bin/bash
+          register: etcd_running
+          changed_when: false
+          retries: 20
+          delay: 5
+          until: etcd_running.rc == 0
+      rescue:
+        - name: Check if etcd pod exists (any state)
+          ansible.builtin.command: crictl pods --name etcd
+          register: etcd_pod_status
+          changed_when: false
+          failed_when: false
+
+        - name: Get etcd container details if exists
+          ansible.builtin.command: crictl ps -a --name etcd
+          register: etcd_all_containers
+          changed_when: false
+          failed_when: false
+
+        - name: Capture etcd manifest content
+          ansible.builtin.command: cat /etc/kubernetes/manifests/etcd.yaml
+          register: etcd_manifest_content
+          changed_when: false
+          failed_when: false
+
+        - name: Get etcd container id
+          ansible.builtin.shell: |
+            set -o pipefail
+            crictl ps -a --name etcd -q | head -1
+          args:
+            executable: /bin/bash
+          register: etcd_container_id
+          changed_when: false
+          failed_when: false
+
+        - name: Inspect etcd container
+          ansible.builtin.command: "crictl inspect {{ etcd_container_id.stdout }}"
+          register: etcd_container_inspect
+          changed_when: false
+          failed_when: false
+          when: etcd_container_id.stdout | length > 0
+
+        - name: Get etcd pod id
+          ansible.builtin.shell: |
+            set -o pipefail
+            crictl pods --name etcd -q | head -1
+          args:
+            executable: /bin/bash
+          register: etcd_pod_id
+          changed_when: false
+          failed_when: false
+
+        - name: Inspect etcd pod sandbox
+          ansible.builtin.command: "crictl inspectp {{ etcd_pod_id.stdout }}"
+          register: etcd_pod_inspect
+          changed_when: false
+          failed_when: false
+          when: etcd_pod_id.stdout | length > 0
+
+        - name: Get full etcd container logs
+          ansible.builtin.shell: |
+            set -o pipefail
+            crictl logs $(crictl ps -a --name etcd -q | head -1) 2>&1
+          args:
+            executable: /bin/bash
+          register: etcd_logs
+          changed_when: false
+          failed_when: false
+
+        - name: Show kubelet logs
+          ansible.builtin.command: journalctl -u kubelet --no-pager -n 300
+          register: kubelet_logs_full
+          changed_when: false
+          failed_when: false
+
+        - name: Show node IPv4 addresses
+          ansible.builtin.command: ip -4 addr show
+          register: ip_addr_output
+          changed_when: false
+          failed_when: false
+
+        - name: Show node routes
+          ansible.builtin.command: ip route
+          register: ip_route_output
+          changed_when: false
+          failed_when: false
+
+        - name: Show listening TCP sockets
+          ansible.builtin.command: ss -lntp
+          register: ss_listen_output
+          changed_when: false
+          failed_when: false
+
+        - name: Fail with etcd diagnostics
+          ansible.builtin.fail:
+            msg: |
+              etcd container failed to start.
+
+              === etcd Pod Status ===
+              {{ etcd_pod_status.stdout | default('No etcd pod found') }}
+
+              === etcd Container Details ===
+              {{ etcd_all_containers.stdout | default('N/A') }}
+
+              === etcd Manifest ===
+              {{ etcd_manifest_content.stdout | default('No etcd manifest found') }}
+
+              === etcd Container Inspect ===
+              {{ etcd_container_inspect.stdout | default('No etcd container inspect available') }}
+
+              === etcd Pod Inspect ===
+              {{ etcd_pod_inspect.stdout | default('No etcd pod inspect available') }}
+
+              === etcd Container Logs ===
+              {{ etcd_logs.stdout | default('No logs available') }}
+
+              === Kubelet Logs ===
+              {{ kubelet_logs_full.stdout | default('No kubelet logs available') }}
+
+              === IPv4 Addresses ===
+              {{ ip_addr_output.stdout | default('No ip addr output') }}
+
+              === Routes ===
+              {{ ip_route_output.stdout | default('No route output') }}
+
+              === Listening TCP Sockets ===
+              {{ ss_listen_output.stdout | default('No socket output') }}
+
+    - name: Wait for kube-apiserver container to be running
+      ansible.builtin.shell: |
+        set -o pipefail
+        crictl ps --name kube-apiserver --state running | grep -q kube-apiserver
+      args:
+        executable: /bin/bash
+      register: apiserver_running
+      changed_when: false
+      retries: 20
+      delay: 5
+      until: apiserver_running.rc == 0
+
+    - name: Wait until Kubernetes API responds
+      block:
+        - name: Wait until Kubernetes API responds
+          ansible.builtin.command: kubectl --kubeconfig=/etc/kubernetes/admin.conf get nodes
+          register: api_ready
+          changed_when: false
+          retries: 30
+          delay: 10
+          until: api_ready.rc == 0
+      rescue:
+        - name: Show kubelet logs
+          ansible.builtin.command: journalctl -u kubelet --no-pager -n 100
+          register: kubelet_logs
+          changed_when: false
+
+        - name: Show containerd pods
+          ansible.builtin.command: crictl pods
+          register: containerd_pods
+          changed_when: false
+
+        - name: Show containerd containers
+          ansible.builtin.command: crictl ps -a
+          register: containerd_containers
+          changed_when: false
+
+        - name: Fail with diagnostics
+          ansible.builtin.fail:
+            msg: |
+              Kubernetes API did not respond after 5 minutes.
+
+              === Kubelet Logs ===
+              {{ kubelet_logs.stdout }}
+
+              === Containerd Pods ===
+              {{ containerd_pods.stdout }}
+
+              === Containerd Containers ===
+              {{ containerd_containers.stdout }}
+
+    - name: Validate selected CNI plugin
+      ansible.builtin.assert:
+        that:
+          - selected_cni_plugin in ['flannel', 'calico', 'cilium']
+        fail_msg: "Unsupported cni_plugin '{{ selected_cni_plugin }}'. Supported values: flannel, calico, cilium"
+
+    - name: Install Flannel CNI plugin
+      ansible.builtin.command: >
+        kubectl --kubeconfig=/etc/kubernetes/admin.conf apply -f {{ flannel_manifest_url }}
+      register: cni_apply
+      changed_when: "'created' in cni_apply.stdout or 'configured' in cni_apply.stdout or 'unchanged' not in cni_apply.stdout"
+      when: selected_cni_plugin == 'flannel'
+
+    - name: Install Calico CNI plugin
+      ansible.builtin.command: >
+        kubectl --kubeconfig=/etc/kubernetes/admin.conf apply -f {{ calico_manifest_url }}
+      register: cni_apply
+      changed_when: "'created' in cni_apply.stdout or 'configured' in cni_apply.stdout or 'unchanged' not in cni_apply.stdout"
+      when: selected_cni_plugin == 'calico'
+
+    - name: Check Helm is installed for Cilium deployment
+      ansible.builtin.command: helm version --short
+      register: helm_version_check
+      changed_when: false
+      failed_when: false
+      when: selected_cni_plugin == 'cilium'
+
+    - name: Install Helm when missing for Cilium deployment
+      when:
+        - selected_cni_plugin == 'cilium'
+        - helm_version_check.rc != 0
+      block:
+        - name: Detect CPU architecture for Helm binary installation
+          ansible.builtin.command: uname -m
+          register: helm_uname
+          changed_when: false
+
+        - name: Map architecture to Helm release artifact
+          ansible.builtin.set_fact:
+            helm_arch: "{{ 'amd64' if helm_uname.stdout in ['x86_64', 'amd64'] else 'arm64' if helm_uname.stdout in ['aarch64', 'arm64'] else '' }}"
+
+        - name: Fail if architecture is unsupported for Helm binary install
+          ansible.builtin.fail:
+            msg: "Unsupported architecture '{{ helm_uname.stdout }}' for Helm binary installation."
+          when: helm_arch | length == 0
+
+        - name: Download Helm binary archive
+          ansible.builtin.get_url:
+            url: "https://get.helm.sh/helm-{{ helm_version }}-linux-{{ helm_arch }}.tar.gz"
+            dest: "/tmp/helm-{{ helm_version }}-linux-{{ helm_arch }}.tar.gz"
+            mode: '0644'
+
+        - name: Extract Helm binary archive
+          ansible.builtin.unarchive:
+            src: "/tmp/helm-{{ helm_version }}-linux-{{ helm_arch }}.tar.gz"
+            dest: /tmp
+            remote_src: true
+
+        - name: Install Helm binary from extracted archive
+          ansible.builtin.copy:
+            src: "/tmp/linux-{{ helm_arch }}/helm"
+            dest: /usr/local/bin/helm
+            mode: '0755'
+            remote_src: true
+
+    - name: Re-check Helm version after installation attempts
+      ansible.builtin.command: helm version --short
+      register: helm_version_check_after_install
+      changed_when: false
+      failed_when: false
+      when:
+        - selected_cni_plugin == 'cilium'
+        - helm_version_check.rc != 0
+
+    - name: Fail if Helm is still unavailable when Cilium is selected
+      ansible.builtin.fail:
+        msg: "Helm installation failed or helm is still unavailable in PATH on this node."
+      when:
+        - selected_cni_plugin == 'cilium'
+        - (helm_version_check.rc != 0)
+        - (helm_version_check_after_install is not defined or helm_version_check_after_install.rc != 0)
+
+    - name: Add Cilium Helm repository
+      ansible.builtin.command: >
+        helm repo add cilium {{ cilium_helm_repo_url }}
+      register: cilium_repo_add
+      changed_when: "'already exists' not in cilium_repo_add.stderr"
+      when: selected_cni_plugin == 'cilium'
+
+    - name: Update Helm repositories for Cilium deployment
+      ansible.builtin.command: helm repo update
+      register: cilium_repo_update
+      changed_when: false
+      when: selected_cni_plugin == 'cilium'
+
+    - name: Install Cilium CNI plugin via Helm
+      ansible.builtin.command: >
+        helm upgrade --install cilium cilium/cilium --version {{ cilium_version }} --namespace kube-system --create-namespace --kubeconfig /etc/kubernetes/admin.conf --set operator.replicas=1
+      register: cni_apply
+      changed_when: "'STATUS: deployed' in cni_apply.stdout or 'STATUS: upgraded' in cni_apply.stdout"
+      when: selected_cni_plugin == 'cilium'
+
+    - name: Wait until Flannel daemonset is ready
+      ansible.builtin.command: kubectl --kubeconfig=/etc/kubernetes/admin.conf rollout status daemonset/kube-flannel-ds -n kube-flannel --timeout=5m
+      register: flannel_ready
+      changed_when: false
+      retries: 3
+      delay: 10
+      until: flannel_ready.rc == 0
+      when: selected_cni_plugin == 'flannel'
+
+    - name: Wait until Calico node daemonset is ready
+      ansible.builtin.command: kubectl --kubeconfig=/etc/kubernetes/admin.conf rollout status daemonset/calico-node -n kube-system --timeout=5m
+      register: calico_node_ready
+      changed_when: false
+      retries: 3
+      delay: 10
+      until: calico_node_ready.rc == 0
+      when: selected_cni_plugin == 'calico'
+
+    - name: Wait until Calico kube-controllers deployment is ready
+      ansible.builtin.command: kubectl --kubeconfig=/etc/kubernetes/admin.conf rollout status deployment/calico-kube-controllers -n kube-system --timeout=5m
+      register: calico_controllers_ready
+      changed_when: false
+      retries: 3
+      delay: 10
+      until: calico_controllers_ready.rc == 0
+      when: selected_cni_plugin == 'calico'
+
+    - name: Wait until Cilium daemonset is ready
+      ansible.builtin.command: kubectl --kubeconfig=/etc/kubernetes/admin.conf rollout status daemonset/cilium -n kube-system --timeout=5m
+      register: cilium_ds_ready
+      changed_when: false
+      retries: 3
+      delay: 10
+      until: cilium_ds_ready.rc == 0
+      when: selected_cni_plugin == 'cilium'
+
+    - name: Wait until Cilium operator deployment is ready
+      ansible.builtin.command: kubectl --kubeconfig=/etc/kubernetes/admin.conf rollout status deployment/cilium-operator -n kube-system --timeout=5m
+      register: cilium_operator_ready
+      changed_when: false
+      retries: 3
+      delay: 10
+      until: cilium_operator_ready.rc == 0
+      when: selected_cni_plugin == 'cilium'
+
+    - name: Wait until first controller node is Ready
+      ansible.builtin.shell: |
+        set -o pipefail
+        kubectl --kubeconfig=/etc/kubernetes/admin.conf get nodes --no-headers | grep -q ' Ready'
+      args:
+        executable: /bin/bash
+      register: node_ready
+      changed_when: false
+      retries: 30
+      delay: 10
+      until: node_ready.rc == 0
+
+
+- name: Create kubeadm join commands
+  hosts: kubeadm_controllers[0]
+  become: true
+  gather_facts: false
+
+  tasks:
+    - name: Create worker join command
+      ansible.builtin.command: kubeadm token create --print-join-command
+      register: worker_join_command
+      changed_when: true
+      no_log: true
+      when: groups.get('kubeadm_workers', []) | length > 0
+
+    - name: Upload control-plane certificates and get certificate key
+      ansible.builtin.shell: |
+        set -o pipefail
+        kubeadm init phase upload-certs --upload-certs 2>/dev/null | grep -E '^[a-f0-9]{64}$'
+      args:
+        executable: /bin/bash
+      register: control_plane_certificate_key
+      changed_when: true
+      no_log: true
+      when: groups.get('kubeadm_controllers', []) | length > 1
+
+    - name: Create control-plane join command
+      ansible.builtin.command: kubeadm token create --print-join-command
+      register: control_plane_base_join_command
+      changed_when: true
+      no_log: true
+      when: groups.get('kubeadm_controllers', []) | length > 1
+
+    - name: Store worker join command as host fact
+      ansible.builtin.set_fact:
+        kubeadm_worker_join_command: "{{ worker_join_command.stdout }}"
+      no_log: true
+      when: groups.get('kubeadm_workers', []) | length > 0
+
+    - name: Store control-plane join command as host fact
+      ansible.builtin.set_fact:
+        kubeadm_control_plane_join_command: "{{ control_plane_base_join_command.stdout | trim }} --control-plane --certificate-key {{ control_plane_certificate_key.stdout | trim }}"
+      no_log: true
+      when: groups.get('kubeadm_controllers', []) | length > 1
+
+
+- name: Join additional kubeadm control-plane nodes
+  hosts: kubeadm_controllers[1:]
+  become: true
+  gather_facts: false
+
+  vars:
+    first_controller: "{{ groups['kubeadm_controllers'][0] }}"
+
+  tasks:
+    - name: Check if node already joined as control-plane
+      ansible.builtin.stat:
+        path: /etc/kubernetes/kubelet.conf
+      register: kubelet_conf
+
+    - name: Reset additional control-plane if first controller was reset
+      ansible.builtin.command: kubeadm reset -f
+      when:
+        - kubelet_conf.stat.exists
+        - hostvars[first_controller].kubeadm_reset_needed | default(false) | bool
+
+    - name: Update kubelet.conf fact after reset
+      ansible.builtin.set_fact:
+        kubelet_conf:
+          stat:
+            exists: false
+      when:
+        - kubelet_conf.stat.exists
+        - hostvars[first_controller].kubeadm_reset_needed | default(false) | bool
+
+    - name: Join node as additional control-plane
+      ansible.builtin.command: "{{ hostvars[first_controller].kubeadm_control_plane_join_command }}"
+      when: not kubelet_conf.stat.exists
+      no_log: true
+
+    - name: Ensure kubelet is started and enabled
+      ansible.builtin.systemd:
+        name: kubelet
+        state: started
+        enabled: true
+
+
+- name: Join kubeadm worker nodes
+  hosts: kubeadm_workers
+  become: true
+  gather_facts: false
+
+  vars:
+    first_controller: "{{ groups['kubeadm_controllers'][0] }}"
+
+  tasks:
+    - name: Check if node already joined
+      ansible.builtin.stat:
+        path: /etc/kubernetes/kubelet.conf
+      register: kubelet_conf
+
+    - name: Reset worker if first controller was reset
+      ansible.builtin.command: kubeadm reset -f
+      when:
+        - kubelet_conf.stat.exists
+        - hostvars[first_controller].kubeadm_reset_needed | default(false) | bool
+
+    - name: Update kubelet.conf fact after reset
+      ansible.builtin.set_fact:
+        kubelet_conf:
+          stat:
+            exists: false
+      when:
+        - kubelet_conf.stat.exists
+        - hostvars[first_controller].kubeadm_reset_needed | default(false) | bool
+
+    - name: Join node as worker
+      ansible.builtin.command: "{{ hostvars[first_controller].kubeadm_worker_join_command }}"
+      when: not kubelet_conf.stat.exists
+      no_log: true
+
+    - name: Ensure kubelet is started and enabled
+      ansible.builtin.systemd:
+        name: kubelet
+        state: started
+        enabled: true
+
+
+- name: Validate cluster and fetch admin kubeconfig
+  hosts: kubeadm_controllers[0]
+  become: true
+  gather_facts: false
+
+  vars:
+    local_kubeconfig_dir: "../kubeconfigs"
+    first_controller_ip: "{{ groups['kubeadm_controllers'][0] }}"
+    local_kubeconfig_path: "{{ local_kubeconfig_dir }}/{{ first_controller_ip }}.yaml"
+    legacy_kubeconfig_path: "{{ local_kubeconfig_dir }}/kubeadm-cluster.kubeconfig"
+    kubeconfig_server: "{{ control_plane_endpoint | default(first_controller_ip ~ ':6443') }}"
+
+  tasks:
+    - name: Wait until all nodes are visible
+      ansible.builtin.command: kubectl --kubeconfig=/etc/kubernetes/admin.conf get nodes --no-headers
+      register: cluster_nodes
+      changed_when: false
+      retries: 40
+      delay: 10
+      until: >
+        cluster_nodes.rc == 0 and
+        (cluster_nodes.stdout_lines | length) >=
+        ((groups.get('kubeadm_controllers', []) | length) + (groups.get('kubeadm_workers', []) | length))
+
+    - name: Show cluster nodes
+      ansible.builtin.command: kubectl --kubeconfig=/etc/kubernetes/admin.conf get nodes -o wide
+      register: kubeadm_nodes
+      changed_when: false
+
+    - name: Print cluster nodes
+      ansible.builtin.debug:
+        var: kubeadm_nodes.stdout_lines
+
+    - name: Create local kubeconfig output directory
+      become: false
+      ansible.builtin.file:
+        path: "{{ local_kubeconfig_dir }}"
+        state: directory
+        mode: "0700"
+      delegate_to: localhost
+
+    - name: Remove legacy kubeconfig filename if present
+      become: false
+      ansible.builtin.file:
+        path: "{{ legacy_kubeconfig_path }}"
+        state: absent
+      delegate_to: localhost
+
+    - name: Fetch admin kubeconfig from first control-plane node
+      ansible.builtin.fetch:
+        src: /etc/kubernetes/admin.conf
+        dest: "{{ local_kubeconfig_path }}"
+        flat: true
+
+    - name: Rewrite kubeconfig server endpoint
+      become: false
+      ansible.builtin.replace:
+        path: "{{ local_kubeconfig_path }}"
+        regexp: 'server: https://[^:]+:6443'
+        replace: "server: https://{{ kubeconfig_server }}"
+      delegate_to: localhost
+
+    - name: Fix local kubeconfig permissions
+      become: false
+      ansible.builtin.file:
+        path: "{{ local_kubeconfig_path }}"
+        mode: "0600"
+      delegate_to: localhost
+
+    - name: Show local kubeconfig path
+      ansible.builtin.debug:
+        msg:
+          - "Admin kubeconfig saved locally:"
+          - "{{ local_kubeconfig_path }}"
+          - ""
+          - "Use it with:"
+          - "KUBECONFIG={{ local_kubeconfig_path }} kubectl get nodes"

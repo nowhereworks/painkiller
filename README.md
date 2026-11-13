@@ -5,10 +5,10 @@ An early single-user CKA practice simulator: a timed question panel and SSH term
 ## Safety and prerequisites
 
 - Run only on a trusted management host and network. There is no authentication or multi-user isolation. The server binds to `127.0.0.1:8080` by default; do not expose it to the internet or an untrusted network.
-- The terminal is an SSH session as the configured lab user. The management host needs Go with CGO and a C compiler, Ansible, `community.general`, `ssh`, `git`, `jq`, `flock`, and GNU `timeout`. Provisioning configures the first controller with an administrator kubeconfig and installs `jq` and `etcd-client` if necessary.
-- Passwordless SSH and a verified Proxmox host key are required from the management host. Template `9010` is expected to be pre-configured (SSH access, DNS, DHCP). `create` makes **linked clones** (fast, shared base disk) and only starts them; it does not modify the clone's `net0`, machine-id, cloud-init, or SSH host keys. Clone host keys are read through the Proxmox guest agent and pinned in `data/lab_known_hosts`. Provisioning grants the configured lab user passwordless sudo on these disposable VMs. The template is not modified.
+- The terminal is an SSH session as the configured lab user. The management host needs Go with CGO and a C compiler, Ansible, `community.general`, `ssh`, `sha256sum`, `jq`, `flock`, and GNU `timeout`. Install the collection with `ansible-galaxy collection install -r playbooks/requirements.yml`. Provisioning configures the first controller with an administrator kubeconfig; the prebaked image includes `jq` and `etcd-client`.
+- Passwordless SSH and a verified Proxmox host key are required from the management host. Prebaked template `9100` is the default; legacy template `9010` is also pre-configured (SSH access, DNS, DHCP). `create` makes **linked clones** (fast, shared base disk), sets their memory, and starts them; it does not modify the clone's `net0`, machine-id, cloud-init, or SSH host keys. Clone host keys are read through the Proxmox guest agent and pinned in `data/lab_known_hosts`. Provisioning grants the configured lab user passwordless sudo on these disposable VMs. The template is not modified.
 - The browser assets, including xterm.js, are bundled in the server. The server must be started from the repository root for scripts and exam data.
-- The external `lab-ansible-playbooks` checkout is required and its revision is checked before provisioning. Its kubeadm playbook can reset Kubernetes state on target hosts. The default cluster uses one controller and two workers. For multiple controllers, configure a working stable control-plane endpoint.
+- Playbooks are owned by this repository under `playbooks/`; no external playbook checkout or Git metadata is required. Local checksums and image compatibility metadata are verified before provisioning. The default cluster uses one controller and two workers. Multiple controllers or a custom stable control-plane endpoint require explicit legacy mode; its kubeadm playbook can reset Kubernetes state on target hosts.
 - VM operations are restricted to IDs 3000–3999; the default lab uses 3000–3002. Create refuses existing IDs; start/stop/destroy refuse existing VMs without the configured ownership description. If cloning succeeds but marking fails, clean up that VM manually after confirming ownership. Cleanup is destructive: inspect the target host and VM range first. The description marker is a guard, not an isolation boundary.
 - A running candidate can start background processes on lab nodes. Closing the browser terminal at submission does not guarantee those processes stop. Answers are captured after submission with bounded concurrency (six captures at a time), so the whole cluster is read within a few seconds; that is a much smaller window than a sequential capture but still not a transactional cluster snapshot. Once captured, checks and retries use the saved snapshot and never re-read live state. Do not treat this as a secure exam environment.
 
@@ -20,22 +20,22 @@ go run ./cmd/painkiller
 # Open http://127.0.0.1:8080
 ```
 
-Prepare creates three linked clones and invokes `kubeadm-cluster/kubeadm-cluster.yml`, verifies node readiness, installs `jq` and the `etcd-client` tools on the controller, then applies `exam/setup.yaml`. Progress is shown in the web interface and stored in `data/operation.log`. If provisioning fails after all VMs are available, use **Retry operation**; inspect the error and use reset if the lab is incomplete. Start begins the timer. Submit closes app-managed terminal sessions, captures Kubernetes answer objects, and grades the saved data; expiration does the same. Failed captures can be retried without recapturing successful ones. Reset destroys marked lab VMs; a failed reset can be retried as well. A failed operation requires inspection; if interrupted during cloning, manual cleanup may be needed. SQLite stores the current attempt and sensitive answer snapshots in `data/state.db` with restrictive permissions. A default `data/state.json` from the previous release is imported once when a new database is initialized; the original file is not deleted. Back up state if needed; reset clears the current attempt. Kubeconfigs fetched by Ansible are stored in unique directories under `data/kubeconfigs/`.
+Prepare creates three linked clones and invokes the bootstrap phases of `playbooks/kubeadm-cluster/kubeadm-cluster.yml`, verifies node readiness, then applies `exam/setup.yaml`. Explicit legacy mode also runs package preparation and installs `jq` and the `etcd-client` tools if necessary. Progress is shown in the web interface and stored in `data/operation.log`. If provisioning fails after all VMs are available, use **Retry operation**; inspect the error and use reset if the lab is incomplete. Start begins the timer. Submit closes app-managed terminal sessions, captures Kubernetes answer objects, and grades the saved data; expiration does the same. Failed captures can be retried without recapturing successful ones. Reset destroys marked lab VMs; a failed reset can be retried as well. A failed operation requires inspection; if interrupted during cloning, manual cleanup may be needed. SQLite stores the current attempt and sensitive answer snapshots in `data/state.db` with restrictive permissions. A default `data/state.json` from the previous release is imported once when a new database is initialized; the original file is not deleted. Back up state if needed; reset clears the current attempt. Kubeconfigs fetched by Ansible are stored in unique directories under `data/kubeconfigs/`.
 
 Preparation also creates a new, lab-only SSH key on the controller and installs its public key on the other lab nodes. From the terminal, use `kubectl get nodes -o wide` to find node addresses and `ssh <node-ip>` to connect. The private key is generated on the disposable controller and is never copied to the management host.
 
-### Prebaked image (opt-in)
+### Prebaked image (default)
 
 To avoid repeating Kubernetes package installation and image downloads on every lab, build a shared controller/worker template from `9010`:
 
 ```sh
 scripts/build-template.sh
-LAB_PROVISION_MODE=prebaked go run ./cmd/painkiller
+go run ./cmd/painkiller
 ```
 
-The builder full-clones `9010` to the unused template ID `9100`, prepares packages and cached images, then shuts down and converts the VM into a template. It requires the same pinned playbook checkout as the legacy path and network access during the build. It takes the lab-operation lock, refuses an occupied destination, and never modifies the base. A failed build leaves its marked VM for inspection; after investigating, `scripts/build-template.sh --resume` can resume an unfinished VM with the exact builder marker. It refuses templates and unmarked VMs. Do not blindly delete an unverified VM. Only IDs `9100–9200` are accepted as builder destinations.
+The builder full-clones `9010` to the unused template ID `9100`, prepares packages and cached images, then shuts down and converts the VM into a template. If a compatible template already exists, skip the build. It uses this repository's `playbooks/` and requires network access during the build. It takes the lab-operation lock, refuses an occupied destination, and never modifies the base. A failed build leaves its marked VM for inspection; after investigating, `scripts/build-template.sh --resume` can resume an unfinished VM with the exact builder marker. It refuses templates and unmarked VMs. Do not blindly delete an unverified VM. Only IDs `9100–9200` are accepted as builder destinations.
 
-Prebaked mode verifies the template marker, package versions, guest build metadata, and cached images, then makes linked clones and bootstraps a new cluster without the playbook's package-preparation phase. It currently supports one controller, Flannel, and the default control-plane endpoint only. Incompatible images or settings fail rather than silently falling back. The original provisioning remains available with `LAB_PROVISION_MODE=legacy` (the default). Build updated images under a new free ID; do not replace a template that has dependent linked clones. Cached images do not make the entire lab offline: for example, first-boot services may still use the network.
+Prebaked mode verifies the template marker before cloning and checks package versions, guest build metadata, and cached images on the clones before bootstrapping a new cluster without the playbook's package-preparation phase. It currently supports one controller, Flannel, and the default control-plane endpoint only. Incompatible images or settings fail rather than silently falling back. The original provisioning remains available with explicit `LAB_PROVISION_MODE=legacy`. Build updated images under a new free ID; do not replace a template that has dependent linked clones. Cached images do not make the entire lab offline: for example, first-boot services may still use the network. See [playbook maintenance](playbooks/README.md) for checksum and image identity updates. The old `LAB_PLAYBOOKS_DIR` and `LAB_PLAYBOOKS_REV` overrides are no longer used.
 
 The image contains no initialized Kubernetes cluster, certificates, admin kubeconfig, etcd data, or candidate SSH key. `/opt/painkiller/` records the build identity, exact installed package versions, cached image metadata, the runtime's sandbox image, and the cached Flannel manifest checksum. Kubernetes packages are held at the requested patch version. Both kubeadm's pause image and containerd's sandbox default are cached, since these can differ. A retry preserves a healthy initialized cluster; an unhealthy control plane or changed controller address requires inspection and an explicit lab reset, not an automatic `kubeadm reset`.
 
@@ -57,7 +57,7 @@ These are phase timings, excluding inter-command status overhead, candidate acce
 | `PAINKILLER_LAB_LOCK_DIR` | `data` | Shared lab lock directory; all servers managing the same lab must use the same directory |
 | `PAINKILLER_MINUTES` | `120` | Exam duration in minutes |
 | `LAB_PROXMOX_HOST` | `root@prox-k12` | SSH destination for Proxmox |
-| `LAB_PROVISION_MODE` | `legacy` | `legacy` or opt-in `prebaked` |
+| `LAB_PROVISION_MODE` | `prebaked` | `prebaked` or explicit `legacy` |
 | `LAB_TEMPLATE_ID` | `9010` (legacy), `9100` (prebaked) | Proxmox VM template |
 | `LAB_IMAGE_TEMPLATE_ID` | `9100` | Destination for `scripts/build-template.sh` (9100–9200) |
 | `LAB_BASE_TEMPLATE_ID` | `9010` | Builder source; currently must be 9010 |
@@ -69,8 +69,6 @@ These are phase timings, excluding inter-command status overhead, candidate acce
 | `LAB_READY_TIMEOUT` | `600` | Guest-agent/SSH readiness timeout per VM in seconds |
 | `LAB_SSH_USER` | `milkman` | Node SSH user |
 | `LAB_KNOWN_HOSTS` | `data/lab_known_hosts` | Lab-managed guest host-key file; do not point at a general SSH known-hosts file |
-| `LAB_PLAYBOOKS_DIR` | `$HOME/repo/_nowhereworks/lab-ansible-playbooks` | External playbook checkout |
-| `LAB_PLAYBOOKS_REV` | `8ec676e93017ce3e110c27485e25d1f32d541056` | Required playbook Git revision |
 | `LAB_KUBERNETES_VERSION` | `1.36.1` | kubeadm playbook version |
 | `LAB_CNI_PLUGIN` | `flannel` | kubeadm playbook CNI |
 | `LAB_CONTROL_PLANE_ENDPOINT` | unset | Stable API endpoint, e.g. `192.0.2.10:6443` |
@@ -86,7 +84,8 @@ Checks award the points shown in the result breakdown. Capture commands have a t
 ```sh
 go test -race ./...
 go vet ./...
-shellcheck scripts/create-lab.sh scripts/build-template.sh scripts/validate-image.sh scripts/configure-exam-access.sh exam/reference-solutions.sh
+shellcheck -x scripts/create-lab.sh scripts/build-template.sh scripts/playbooks.sh scripts/validate-image.sh scripts/configure-exam-access.sh exam/reference-solutions.sh
+ansible-playbook --syntax-check -i localhost, playbooks/kubeadm-cluster/kubeadm-cluster.yml -e controller_ips=192.0.2.1
 node --check web/app.js
 ```
 

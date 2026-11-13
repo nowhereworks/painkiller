@@ -5,8 +5,8 @@ host=${LAB_PROXMOX_HOST:-root@prox-k12}
 id=${LAB_IMAGE_TEMPLATE_ID:-9100}
 base=${LAB_BASE_TEMPLATE_ID:-9010}
 version=${LAB_KUBERNETES_VERSION:-1.36.1}
-revision=${LAB_PLAYBOOKS_REV:-8ec676e93017ce3e110c27485e25d1f32d541056}
-playbooks=${LAB_PLAYBOOKS_DIR:-$HOME/repo/_nowhereworks/lab-ansible-playbooks}
+# shellcheck source=scripts/playbooks.sh
+source "$(dirname -- "${BASH_SOURCE[0]}")/playbooks.sh"
 user=${LAB_SSH_USER:-milkman}
 prefix=${LAB_IP_PREFIX:-192.168.254.}
 timeout=${LAB_READY_TIMEOUT:-600}
@@ -14,12 +14,11 @@ lockdir=${PAINKILLER_LAB_LOCK_DIR:-data}
 marker=painkiller-image-v1
 action=${1:-build}
 [[ $# -le 1 && ( $action == build || $action == --resume ) ]] || { echo 'Usage: build-template.sh [--resume]' >&2; exit 1; }
-[[ $id =~ ^[0-9]+$ && $base == 9010 && $id -ge 9100 && $id -le 9200 && $version =~ ^[0-9]+\.[0-9]+\.[0-9]+$ && $revision =~ ^[a-f0-9]{40}$ && $user =~ ^[a-zA-Z0-9_-]+$ && $prefix =~ ^[0-9.]+$ && $timeout =~ ^[0-9]+$ && $timeout -gt 0 ]] || { echo 'Invalid image build configuration' >&2; exit 1; }
+[[ $id =~ ^[0-9]+$ && $base == 9010 && $id -ge 9100 && $id -le 9200 && $version =~ ^[0-9]+\.[0-9]+\.[0-9]+$ && $user =~ ^[a-zA-Z0-9_-]+$ && $prefix =~ ^[0-9.]+$ && $timeout =~ ^[0-9]+$ && $timeout -gt 0 ]] || { echo 'Invalid image build configuration' >&2; exit 1; }
 mkdir -p "$lockdir"
 exec 9>"$lockdir/lab-operation.lock"
 flock -n 9 || { echo 'Another lab operation is running' >&2; exit 1; }
-[[ $(git -C "$playbooks" rev-parse HEAD) == "$revision" ]] || { echo 'Wrong playbook revision' >&2; exit 1; }
-git -C "$playbooks" diff --quiet HEAD -- kubeadm-cluster || { echo 'Modified playbook' >&2; exit 1; }
+check_playbooks
 remote() { ssh -o BatchMode=yes -o ConnectTimeout=10 "$host" "$@"; }
 list=$(remote 'qm list')
 if awk -v id="$id" '$1 == id { found=1 } END { exit !found }' <<<"$list"; then

@@ -619,16 +619,94 @@ func TestPrebakedRejectsUnsupportedConfiguration(t *testing.T) {
 	}
 }
 
+// Copy only runtime inputs: no .git directory or external playbook checkout.
+func isolatedLabScripts(t *testing.T) string {
+	t.Helper()
+	root := t.TempDir()
+	for _, name := range []string{"scripts/create-lab.sh", "scripts/build-template.sh", "scripts/validate-image.sh", "scripts/playbooks.sh", "playbooks/image-revision", "playbooks/SHA256SUMS", "playbooks/kubeadm-cluster/kubeadm-cluster.yml"} {
+		b, err := os.ReadFile(filepath.Join("../..", name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		dest := filepath.Join(root, name)
+		if err := os.MkdirAll(filepath.Dir(dest), 0700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(dest, b, 0700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return root
+}
+
+func TestLocalPlaybooksFailBeforeRemoteOperations(t *testing.T) {
+	for _, action := range []string{"create", "provision", "build"} {
+		for _, damage := range []string{"missing", "modified", "revision", "missing-revision", "missing-manifest"} {
+			t.Run(action+"/"+damage, func(t *testing.T) {
+				root := isolatedLabScripts(t)
+				file := filepath.Join(root, "playbooks/kubeadm-cluster/kubeadm-cluster.yml")
+				if damage == "missing-revision" {
+					file = filepath.Join(root, "playbooks/image-revision")
+				} else if damage == "missing-manifest" {
+					file = filepath.Join(root, "playbooks/SHA256SUMS")
+				}
+				if strings.HasPrefix(damage, "missing") {
+					if err := os.Remove(file); err != nil {
+						t.Fatal(err)
+					}
+				} else {
+					if damage == "revision" {
+						file = filepath.Join(root, "playbooks/image-revision")
+					}
+					if err := os.WriteFile(file, []byte("invalid\n"), 0600); err != nil {
+						t.Fatal(err)
+					}
+				}
+				bin := t.TempDir()
+				calls := filepath.Join(bin, "calls")
+				for _, name := range []string{"ssh", "git", "ansible-playbook"} {
+					if err := os.WriteFile(filepath.Join(bin, name), []byte("#!/bin/sh\necho unexpected >> \"$CALLS\"\nexit 99\n"), 0700); err != nil {
+						t.Fatal(err)
+					}
+				}
+				script := "create-lab.sh"
+				args := []string{filepath.Join(root, "scripts", script), action}
+				if action == "build" {
+					args = []string{filepath.Join(root, "scripts/build-template.sh")}
+				}
+				cmd := exec.Command("bash", args...)
+				cmd.Dir = bin
+				cmd.Env = append(os.Environ(), "PATH="+bin+string(os.PathListSeparator)+os.Getenv("PATH"), "CALLS="+calls, "PAINKILLER_LAB_LOCK_DIR="+bin, "LAB_PROVISION_MODE=legacy")
+				if out, err := cmd.CombinedOutput(); err == nil || !strings.Contains(string(out), "local playbook") {
+					t.Fatalf("invalid local input accepted: %v %s", err, out)
+				}
+				if b, err := os.ReadFile(calls); !os.IsNotExist(err) {
+					t.Fatalf("external command ran before validation: %s %v", b, err)
+				}
+			})
+		}
+	}
+}
+
+func TestLabCleanupDoesNotRequirePlaybookMetadata(t *testing.T) {
+	root := isolatedLabScripts(t)
+	if err := os.Rename(filepath.Join(root, "playbooks"), filepath.Join(root, "unavailable-playbooks")); err != nil {
+		t.Fatal(err)
+	}
+	bin := t.TempDir()
+	if err := os.WriteFile(filepath.Join(bin, "ssh"), []byte("#!/bin/sh\ncase \"$*\" in *'qm list'*) echo 'VMID NAME STATUS';; *) exit 99;; esac\n"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.Command("bash", filepath.Join(root, "scripts/create-lab.sh"), "destroy")
+	cmd.Env = append(os.Environ(), "PATH="+bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("cleanup requires playbooks: %v %s", err, out)
+	}
+}
+
 func TestImageBuilderFullClonesWithoutChangingBaseOrIdentity(t *testing.T) {
 	dir := t.TempDir()
-	playbookDir := filepath.Join(dir, "playbooks", "kubeadm-cluster")
-	if err := os.MkdirAll(playbookDir, 0700); err != nil {
-		t.Fatal(err)
-	}
-	fixture := "---\n- name: Prepare all kubeadm nodes\n  hosts: all\n  tasks: []\n- name: Bootstrap first kubeadm control-plane node\n  hosts: all\n  tasks: []\n"
-	if err := os.WriteFile(filepath.Join(playbookDir, "kubeadm-cluster.yml"), []byte(fixture), 0600); err != nil {
-		t.Fatal(err)
-	}
+	root := isolatedLabScripts(t)
 	ssh := `#!/bin/sh
 echo "$*" >> "$CALLS"
 case "$*" in
@@ -644,15 +722,16 @@ case "$*" in
  *"bash -s"*) cat >> "$CALLS" ;;
 esac
 `
-	git := "#!/bin/sh\ncase \"$*\" in *'rev-parse HEAD'*) echo 8ec676e93017ce3e110c27485e25d1f32d541056;; esac\n"
+	git := "#!/bin/sh\necho 'unexpected git dependency' >> \"$CALLS\"\nexit 99\n"
 	for name, body := range map[string]string{"ssh": ssh, "git": git, "ansible-playbook": "#!/bin/sh\nexit 0\n"} {
 		if err := os.WriteFile(filepath.Join(dir, name), []byte(body), 0700); err != nil {
 			t.Fatal(err)
 		}
 	}
 	calls := filepath.Join(dir, "calls")
-	cmd := exec.Command("bash", "../../scripts/build-template.sh")
-	cmd.Env = append(os.Environ(), "PATH="+dir+string(os.PathListSeparator)+os.Getenv("PATH"), "CALLS="+calls, "TMPDIR="+dir, "PAINKILLER_LAB_LOCK_DIR="+dir, "LAB_PLAYBOOKS_DIR="+filepath.Join(dir, "playbooks"), "LAB_IMAGE_TEMPLATE_ID=9100", "LAB_BASE_TEMPLATE_ID=9010", "LAB_SSH_USER=milkman")
+	cmd := exec.Command("bash", filepath.Join(root, "scripts/build-template.sh"))
+	cmd.Dir = dir
+	cmd.Env = append(os.Environ(), "PATH="+dir+string(os.PathListSeparator)+os.Getenv("PATH"), "CALLS="+calls, "TMPDIR="+dir, "PAINKILLER_LAB_LOCK_DIR="+dir, "LAB_IMAGE_TEMPLATE_ID=9100", "LAB_BASE_TEMPLATE_ID=9010", "LAB_SSH_USER=milkman")
 	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("image build failed: %v %s", err, out)
 	}
@@ -665,7 +744,7 @@ esac
 			t.Fatalf("missing build step %q: %s", required, b)
 		}
 	}
-	for _, forbidden := range []string{"qm set 9010", "qm start 9010", "--net0", "cloud-init clean", "machine-id", "ssh-keygen", "qm destroy"} {
+	for _, forbidden := range []string{"unexpected git dependency", "qm set 9010", "qm start 9010", "--net0", "cloud-init clean", "machine-id", "ssh-keygen", "qm destroy"} {
 		if strings.Contains(string(b), forbidden) {
 			t.Fatalf("unsafe build step %q: %s", forbidden, b)
 		}
@@ -674,34 +753,7 @@ esac
 
 func TestPrebakedProvisionSkipsInstallAndReset(t *testing.T) {
 	dir := t.TempDir()
-	playbookDir := filepath.Join(dir, "playbooks", "kubeadm-cluster")
-	if err := os.MkdirAll(playbookDir, 0700); err != nil {
-		t.Fatal(err)
-	}
-	fixture := `---
-- name: Build in-memory inventory from controller_ips and worker_ips
-  hosts: localhost
-  tasks: []
-- name: Prepare all kubeadm nodes
-  hosts: all
-  tasks:
-    - name: Install packages
-      ansible.builtin.debug: msg=install
-- name: Bootstrap first kubeadm control-plane node
-  hosts: all
-  tasks:
-    - name: Check if Kubernetes control plane is already initialized
-      ansible.builtin.stat: path=/etc/kubernetes/admin.conf
-    - name: Check if existing etcd manifest references a different IP
-      ansible.builtin.debug: msg=reset
-    - name: Pre-pull Kubernetes control plane images
-      ansible.builtin.command: kubeadm config images pull
-    - name: Initialize first control-plane node
-      ansible.builtin.debug: msg=init
-`
-	if err := os.WriteFile(filepath.Join(playbookDir, "kubeadm-cluster.yml"), []byte(fixture), 0600); err != nil {
-		t.Fatal(err)
-	}
+	root := isolatedLabScripts(t)
 	ssh := `#!/bin/sh
 echo "$*" >> "$CALLS"
 case "$*" in
@@ -714,7 +766,7 @@ case "$*" in
  *"bash -s -- 192.168.254.10"*) if [ "$FAIL_HEALTH" = 1 ]; then echo 'Existing control plane unhealthy' >&2; exit 25; fi ;;
 esac
 `
-	git := "#!/bin/sh\ncase \"$*\" in *'rev-parse HEAD'*) echo 8ec676e93017ce3e110c27485e25d1f32d541056;; esac\n"
+	git := "#!/bin/sh\necho 'unexpected git dependency' >> \"$CALLS\"\nexit 99\n"
 	ansible := "#!/bin/sh\necho \"$*\" >> \"$CALLS\"\nfor arg in \"$@\"; do case \"$arg\" in */bootstrap.yml) cp \"$arg\" \"$CAPTURE\";; esac; done\n"
 	for name, body := range map[string]string{"ssh": ssh, "git": git, "ansible-playbook": ansible} {
 		if err := os.WriteFile(filepath.Join(dir, name), []byte(body), 0700); err != nil {
@@ -725,15 +777,12 @@ esac
 	if err := os.WriteFile(known, []byte("# Painkiller managed host keys\n"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	script, err := filepath.Abs("../../scripts/create-lab.sh")
-	if err != nil {
-		t.Fatal(err)
-	}
+	script := filepath.Join(root, "scripts/create-lab.sh")
 	cmd := exec.Command("bash", script, "provision")
 	cmd.Dir = dir
 	calls := filepath.Join(dir, "calls")
 	capture := filepath.Join(dir, "captured.yml")
-	cmd.Env = append(os.Environ(), "PATH="+dir+string(os.PathListSeparator)+os.Getenv("PATH"), "CALLS="+calls, "CAPTURE="+capture, "LAB_PLAYBOOKS_DIR="+filepath.Join(dir, "playbooks"), "LAB_PROVISION_MODE=prebaked", "LAB_TEMPLATE_ID=9100", "LAB_VM_START=3000", "LAB_VM_END=3000", "LAB_CONTROLLERS=1", "LAB_CNI_PLUGIN=flannel", "LAB_CONTROL_PLANE_ENDPOINT=", "LAB_KNOWN_HOSTS="+known)
+	cmd.Env = append(os.Environ(), "PATH="+dir+string(os.PathListSeparator)+os.Getenv("PATH"), "CALLS="+calls, "CAPTURE="+capture, "LAB_PROVISION_MODE=prebaked", "LAB_TEMPLATE_ID=9100", "LAB_VM_START=3000", "LAB_VM_END=3000", "LAB_CONTROLLERS=1", "LAB_CNI_PLUGIN=flannel", "LAB_CONTROL_PLANE_ENDPOINT=", "LAB_KNOWN_HOSTS="+known)
 	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("prebaked provision failed: %v %s", err, out)
 	}
@@ -741,7 +790,7 @@ esac
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, forbidden := range []string{"Install packages", "msg=reset", "kubeadm config images pull"} {
+	for _, forbidden := range []string{"- name: Prepare all kubeadm nodes", "- name: Reset kubeadm if IP mismatch or force_reset requested", "kubeadm config images pull"} {
 		if strings.Contains(string(b), forbidden) {
 			t.Fatalf("prebaked playbook contains %q: %s", forbidden, b)
 		}
@@ -750,7 +799,7 @@ esac
 		t.Fatalf("missing safe retry fact: %s", b)
 	}
 	b, err = os.ReadFile(calls)
-	if err != nil || strings.Contains(string(b), "sudo -n apt-get") || !strings.Contains(string(b), "flannel_manifest_url=/opt/painkiller/flannel.yml") {
+	if err != nil || strings.Contains(string(b), "unexpected git dependency") || strings.Contains(string(b), "sudo -n apt-get") || !strings.Contains(string(b), "flannel_manifest_url=/opt/painkiller/flannel.yml") {
 		t.Fatalf("unexpected provision commands: %s %v", b, err)
 	}
 	failedCapture := filepath.Join(dir, "must-not-exist.yml")
@@ -896,7 +945,7 @@ esac
 }
 
 func TestCreateUsesLinkedClonesAndWaitsForReady(t *testing.T) {
-	for _, mode := range []string{"legacy", "prebaked"} {
+	for _, mode := range []string{"", "legacy", "prebaked"} {
 		t.Run(mode, func(t *testing.T) {
 			dir := t.TempDir()
 			ssh := `#!/bin/bash
@@ -914,20 +963,23 @@ case "$*" in
 esac
 `
 			git := `#!/bin/sh
-case "$*" in *"rev-parse HEAD"*) echo 8ec676e93017ce3e110c27485e25d1f32d541056 ;; esac
+echo 'unexpected git dependency' >> "$CALLS"
+exit 99
 `
 			for name, body := range map[string]string{"ssh": ssh, "git": git, "sleep": "#!/bin/sh\nexit 0\n"} {
 				if err := os.WriteFile(filepath.Join(dir, name), []byte(body), 0700); err != nil {
 					t.Fatal(err)
 				}
 			}
-			cmd := exec.Command("bash", "../../scripts/create-lab.sh", "create")
+			root := isolatedLabScripts(t)
+			cmd := exec.Command("bash", filepath.Join(root, "scripts/create-lab.sh"), "create")
+			cmd.Dir = dir
 			calls := filepath.Join(dir, "calls")
 			template := "9010"
-			if mode == "prebaked" {
+			if mode != "legacy" {
 				template = "9100"
 			}
-			cmd.Env = append(os.Environ(), "PATH="+dir+string(os.PathListSeparator)+os.Getenv("PATH"), "CALLS="+calls, "LAB_KNOWN_HOSTS="+filepath.Join(dir, "known"), "LAB_VM_START=3000", "LAB_VM_END=3002", "LAB_CONTROLLERS=1", "LAB_PROVISION_MODE="+mode, "LAB_TEMPLATE_ID="+template)
+			cmd.Env = append(os.Environ(), "PATH="+dir+string(os.PathListSeparator)+os.Getenv("PATH"), "CALLS="+calls, "LAB_KNOWN_HOSTS="+filepath.Join(dir, "known"), "LAB_VM_START=3000", "LAB_VM_END=3002", "LAB_CONTROLLERS=1", "LAB_PROVISION_MODE="+mode, "LAB_TEMPLATE_ID=")
 			if out, err := cmd.CombinedOutput(); err != nil {
 				t.Fatalf("create failed: %v %s", err, out)
 			}
@@ -936,6 +988,9 @@ case "$*" in *"rev-parse HEAD"*) echo 8ec676e93017ce3e110c27485e25d1f32d541056 ;
 				t.Fatal(err)
 			}
 			log := string(b)
+			if strings.Contains(log, "unexpected git dependency") {
+				t.Fatalf("create requires Git: %s", log)
+			}
 			for _, id := range []string{"3000", "3001", "3002"} {
 				if !strings.Contains(log, "qm clone "+template+" "+id+" --name k8s-"+id+" --full 0 --description painkiller-mvp") {
 					t.Fatalf("expected a linked clone for %s: %s", id, log)
@@ -1021,7 +1076,7 @@ func TestCreateWillNotOverwriteUnmanagedKnownHosts(t *testing.T) {
 		}
 	}
 	cmd := exec.Command("bash", "../../scripts/create-lab.sh", "create")
-	cmd.Env = append(os.Environ(), "PATH="+dir+string(os.PathListSeparator)+os.Getenv("PATH"), "LAB_KNOWN_HOSTS="+known, "LAB_VM_START=3000", "LAB_VM_END=3002", "LAB_CONTROLLERS=1")
+	cmd.Env = append(os.Environ(), "PATH="+dir+string(os.PathListSeparator)+os.Getenv("PATH"), "LAB_KNOWN_HOSTS="+known, "LAB_VM_START=3000", "LAB_VM_END=3002", "LAB_CONTROLLERS=1", "LAB_PROVISION_MODE=legacy")
 	if out, err := cmd.CombinedOutput(); err == nil || !strings.Contains(string(out), "Refusing to overwrite unmanaged") {
 		t.Fatalf("unmanaged file accepted: %v %s", err, out)
 	}
@@ -1042,7 +1097,7 @@ func TestCreateRefusesOccupiedIDBeforeCloning(t *testing.T) {
 		}
 	}
 	cmd := exec.Command("bash", "../../scripts/create-lab.sh", "create")
-	cmd.Env = append(os.Environ(), "PATH="+dir+string(os.PathListSeparator)+os.Getenv("PATH"), "CALLS="+calls, "LAB_VM_START=3000", "LAB_VM_END=3002", "LAB_CONTROLLERS=1")
+	cmd.Env = append(os.Environ(), "PATH="+dir+string(os.PathListSeparator)+os.Getenv("PATH"), "CALLS="+calls, "LAB_VM_START=3000", "LAB_VM_END=3002", "LAB_CONTROLLERS=1", "LAB_PROVISION_MODE=legacy")
 	if out, err := cmd.CombinedOutput(); err == nil || !strings.Contains(string(out), "already exists") {
 		t.Fatalf("occupied ID accepted: %v %s", err, out)
 	}
@@ -1057,6 +1112,7 @@ func TestCreateRefusesOccupiedIDBeforeCloning(t *testing.T) {
 
 func TestProvisionConfiguresOnlyOwnedLabVMs(t *testing.T) {
 	dir := t.TempDir()
+	root := isolatedLabScripts(t)
 	ssh := `#!/bin/sh
 echo "$*" >> "$CALLS"
 case "$*" in
@@ -1070,24 +1126,22 @@ case "$*" in
 esac
 `
 	git := `#!/bin/sh
-case "$*" in *"rev-parse HEAD"*) echo 8ec676e93017ce3e110c27485e25d1f32d541056 ;; esac
+echo 'unexpected git dependency' >> "$CALLS"
+exit 99
 `
 	for name, body := range map[string]string{"ssh": ssh, "git": git, "ansible-playbook": "#!/bin/sh\necho \"$*\" >> \"$CALLS\"\n"} {
 		if err := os.WriteFile(filepath.Join(dir, name), []byte(body), 0700); err != nil {
 			t.Fatal(err)
 		}
 	}
-	script, err := filepath.Abs("../../scripts/create-lab.sh")
-	if err != nil {
-		t.Fatal(err)
-	}
+	script := filepath.Join(root, "scripts/create-lab.sh")
 	cmd := exec.Command("bash", script, "provision")
 	cmd.Dir = dir
 	calls := filepath.Join(dir, "calls")
 	if err := os.WriteFile(filepath.Join(dir, "known"), []byte("# Painkiller managed host keys\n"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	cmd.Env = append(os.Environ(), "PATH="+dir+string(os.PathListSeparator)+os.Getenv("PATH"), "CALLS="+calls, "LAB_VM_START=3000", "LAB_VM_END=3002", "LAB_CONTROLLERS=1", "LAB_KNOWN_HOSTS="+filepath.Join(dir, "known"))
+	cmd.Env = append(os.Environ(), "PATH="+dir+string(os.PathListSeparator)+os.Getenv("PATH"), "CALLS="+calls, "LAB_VM_START=3000", "LAB_VM_END=3002", "LAB_CONTROLLERS=1", "LAB_KNOWN_HOSTS="+filepath.Join(dir, "known"), "LAB_PROVISION_MODE=legacy")
 	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("provision failed: %v %s", err, out)
 	}
@@ -1096,6 +1150,9 @@ case "$*" in *"rev-parse HEAD"*) echo 8ec676e93017ce3e110c27485e25d1f32d541056 ;
 		t.Fatal(err)
 	}
 	log := string(b)
+	if strings.Contains(log, "unexpected git dependency") || !strings.Contains(log, filepath.Join(root, "playbooks/kubeadm-cluster/kubeadm-cluster.yml")) {
+		t.Fatalf("legacy provisioning did not use only local playbooks: %s", log)
+	}
 	for _, id := range []string{"3000", "3001", "3002"} {
 		if !strings.Contains(log, "qm guest exec "+id+" -- sh -c 'set -e; id milkman") {
 			t.Fatalf("sudo not configured for %s: %s", id, log)
