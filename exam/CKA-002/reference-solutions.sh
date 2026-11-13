@@ -27,7 +27,7 @@ third=$(third_controller_ip)
 if [[ -n $third ]]; then
   key=$(sudo -n kubeadm init phase upload-certs --upload-certs 2>/dev/null | tail -1)
   join=$(sudo -n kubeadm token create --print-join-command)
-  ssh -o ConnectTimeout=10 "$third" "sudo -n $join --control-plane --certificate-key $key"
+  ssh -o ConnectTimeout=10 "$third" "sudo -n $join --control-plane --certificate-key $key" </dev/null
   kubectl wait --for=condition=Ready nodes --all --timeout=300s || true
 fi
 
@@ -38,7 +38,7 @@ fi
 bad_worker=$(kubectl get nodes -o json | jq -r '[.items[] | select(.metadata.labels["node-role.kubernetes.io/control-plane"] == null and ([.status.conditions[]? | select(.type=="Ready")][0].status != "True"))][0].metadata.name // empty' 2>/dev/null || true)
 if [[ -n $bad_worker && $bad_worker != null ]]; then
   bad_ip=$(kubectl get node "$bad_worker" -o jsonpath='{.status.addresses[?(@.type=="InternalIP")].address}')
-  ssh -o ConnectTimeout=10 "$bad_ip" 'sudo -n sed -i "/painkiller-fault/d" /var/lib/kubelet/config.yaml && sudo -n systemctl restart kubelet'
+  ssh -o ConnectTimeout=10 "$bad_ip" 'sudo -n sed -i "/painkiller-fault/d" /var/lib/kubelet/config.yaml && sudo -n systemctl restart kubelet' </dev/null
   kubectl wait --for=condition=Ready node "$bad_worker" --timeout=180s || true
 fi
 
@@ -47,7 +47,7 @@ bad_sched=$(kubectl -n kube-system get pods -l component=kube-scheduler -o json 
 if [[ -n $bad_sched ]]; then
   sched_ip=$(kubectl get node "$bad_sched" -o jsonpath='{.status.addresses[?(@.type=="InternalIP")].address}')
   ver=$(kubectl get nodes -o jsonpath='{.items[0].status.nodeInfo.kubeletVersion}')
-  ssh -o ConnectTimeout=10 "$sched_ip" "sudo -n sed -i \"s#kube-scheduler:.*#kube-scheduler:${ver}#\" /etc/kubernetes/manifests/kube-scheduler.yaml"
+  ssh -o ConnectTimeout=10 "$sched_ip" "sudo -n sed -i \"s#kube-scheduler:.*#kube-scheduler:${ver}#\" /etc/kubernetes/manifests/kube-scheduler.yaml" </dev/null
 fi
 
 # 17. Repair CoreDNS and configure the application Pod DNS.
