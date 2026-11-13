@@ -45,7 +45,9 @@ go run ./cmd/painkiller
 
 The builder full-clones `9199` to the unused template ID `9100`, prepares packages and cached images, then shuts down and converts the VM into a template. If a compatible template already exists, skip the build. It uses this repository's `playbooks/` and requires network access during the build. It takes the lab-operation lock, refuses an occupied destination, and never modifies the base. A failed build leaves its marked VM for inspection; after investigating, `scripts/build-template.sh --resume` can resume an unfinished VM with the exact builder marker. It refuses templates and unmarked VMs. Do not blindly delete an unverified VM. Only IDs `9100–9200` are accepted as builder destinations.
 
-Prebaked mode selects a Proxmox template by VM ID and checks package versions and cached images on the clones before bootstrapping a new cluster without the playbook's package-preparation phase. It currently supports one controller, Flannel, and the default control-plane endpoint only. Incompatible images or settings fail rather than silently falling back. The original provisioning remains available with explicit `LAB_PROVISION_MODE=legacy`. Build updated images under a new free ID; do not replace a template that has dependent linked clones. Cached images do not make the entire lab offline: for example, first-boot services may still use the network. See [playbook maintenance](playbooks/README.md). The old `LAB_PLAYBOOKS_DIR` and `LAB_PLAYBOOKS_REV` overrides are no longer used.
+Prebaked mode selects a Proxmox template by VM ID and checks package versions and cached images on the clones before bootstrapping a new cluster without the playbook's package-preparation phase. It supports one controller with Flannel and no endpoint, or three controllers with Calico and a stable control-plane endpoint. Incompatible images or settings fail rather than silently falling back. The original provisioning remains available with explicit `LAB_PROVISION_MODE=legacy`. Build updated images under a new free ID; do not replace a template that has dependent linked clones. Cached images do not make the entire lab offline: for example, first-boot services may still use the network. See [playbook maintenance](playbooks/README.md). The old `LAB_PLAYBOOKS_DIR` and `LAB_PLAYBOOKS_REV` overrides are no longer used.
+
+CKA-002's three-controller Calico HA lab uses a second prebaked image built from the same base with `scripts/build-template-ha.sh`, which bakes `9200` with Kubernetes packages, `haproxy`/`keepalived`, Calico, and the exam/dependency images.
 
 The image contains no initialized Kubernetes cluster, certificates, admin kubeconfig, etcd data, or candidate SSH key. `/opt/painkiller/` records exact installed package versions, cached image metadata, the runtime's sandbox image, and the cached Flannel manifest checksum. Kubernetes packages are held at the requested patch version. Both kubeadm's pause image and containerd's sandbox default are cached, since these can differ. A retry preserves a healthy initialized cluster; an unhealthy control plane or changed controller address requires inspection and an explicit lab reset, not an automatic `kubeadm reset`.
 
@@ -79,7 +81,9 @@ ShellCheck, and original/generated Ansible playbook syntax checks passed.
 | `LAB_PROVISION_MODE` | `prebaked` | `prebaked` or explicit `legacy` |
 | `LAB_TEMPLATE_ID` | `9010` (legacy), `9100` (prebaked) | Proxmox VM template |
 | `LAB_IMAGE_TEMPLATE_ID` | `9100` | Destination for `scripts/build-template.sh` (9100–9200) |
+| `LAB_IMAGE_HA_TEMPLATE_ID` | `9200` | Destination for `scripts/build-template-ha.sh` (CKA-002 HA image, 9100–9200) |
 | `LAB_BASE_TEMPLATE_ID` | `9199` | Builder source; currently must be 9199 |
+| `LAB_CALICO_VERSION` | `3.32.0` | Calico version baked by `build-template-ha.sh` |
 | `LAB_VM_MEMORY` | `3072` | Memory per clone in MiB; preflight requires an additional 4 GiB of available host memory |
 | `LAB_VM_START`, `LAB_VM_END` | `3000`, `3002` | Inclusive VM range, restricted to 3000–3999 |
 | `LAB_CONTROLLERS` | `1` | Number of first VMs assigned control-plane role |

@@ -20,6 +20,7 @@ type labSpec struct {
 	CNI                string `json:"cni"`
 	Endpoint           string `json:"endpoint,omitempty"`
 	MemoryMB           int    `json:"memory_mb"`
+	Template           string `json:"template_id,omitempty"`
 	Prepare            string `json:"prepare,omitempty"`
 }
 
@@ -81,8 +82,23 @@ func validateLabSpec(exam examDefinition) error {
 			return fmt.Errorf("%s: invalid lab endpoint", exam.ID)
 		}
 	}
-	if s.Mode == "prebaked" && (s.Controllers != 1 || s.CNI != "flannel" || s.Endpoint != "") {
-		return fmt.Errorf("%s: incompatible prebaked topology", exam.ID)
+	if s.Mode == "prebaked" {
+		// Prebaked supports two images: the single-controller Flannel image and
+		// the three-controller Calico HA image behind a stable endpoint.
+		single := s.Controllers == 1 && s.CNI == "flannel" && s.Endpoint == ""
+		ha := s.Controllers == 3 && s.CNI == "calico" && s.Endpoint != ""
+		if !single && !ha {
+			return fmt.Errorf("%s: incompatible prebaked topology (single-controller Flannel, or three-controller Calico HA)", exam.ID)
+		}
+		if s.Controllers > 1 && s.Template == "" {
+			return fmt.Errorf("%s: prebaked multi-controller topology requires template_id", exam.ID)
+		}
+	}
+	if s.Template != "" {
+		id, err := strconv.Atoi(s.Template)
+		if err != nil || id < 9100 || id > 9200 {
+			return fmt.Errorf("%s: invalid template_id %q", exam.ID, s.Template)
+		}
 	}
 	if s.Prepare != "" {
 		_, err := trustedExamFile(exam, s.Prepare)
@@ -128,6 +144,9 @@ func resolveLab(exam examDefinition) (*labConfig, error) {
 	template := "9100"
 	if c.Env["LAB_PROVISION_MODE"] == "legacy" {
 		template = "9010"
+	}
+	if exam.Lab != nil && exam.Lab.Template != "" {
+		template = exam.Lab.Template
 	}
 	c.Env["LAB_TEMPLATE_ID"] = env("LAB_TEMPLATE_ID", template)
 	if c.Env["LAB_INITIAL_CONTROLLERS"] == "" {

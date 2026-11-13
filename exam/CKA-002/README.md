@@ -7,8 +7,8 @@ passing the CNCF exam.
 
 ## Topology and provisioning
 
-CKA-002 declares its own lab contract in `test.json` and provisions, in legacy
-mode, exactly five linked-clone VMs from template `9010`:
+CKA-002 declares its own lab contract in `test.json` and provisions, in
+prebaked mode, exactly five linked-clone VMs from the HA template `9200`:
 
 - Three control-plane nodes; two are joined initially and the third is prepared
   but left unjoined for the candidate's kubeadm join task.
@@ -17,6 +17,11 @@ mode, exactly five linked-clone VMs from template `9010`:
   on `192.168.254.80:8443`.
 - MetalLB serves LoadBalancer Services from the reserved pool
   `192.168.254.81–89`. `192.168.254.90–99` remains unallocated.
+
+Build the HA image before first use with `scripts/build-template-ha.sh`; it
+bakes `9200` from base `9199` (Kubernetes packages, `haproxy`/`keepalived`,
+Calico, and the exam/dependency images). HAProxy/Keepalived are installed but
+not configured at build time — `prepare.sh` configures them per node.
 
 Preparing another test requires resetting this lab; only one active attempt
 exists at a time. The reserved range and the standalone-exam rule are documented

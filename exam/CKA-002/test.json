@@ -7,10 +7,11 @@
     "controllers": 3,
     "workers": 2,
     "initial_controllers": 2,
-    "provision_mode": "legacy",
+    "provision_mode": "prebaked",
     "cni": "calico",
     "endpoint": "192.168.254.80:8443",
     "memory_mb": 4096,
+    "template_id": "9200",
     "prepare": "prepare.sh"
   }
 }

@@ -29,7 +29,9 @@ api_vip=${api_vip%:*}
 [[ $mode == legacy || $mode == prebaked ]] || { echo 'Invalid provisioning mode' >&2; exit 1; }
 (( initial_controllers >= 1 && initial_controllers <= controllers )) || { echo 'Invalid initial controller count' >&2; exit 1; }
 if [[ $mode == prebaked ]]; then
-  [[ $template -ge 9100 && $template -le 9200 && $controllers == 1 && ${LAB_CNI_PLUGIN:-flannel} == flannel && $version =~ ^[0-9]+\.[0-9]+\.[0-9]+$ && -z ${LAB_CONTROL_PLANE_ENDPOINT:-} ]] || { echo 'Prebaked mode requires a Painkiller template, one controller, Flannel, and no custom endpoint' >&2; exit 1; }
+  single=0; [[ $controllers == 1 && ${LAB_CNI_PLUGIN:-flannel} == flannel && -z ${LAB_CONTROL_PLANE_ENDPOINT:-} ]] && single=1
+  ha=0; [[ $controllers == 3 && ${LAB_CNI_PLUGIN:-flannel} == calico && -n ${LAB_CONTROL_PLANE_ENDPOINT:-} ]] && ha=1
+  [[ $template -ge 9100 && $template -le 9200 && $version =~ ^[0-9]+\.[0-9]+\.[0-9]+$ && ( $single == 1 || $ha == 1 ) ]] || { echo 'Prebaked mode requires a Painkiller template, and either one controller with Flannel and no endpoint, or three controllers with Calico and a control-plane endpoint' >&2; exit 1; }
 fi
 remote() {
   # Retry only when the SSH connection itself could not be established (e.g. a
@@ -174,9 +176,11 @@ case "$command" in
         echo "Guest package manager still busy" >&2; exit 1' </dev/null || { echo "VM $id did not finish booting" >&2; exit 1; }
     done
     if [[ $mode == prebaked ]]; then
+      validator="$(dirname "$0")/validate-image.sh"
+      [[ ${LAB_CNI_PLUGIN:-flannel} == calico ]] && validator="$(dirname "$0")/validate-image-ha.sh"
       IFS=, read -r -a node_ips <<<"$control_ips${worker_ips:+,$worker_ips}"
       for ip in "${node_ips[@]}"; do
-        node_ssh "$ssh_user@$ip" bash -s -- "$version" < "$(dirname "$0")/validate-image.sh" || { echo "Incompatible image or missing cached images on $ip" >&2; exit 1; }
+        node_ssh "$ssh_user@$ip" bash -s -- "$version" < "$validator" || { echo "Incompatible image or missing cached images on $ip" >&2; exit 1; }
       done
       first=${control_ips%%,*}
       node_ssh "$ssh_user@$first" bash -s -- "$first" <<'HEALTH' || exit 1
@@ -197,7 +201,13 @@ HEALTH
     # package-preparation play and the bootstrap image pull (both tagged).
     if [[ $mode == prebaked ]]; then args+=( --skip-tags 'prerequisites,images' ); fi
     if [[ -n $worker_ips ]]; then args+=( -e "worker_ips=$worker_ips" ); fi
-    if [[ $mode == prebaked ]]; then args+=( -e 'flannel_manifest_url=/opt/painkiller/flannel.yml' ); fi
+    if [[ $mode == prebaked ]]; then
+      if [[ ${LAB_CNI_PLUGIN:-flannel} == calico ]]; then
+        args+=( -e 'calico_manifest_url=/opt/painkiller/calico.yml' )
+      else
+        args+=( -e 'flannel_manifest_url=/opt/painkiller/flannel.yml' )
+      fi
+    fi
     if [[ -n ${LAB_CONTROL_PLANE_ENDPOINT:-} ]]; then args+=( -e "control_plane_endpoint=$LAB_CONTROL_PLANE_ENDPOINT" ); fi
     ANSIBLE_FORCE_COLOR=1 ansible-playbook "${args[@]}" --ssh-common-args "-o UserKnownHostsFile=$known_hosts -o GlobalKnownHostsFile=/dev/null -o StrictHostKeyChecking=yes"
     if [[ $command == prerequisites ]]; then exit 0; fi

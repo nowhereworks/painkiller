@@ -60,6 +60,41 @@ func TestLabContractJSON(t *testing.T) {
 	}
 }
 
+func TestPrebakedHALabContract(t *testing.T) {
+	cleanLabEnv(t)
+	exam := examFixture(t)[1]
+	exam.Lab = &labSpec{Controllers: 3, Workers: 2, InitialControllers: 2, Mode: "prebaked",
+		CNI: "calico", Endpoint: "192.168.254.80:8443", MemoryMB: 4096, Template: "9200"}
+	if err := validateLabSpec(exam); err != nil {
+		t.Fatalf("prebaked HA contract rejected: %v", err)
+	}
+	config, err := resolveLab(exam)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if config.Env["LAB_TEMPLATE_ID"] != "9200" || config.Env["LAB_PROVISION_MODE"] != "prebaked" ||
+		config.Env["LAB_CONTROLLERS"] != "3" || config.Env["LAB_INITIAL_CONTROLLERS"] != "2" ||
+		config.Env["LAB_CNI_PLUGIN"] != "calico" || config.Env["LAB_CONTROL_PLANE_ENDPOINT"] != "192.168.254.80:8443" {
+		t.Fatalf("incorrect prebaked HA resolution: %+v", config)
+	}
+
+	// A multi-controller prebaked contract must name its HA template.
+	exam.Lab.Template = ""
+	if err := validateLabSpec(exam); err == nil {
+		t.Fatal("prebaked multi-controller contract without template_id accepted")
+	}
+	// Out-of-range template IDs are rejected.
+	exam.Lab.Template = "9300"
+	if err := validateLabSpec(exam); err == nil {
+		t.Fatal("out-of-range template_id accepted")
+	}
+	// The single-controller Flannel prebaked contract needs no template_id.
+	exam.Lab = &labSpec{Controllers: 1, Workers: 2, InitialControllers: 1, Mode: "prebaked", CNI: "flannel", MemoryMB: 3072}
+	if err := validateLabSpec(exam); err != nil {
+		t.Fatalf("single-controller prebaked contract rejected: %v", err)
+	}
+}
+
 func TestLabSnapshotSurvivesEnvironmentChanges(t *testing.T) {
 	cleanLabEnv(t)
 	t.Setenv("LAB_VM_START", "3100")
