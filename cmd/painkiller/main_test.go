@@ -494,13 +494,26 @@ esac
 }
 
 func TestLabRejectsOutsideAuthorizedRange(t *testing.T) {
-	for _, bounds := range [][2]string{{"2999", "3000"}, {"3000", "4000"}} {
+	for _, bounds := range [][2]string{{"2999", "3000"}, {"3000", "4000"}, {"9100", "9100"}} {
 		cmd := exec.Command("bash", "../../scripts/create-lab.sh", "destroy")
 		cmd.Env = append(os.Environ(), "LAB_VM_START="+bounds[0], "LAB_VM_END="+bounds[1], "LAB_CONTROLLERS=1")
 		out, err := cmd.CombinedOutput()
 		if err == nil || !strings.Contains(string(out), "within 3000") {
 			t.Fatalf("unsafe range accepted: %v %s", err, out)
 		}
+	}
+}
+
+func TestLabAcceptsUpperAuthorizedBoundary(t *testing.T) {
+	dir := t.TempDir()
+	ssh := "#!/bin/sh\ncase \"$*\" in *'qm list'*) printf 'VMID NAME STATUS\\n';; *) exit 99;; esac\n"
+	if err := os.WriteFile(filepath.Join(dir, "ssh"), []byte(ssh), 0700); err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.Command("bash", "../../scripts/create-lab.sh", "destroy")
+	cmd.Env = append(os.Environ(), "PATH="+dir+string(os.PathListSeparator)+os.Getenv("PATH"), "LAB_VM_START=3999", "LAB_VM_END=3999", "LAB_CONTROLLERS=1")
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("upper authorized boundary rejected: %v %s", err, out)
 	}
 }
 
