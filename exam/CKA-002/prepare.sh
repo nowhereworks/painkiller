@@ -87,9 +87,20 @@ fixtures)
   apply_file "$root/exam/CKA-002/assets/metrics-server.yaml"
   apply_file "$root/exam/CKA-002/assets/local-path-provisioner.yaml"
   apply_file "$root/exam/CKA-002/assets/metallb-native.yaml"
-  # MetalLB's validating webhook must be serving before its pool/CRD config.
+  # MetalLB's validating webhook HTTPS endpoint can lag behind the controller's
+  # readiness probe; retry the pool/CRD config until the webhook is serving.
   kube wait --for=condition=available deployment/controller -n metallb-system --timeout=300s
-  apply_file "$root/exam/CKA-002/assets/metallb-config.yaml"
+  for _ in $(seq 1 30); do
+    if out=$(apply_file "$root/exam/CKA-002/assets/metallb-config.yaml" 2>&1); then
+      echo "$out"
+      break
+    fi
+    if ! grep -q "connection refused" <<<"$out"; then
+      echo "$out" >&2
+      exit 1
+    fi
+    sleep 5
+  done
   # Envoy Gateway bundles CRDs whose schemas exceed kubectl's 256 KiB
   # last-applied annotation limit; server-side apply avoids that annotation.
   node_ssh "$user@$(first_controller)" "kubectl apply --server-side -f -" \
