@@ -50,6 +50,15 @@ Live validation on 2026-11-13, one controller and two workers on `prox-k12`:
 
 These are phase timings, excluding inter-command status overhead, candidate access setup, and exam object setup; run 1's external create/provision wall time was 76 s. They are measurements, not a startup-time guarantee. Legacy retains its existing package behavior (the minor repository's current patch); the prebaked nodes were verified at exactly `1.36.1`. Run 1 verified distinct node identities, no Kubernetes bootstrap image-pull events, and retry preserving the same cluster. Run 2 passed the browser/scoring flow `0 → 100 → 98 → 100`, terminal reconnect, final submission, and reset. Tests used the separate marked range `3100–3102`, then removed it; the existing lab was not reset.
 
+The repository-local playbook migration and new prebaked default were also
+validated on 2026-11-13 against the existing `9100`, without rebuilding it:
+linked cloning/start 14 s, guest readiness 13 s, provisioning 41 s. The browser
+flow passed `0 → 100 → 98 → 100`, terminal reconnect, final submission, and
+reset on separately marked VMs `3100–3102`; all three were removed afterward.
+Isolated-copy regression tests cover both provisioning modes and the builder
+without Git metadata or an external playbook checkout. Go race tests, `go vet`,
+ShellCheck, and original/generated Ansible playbook syntax checks passed.
+
 | Environment variable | Default | Purpose |
 | --- | --- | --- |
 | `PAINKILLER_LISTEN` | `127.0.0.1:8080` | HTTP listen address |
