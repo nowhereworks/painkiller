@@ -39,22 +39,27 @@ An exam may declare requirements in `test.json`:
   "controllers": 3,
   "workers": 2,
   "initial_controllers": 2,
-  "provision_mode": "legacy",
+  "provision_mode": "prebaked",
   "cni": "calico",
   "endpoint": "192.168.254.80:8443",
   "memory_mb": 4096,
+  "template_id": "9200",
   "prepare": "prepare.sh"
 }
 ```
 
-All fields except `endpoint` and `prepare` are required when `lab` is present.
-`memory_mb` is a minimum per VM. Explicit conflicting topology, mode, CNI,
-endpoint, range end, or insufficient memory environment settings fail selection;
-they never silently replace exam requirements. The VM range end is derived from
-`LAB_VM_START` and the exam's total machine count. Proxmox host, SSH user, VM range
-start, ownership marker, and template ID remain operator-configurable. Legacy
-mode defaults to template 9010. The catalog publishes only controller/worker
-counts, not the trusted preparation path or endpoint.
+All fields except `endpoint`, `template_id`, and `prepare` are required when
+`lab` is present. `memory_mb` is a minimum per VM. Explicit conflicting topology,
+mode, CNI, endpoint, range end, or insufficient memory environment settings fail
+selection; they never silently replace exam requirements. The VM range end is
+derived from `LAB_VM_START` and the exam's total machine count. Proxmox host, SSH
+user, VM range start, ownership marker, and template ID remain
+operator-configurable; `template_id` (9100–9200) is the exam's default image and
+is required for a prebaked multi-controller topology. Legacy mode defaults to
+template 9010. Prebaked mode supports one controller with Flannel and no
+endpoint, or three controllers with Calico and a stable control-plane endpoint.
+The catalog publishes only controller/worker counts, not the trusted preparation
+path or endpoint.
 
 New attempts persist their resolved operational environment. Creation, retries,
 status, guest access, grading, and reset use that snapshot even after a server
