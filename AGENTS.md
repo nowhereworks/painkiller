@@ -10,7 +10,9 @@ This is the repository for Painkiller Shell: A Killer.sh clone that aims to mimi
 - Always persist any useful data for future sessions 
 - Ignore files in ./docs unless instructed otherwise
 - Scripts don't need to map 1:1 to `exams` and and in fact might be used to provision environments for more than one exam. When deciding about this topic, do the simplest thing: If a given `exam` asks too much of a given script and changing it might cause cascade changes and tests, create a custom copy for the `exam` in question.
+- Each exam owns what's unique to it; shared code stays minimal and mode-neutral.
 - Exams need to be stand alone. Don't let a change introduced to one exam break others.
+- If DHCP lease pool exhausts, access lan technitium instance and remove all dhcp leases with hostName beginning in "k8s-" 
 
 # Important Information
 

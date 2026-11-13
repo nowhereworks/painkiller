@@ -8,10 +8,10 @@
       "On the first control-plane node run `kubectl get nodes` and note there are two control-plane nodes and two workers.",
       "Generate a certificate key with `sudo kubeadm init phase upload-certs --upload-certs` and note the 64-character key.",
       "Create a join command with `sudo kubeadm token create --print-join-command`.",
-      "SSH to the unjoined controller (`kubectl get nodes -o wide` shows node IPs) and run the join command, appending `--control-plane --certificate-key <key>`.",
+      "Find the unjoined controller's IP: it is the address in `~/.ssh/painkiller_known_hosts` that is not yet listed as a node. SSH there and run the join command, appending `--control-plane --certificate-key <key>`.",
       "Verify with `kubectl get nodes` (three control-plane Ready) and `kubectl get pods -n kube-system -l component=etcd` (three Running members)."
     ],
-    "solution": "key=$(sudo -n kubeadm init phase upload-certs --upload-certs 2>/dev/null | tail -1)\njoin=$(sudo -n kubeadm token create --print-join-command)\nthird=$(kubectl get nodes -o wide --no-headers | awk '$3 !~ /control-plane/ {print $6}' | tail -1)\nssh \"$third\" \"sudo -n $join --control-plane --certificate-key $key\"",
+    "solution": "joined=$(kubectl get nodes -o json | jq -r '[.items[].status.addresses[] | select(.type==\"InternalIP\") | .address] | unique | .[]')\nall=$(awk '!/^#/ {print $1}' \"$HOME/.ssh/painkiller_known_hosts\")\nthird=$(comm -23 <(printf '%s\\n' \"$all\" | sort -u) <(printf '%s\\n' \"$joined\" | sort -u) | head -1)\nkey=$(sudo -n kubeadm init phase upload-certs --upload-certs 2>/dev/null | tail -1)\njoin=$(sudo -n kubeadm token create --print-join-command)\nssh \"$third\" \"sudo -n $join --control-plane --certificate-key $key\"",
     "resource": "jq -n --argjson nodes \"$(kubectl get nodes -o json)\" --argjson etcd \"$(kubectl -n kube-system get pods -l component=etcd -o json)\" '{nodes:$nodes,etcd:$etcd}'",
     "checks": [
       {

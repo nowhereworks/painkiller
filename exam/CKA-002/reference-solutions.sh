@@ -18,7 +18,7 @@ worker() { kubectl get nodes -o json | jq -r '[.items[] | select(.metadata.label
 third_controller_ip() {
   local joined all
   joined=$(kubectl get nodes -o json | jq -r '[.items[].status.addresses[] | select(.type=="InternalIP") | .address] | unique | .[]')
-  all=$(awk '{print $1}' "$HOME/.ssh/painkiller_known_hosts" 2>/dev/null)
+  all=$(awk '!/^#/ {print $1}' "$HOME/.ssh/painkiller_known_hosts" 2>/dev/null)
   comm -23 <(printf '%s\n' "$all" | sort -u) <(printf '%s\n' "$joined" | sort -u) | head -1
 }
 
@@ -29,6 +29,48 @@ third=$(third_controller_ip)
 [[ -n $third ]] || { echo 'Could not locate the unjoined controller' >&2; exit 1; }
 ssh -o ConnectTimeout=10 "$third" "sudo -n $join --control-plane --certificate-key $key"
 kubectl wait --for=condition=Ready nodes --all --timeout=300s || true
+
+# Repair node-level faults first so downstream tasks that require both workers
+# (scheduling, drain) run against a healthy cluster.
+
+# 15. Repair the worker kubelet (makes the second worker Ready again).
+bad_worker=$(kubectl get nodes -o json | jq -r '[.items[] | select(.metadata.labels["node-role.kubernetes.io/control-plane"] == null and ([.status.conditions[]? | select(.type=="Ready")][0].status != "True"))][0].metadata.name' 2>/dev/null || true)
+if [[ -n $bad_worker ]]; then
+  bad_ip=$(kubectl get node "$bad_worker" -o jsonpath='{.status.addresses[?(@.type=="InternalIP")].address}')
+  ssh -o ConnectTimeout=10 "$bad_ip" 'sudo -n sed -i "/painkiller-fault/d" /var/lib/kubelet/config.yaml && sudo -n systemctl restart kubelet'
+  kubectl wait --for=condition=Ready node "$bad_worker" --timeout=180s || true
+fi
+
+# 16. Repair the broken scheduler static Pod.
+bad_sched=$(kubectl -n kube-system get pods -l component=kube-scheduler -o json | jq -r '.items[] | select(any(.spec.containers[]?; (.image | contains("9.9.9")))) | .spec.nodeName' | head -1)
+if [[ -n $bad_sched ]]; then
+  sched_ip=$(kubectl get node "$bad_sched" -o jsonpath='{.status.addresses[?(@.type=="InternalIP")].address}')
+  ver=$(kubectl get nodes -o jsonpath='{.items[0].status.nodeInfo.kubeletVersion}')
+  ssh -o ConnectTimeout=10 "$sched_ip" "sudo -n sed -i \"s#kube-scheduler:.*#kube-scheduler:${ver}#\" /etc/kubernetes/manifests/kube-scheduler.yaml"
+fi
+
+# 17. Repair CoreDNS and configure the application Pod DNS.
+kubectl -n kube-system get cm coredns -o json \
+  | jq '.data.Corefile = (.data.Corefile | split("forward . 1.2.3.4") | join("forward . /etc/resolv.conf"))' \
+  | kubectl apply -f -
+kubectl -n kube-system rollout restart deployment/coredns
+kubectl apply -f - <<'YAML'
+apiVersion: v1
+kind: Pod
+metadata:
+  name: dns-app
+  namespace: exam-repair
+spec:
+  containers:
+    - name: app
+      image: busybox:1.36
+      command: ["sh", "-c", "sleep 3600"]
+  dnsConfig:
+    nameservers:
+      - 1.1.1.1
+    searches:
+      - example.test
+YAML
 
 # 2. Safe drain (with evidence) and an etcd snapshot.
 w=$(worker)
@@ -293,45 +335,6 @@ spec:
     - name: data
       persistentVolumeClaim:
         claimName: exam-local-pvc
-YAML
-
-# 15. Repair the worker kubelet.
-bad_worker=$(kubectl get nodes -o json | jq -r '[.items[] | select(.metadata.labels["node-role.kubernetes.io/control-plane"] == null and ([.status.conditions[]? | select(.type=="Ready")][0].status != "True"))][0].metadata.name' 2>/dev/null || true)
-if [[ -n $bad_worker ]]; then
-  bad_ip=$(kubectl get node "$bad_worker" -o jsonpath='{.status.addresses[?(@.type=="InternalIP")].address}')
-  ssh -o ConnectTimeout=10 "$bad_ip" 'sudo -n sed -i "/painkiller-fault/d" /var/lib/kubelet/config.yaml && sudo -n systemctl restart kubelet'
-  kubectl wait --for=condition=Ready node "$bad_worker" --timeout=180s || true
-fi
-
-# 16. Repair the broken scheduler static Pod.
-bad_sched=$(kubectl -n kube-system get pods -l component=kube-scheduler -o json | jq -r '.items[] | select(any(.spec.containers[]?; (.image | contains("9.9.9")))) | .spec.nodeName' | head -1)
-if [[ -n $bad_sched ]]; then
-  sched_ip=$(kubectl get node "$bad_sched" -o jsonpath='{.status.addresses[?(@.type=="InternalIP")].address}')
-  ver=$(kubectl get nodes -o jsonpath='{.items[0].status.nodeInfo.kubeletVersion}')
-  ssh -o ConnectTimeout=10 "$sched_ip" "sudo -n sed -i \"s#kube-scheduler:.*#kube-scheduler:${ver}#\" /etc/kubernetes/manifests/kube-scheduler.yaml"
-fi
-
-# 17. Repair CoreDNS and configure Pod DNS.
-kubectl -n kube-system get cm coredns -o json \
-  | jq '.data.Corefile = (.data.Corefile | split("forward . 1.2.3.4") | join("forward . /etc/resolv.conf"))' \
-  | kubectl apply -f -
-kubectl -n kube-system rollout restart deployment/coredns
-kubectl apply -f - <<'YAML'
-apiVersion: v1
-kind: Pod
-metadata:
-  name: dns-app
-  namespace: exam-repair
-spec:
-  containers:
-    - name: app
-      image: busybox:1.36
-      command: ["sh", "-c", "sleep 3600"]
-  dnsConfig:
-    nameservers:
-      - 1.1.1.1
-    searches:
-      - example.test
 YAML
 
 # 18. Repair the Service selector and targetPort.

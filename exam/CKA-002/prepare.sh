@@ -106,13 +106,17 @@ fixtures)
     fi
     sudo -n mkdir -p /opt/painkiller/cka002
     sudo -n chown -R "$(id -u):$(id -g)" /opt/painkiller/cka002'
-  tar -C "$root/exam/CKA-002/assets" -cf - chart kustomize operator \
-    | node_ssh "$user@$(first_controller)" 'tar -xf - -C /opt/painkiller/cka002'
+  # scp avoids the tar-over-ssh pipe, which can lose the stream when the server
+  # itself is a daemon with a closed stdin.
+  scp -r -o BatchMode=yes -o ConnectTimeout=10 -o StrictHostKeyChecking=yes \
+    -o GlobalKnownHostsFile=/dev/null -o "UserKnownHostsFile=$known" \
+    "$root/exam/CKA-002/assets/chart" "$root/exam/CKA-002/assets/kustomize" "$root/exam/CKA-002/assets/operator" \
+    "$user@$(first_controller):/opt/painkiller/cka002/" >/dev/null
 
-  echo "CKA-002 fixtures: apply test objects (setup.yaml)"
-  node_ssh "$user@$(first_controller)" "kubectl apply -f -" < "$root/exam/CKA-002/setup.yaml"
-
-  echo "CKA-002 fixtures: node labels, taint, and local data"
+  echo "CKA-002 fixtures: node labels and taint (before fixtures)"
+  # Taint the second worker before applying fixtures so the setup.yaml Pods are
+  # scheduled on the healthy first worker, never stranded on the worker whose
+  # kubelet fault (task 15) later makes it NotReady.
   state=$(state_json)
   w1_ip=$(jq -r .worker_ips <<<"$state" | cut -d, -f1)
   w2_ip=$(jq -r .worker_ips <<<"$state" | cut -d, -f2)
@@ -122,6 +126,11 @@ fixtures)
   kube label node "$w1_name" topology.kubernetes.io/zone=west --overwrite >/dev/null
   kube label node "$w2_name" topology.kubernetes.io/zone=east --overwrite >/dev/null
   kube taint node "$w2_name" exam=reserved:NoSchedule --overwrite >/dev/null
+
+  echo "CKA-002 fixtures: apply test objects (setup.yaml)"
+  node_ssh "$user@$(first_controller)" "kubectl apply -f -" < "$root/exam/CKA-002/setup.yaml"
+
+  echo "CKA-002 fixtures: local data"
   node_ssh "$user@$w1_ip" 'sudo -n mkdir -p /opt/painkiller/local-data && echo painkiller-data | sudo -n tee /opt/painkiller/local-data/data.txt >/dev/null'
 
   echo "CKA-002 fixtures: install the broken Helm release"
