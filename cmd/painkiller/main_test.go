@@ -494,7 +494,7 @@ esac
 }
 
 func TestLabRejectsOutsideAuthorizedRange(t *testing.T) {
-	for _, bounds := range [][2]string{{"2999", "3000"}, {"3000", "3005"}} {
+	for _, bounds := range [][2]string{{"2999", "3000"}, {"3000", "4000"}} {
 		cmd := exec.Command("bash", "../../scripts/create-lab.sh", "destroy")
 		cmd.Env = append(os.Environ(), "LAB_VM_START="+bounds[0], "LAB_VM_END="+bounds[1], "LAB_CONTROLLERS=1")
 		out, err := cmd.CombinedOutput()

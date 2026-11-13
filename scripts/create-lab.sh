@@ -19,7 +19,7 @@ memory=${LAB_VM_MEMORY:-3072}
 known_hosts=${LAB_KNOWN_HOSTS:-$PWD/data/lab_known_hosts}
 
 [[ $start =~ ^[0-9]+$ && $end =~ ^[0-9]+$ && $template =~ ^[0-9]+$ && $controllers =~ ^[0-9]+$ && $timeout =~ ^[0-9]+$ && $memory =~ ^[0-9]+$ ]] || { echo 'Invalid numeric configuration' >&2; exit 1; }
-[[ $start -ge 3000 && $end -le 3004 && $start -le $end && $controllers -gt 0 && $controllers -le $((end-start+1)) && $timeout -gt 0 ]] || { echo 'VM range must be within 3000–3004 and controller count must be valid' >&2; exit 1; }
+[[ $start -ge 3000 && $end -le 3999 && $start -le $end && $controllers -gt 0 && $controllers -le $((end-start+1)) && $timeout -gt 0 ]] || { echo 'VM range must be within 3000–3999 and controller count must be valid' >&2; exit 1; }
 [[ $marker =~ ^[a-zA-Z0-9_-]+$ && $prefix =~ ^[0-9.]+$ && $ssh_user =~ ^[a-zA-Z0-9_-]+$ ]] || { echo 'Invalid marker, IP prefix, or SSH user' >&2; exit 1; }
 remote() {
   # Retry only when the SSH connection itself could not be established (e.g. a

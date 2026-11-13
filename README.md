@@ -9,7 +9,7 @@ An early single-user CKA practice simulator: a timed question panel and SSH term
 - Passwordless SSH and a verified Proxmox host key are required from the management host. Template `9010` is expected to be pre-configured (SSH access, DNS, DHCP). `create` makes **linked clones** (fast, shared base disk) and only starts them; it does not modify the clone's `net0`, machine-id, cloud-init, or SSH host keys. Clone host keys are read through the Proxmox guest agent and pinned in `data/lab_known_hosts`. Provisioning grants the configured lab user passwordless sudo on these disposable VMs. The template is not modified.
 - The browser assets, including xterm.js, are bundled in the server. The server must be started from the repository root for scripts and exam data.
 - The external `lab-ansible-playbooks` checkout is required and its revision is checked before provisioning. Its kubeadm playbook can reset Kubernetes state on target hosts. The default cluster uses one controller and two workers. For multiple controllers, configure a working stable control-plane endpoint.
-- VM operations are restricted to IDs 3000–3004; the default lab uses 3000–3002. Create refuses existing IDs; start/stop/destroy refuse existing VMs without the configured ownership description. If cloning succeeds but marking fails, clean up that VM manually after confirming ownership. Cleanup is destructive: inspect the target host and VM range first. The description marker is a guard, not an isolation boundary.
+- VM operations are restricted to IDs 3000–3999; the default lab uses 3000–3002. Create refuses existing IDs; start/stop/destroy refuse existing VMs without the configured ownership description. If cloning succeeds but marking fails, clean up that VM manually after confirming ownership. Cleanup is destructive: inspect the target host and VM range first. The description marker is a guard, not an isolation boundary.
 - A running candidate can start background processes on lab nodes. Closing the browser terminal at submission does not guarantee those processes stop. Answers are captured after submission with bounded concurrency (six captures at a time), so the whole cluster is read within a few seconds; that is a much smaller window than a sequential capture but still not a transactional cluster snapshot. Once captured, checks and retries use the saved snapshot and never re-read live state. Do not treat this as a secure exam environment.
 
 ## Run
@@ -33,7 +33,7 @@ Preparation also creates a new, lab-only SSH key on the controller and installs 
 | `LAB_PROXMOX_HOST` | `root@prox-k12` | SSH destination for Proxmox |
 | `LAB_TEMPLATE_ID` | `9010` | Proxmox VM template |
 | `LAB_VM_MEMORY` | `3072` | Memory per clone in MiB; preflight requires an additional 4 GiB of available host memory |
-| `LAB_VM_START`, `LAB_VM_END` | `3000`, `3002` | Inclusive VM range, restricted to 3000–3004 |
+| `LAB_VM_START`, `LAB_VM_END` | `3000`, `3002` | Inclusive VM range, restricted to 3000–3999 |
 | `LAB_CONTROLLERS` | `1` | Number of first VMs assigned control-plane role |
 | `LAB_MARKER` | `painkiller-mvp` | Required Proxmox VM description |
 | `LAB_IP_PREFIX` | `192.168.254.` | Prefix used to select exactly one guest IPv4 address |
