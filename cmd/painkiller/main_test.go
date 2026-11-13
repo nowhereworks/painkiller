@@ -517,6 +517,263 @@ func TestLabAcceptsUpperAuthorizedBoundary(t *testing.T) {
 	}
 }
 
+func TestPrebakedCreateRejectsUnmarkedTemplate(t *testing.T) {
+	dir := t.TempDir()
+	calls := filepath.Join(dir, "calls")
+	ssh := "#!/bin/sh\necho \"$*\" >> \"$CALLS\"\ncase \"$*\" in *'qm config 9100'*) printf 'template: 1\\ndescription: unrelated\\n';; *) exit 99;; esac\n"
+	git := "#!/bin/sh\ncase \"$*\" in *'rev-parse HEAD'*) echo 8ec676e93017ce3e110c27485e25d1f32d541056;; esac\n"
+	for name, body := range map[string]string{"ssh": ssh, "git": git} {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(body), 0700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	cmd := exec.Command("bash", "../../scripts/create-lab.sh", "create")
+	cmd.Env = append(os.Environ(), "PATH="+dir+string(os.PathListSeparator)+os.Getenv("PATH"), "CALLS="+calls, "LAB_PROVISION_MODE=prebaked", "LAB_TEMPLATE_ID=9100", "LAB_CONTROLLERS=1", "LAB_CNI_PLUGIN=flannel", "LAB_CONTROL_PLANE_ENDPOINT=")
+	if out, err := cmd.CombinedOutput(); err == nil || !strings.Contains(string(out), "incompatible") {
+		t.Fatalf("unmarked template accepted: %v %s", err, out)
+	}
+	b, err := os.ReadFile(calls)
+	if err != nil || strings.Contains(string(b), "qm clone") {
+		t.Fatalf("unexpected clone: %s %v", b, err)
+	}
+}
+
+func TestImageBuilderRejectsOccupiedDestination(t *testing.T) {
+	dir := t.TempDir()
+	calls := filepath.Join(dir, "calls")
+	ssh := "#!/bin/sh\necho \"$*\" >> \"$CALLS\"\ncase \"$*\" in *'qm list'*) printf 'VMID NAME STATUS\\n9100 other stopped\\n';; *) exit 99;; esac\n"
+	git := "#!/bin/sh\ncase \"$*\" in *'rev-parse HEAD'*) echo 8ec676e93017ce3e110c27485e25d1f32d541056;; esac\n"
+	for name, body := range map[string]string{"ssh": ssh, "git": git} {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(body), 0700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	cmd := exec.Command("bash", "../../scripts/build-template.sh")
+	cmd.Env = append(os.Environ(), "PATH="+dir+string(os.PathListSeparator)+os.Getenv("PATH"), "CALLS="+calls, "PAINKILLER_LAB_LOCK_DIR="+dir, "LAB_IMAGE_TEMPLATE_ID=9100", "LAB_BASE_TEMPLATE_ID=9010")
+	if out, err := cmd.CombinedOutput(); err == nil || !strings.Contains(string(out), "already exists") {
+		t.Fatalf("occupied builder ID accepted: %v %s", err, out)
+	}
+	b, err := os.ReadFile(calls)
+	if err != nil || strings.Contains(string(b), "qm clone") {
+		t.Fatalf("unexpected clone: %s %v", b, err)
+	}
+}
+
+func TestImageBuilderResumeRefusesUnownedOrPublishedVM(t *testing.T) {
+	for _, description := range []string{"description: unrelated", "description: painkiller-image-v1\ntemplate: 1"} {
+		dir := t.TempDir()
+		calls := filepath.Join(dir, "calls")
+		ssh := "#!/bin/sh\necho \"$*\" >> \"$CALLS\"\ncase \"$*\" in *'qm list'*) printf 'VMID NAME STATUS\\n9100 other stopped\\n';; *'qm config 9100'*) printf '%s\\n' \"$CONFIG\";; *) exit 99;; esac\n"
+		git := "#!/bin/sh\ncase \"$*\" in *'rev-parse HEAD'*) echo 8ec676e93017ce3e110c27485e25d1f32d541056;; esac\n"
+		for name, body := range map[string]string{"ssh": ssh, "git": git} {
+			if err := os.WriteFile(filepath.Join(dir, name), []byte(body), 0700); err != nil {
+				t.Fatal(err)
+			}
+		}
+		cmd := exec.Command("bash", "../../scripts/build-template.sh", "--resume")
+		cmd.Env = append(os.Environ(), "PATH="+dir+string(os.PathListSeparator)+os.Getenv("PATH"), "CALLS="+calls, "CONFIG="+description, "PAINKILLER_LAB_LOCK_DIR="+dir, "LAB_IMAGE_TEMPLATE_ID=9100", "LAB_BASE_TEMPLATE_ID=9010")
+		if out, err := cmd.CombinedOutput(); err == nil || !strings.Contains(string(out), "not an unfinished owned builder") {
+			t.Fatalf("unsafe builder resume accepted: %v %s", err, out)
+		}
+		b, err := os.ReadFile(calls)
+		if err != nil || strings.Contains(string(b), "qm start") || strings.Contains(string(b), "qm clone") {
+			t.Fatalf("unexpected mutation: %s %v", b, err)
+		}
+	}
+}
+
+func TestImageBuilderRejectsOutsideTemplateRange(t *testing.T) {
+	for _, id := range []string{"3000", "9010", "9099", "9201", "x"} {
+		cmd := exec.Command("bash", "../../scripts/build-template.sh")
+		cmd.Env = append(os.Environ(), "LAB_IMAGE_TEMPLATE_ID="+id)
+		if out, err := cmd.CombinedOutput(); err == nil || !strings.Contains(string(out), "Invalid image build configuration") {
+			t.Fatalf("unsafe image ID %s accepted: %v %s", id, err, out)
+		}
+	}
+}
+
+func TestImageBuilderSharesLabOperationLock(t *testing.T) {
+	dir := t.TempDir()
+	f, err := os.OpenFile(filepath.Join(dir, "lab-operation.lock"), os.O_CREATE|os.O_RDWR, 0600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.Command("bash", "../../scripts/build-template.sh")
+	cmd.Env = append(os.Environ(), "PAINKILLER_LAB_LOCK_DIR="+dir, "LAB_IMAGE_TEMPLATE_ID=9100", "LAB_BASE_TEMPLATE_ID=9010")
+	if out, err := cmd.CombinedOutput(); err == nil || !strings.Contains(string(out), "Another lab operation") {
+		t.Fatalf("builder ignored lab lock: %v %s", err, out)
+	}
+}
+
+func TestPrebakedRejectsUnsupportedConfiguration(t *testing.T) {
+	for _, setting := range []string{"LAB_CONTROLLERS=2", "LAB_CNI_PLUGIN=calico", "LAB_TEMPLATE_ID=9010", "LAB_CONTROL_PLANE_ENDPOINT=192.0.2.1:6443"} {
+		cmd := exec.Command("bash", "../../scripts/create-lab.sh", "create")
+		cmd.Env = append(os.Environ(), "LAB_PROVISION_MODE=prebaked", "LAB_VM_START=3000", "LAB_VM_END=3002", "LAB_TEMPLATE_ID=9100", "LAB_CONTROLLERS=1", "LAB_CNI_PLUGIN=flannel", "LAB_CONTROL_PLANE_ENDPOINT=", setting)
+		if out, err := cmd.CombinedOutput(); err == nil || !strings.Contains(string(out), "Prebaked mode requires") {
+			t.Fatalf("unsupported configuration %s accepted: %v %s", setting, err, out)
+		}
+	}
+}
+
+func TestImageBuilderFullClonesWithoutChangingBaseOrIdentity(t *testing.T) {
+	dir := t.TempDir()
+	playbookDir := filepath.Join(dir, "playbooks", "kubeadm-cluster")
+	if err := os.MkdirAll(playbookDir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	fixture := "---\n- name: Prepare all kubeadm nodes\n  hosts: all\n  tasks: []\n- name: Bootstrap first kubeadm control-plane node\n  hosts: all\n  tasks: []\n"
+	if err := os.WriteFile(filepath.Join(playbookDir, "kubeadm-cluster.yml"), []byte(fixture), 0600); err != nil {
+		t.Fatal(err)
+	}
+	ssh := `#!/bin/sh
+echo "$*" >> "$CALLS"
+case "$*" in
+ *"qm list"*) echo 'VMID NAME STATUS' ;;
+ *"qm config 9010"*) printf 'template: 1\nmemory: 8192\nscsi0: test:base-9010-disk-0,size=1G\n' ;;
+ *"qm config 9100"*) echo 'description: painkiller-image-v1' ;;
+ *"pvesm status"*) echo 'test lvmthin active 9999999 0 9999999' ;;
+ *"MemAvailable:"*) echo 65536 ;;
+ *"qm agent 9100 network-get-interfaces"*) echo '[{"ip-addresses":[{"ip-address-type":"ipv4","ip-address":"192.168.254.10"}]}]' ;;
+ *"qm guest exec "*"ssh_host_ed25519_key.pub"*) echo '{"exited":1,"exitcode":0,"out-data":"ssh-ed25519 YWJj lab"}' ;;
+ *"qm guest exec "*) echo '{"exited":1,"exitcode":0}' ;;
+ *"qm status 9100"*) echo 'status: stopped' ;;
+ *"bash -s"*) cat >> "$CALLS" ;;
+esac
+`
+	git := "#!/bin/sh\ncase \"$*\" in *'rev-parse HEAD'*) echo 8ec676e93017ce3e110c27485e25d1f32d541056;; esac\n"
+	for name, body := range map[string]string{"ssh": ssh, "git": git, "ansible-playbook": "#!/bin/sh\nexit 0\n"} {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(body), 0700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	calls := filepath.Join(dir, "calls")
+	cmd := exec.Command("bash", "../../scripts/build-template.sh")
+	cmd.Env = append(os.Environ(), "PATH="+dir+string(os.PathListSeparator)+os.Getenv("PATH"), "CALLS="+calls, "TMPDIR="+dir, "PAINKILLER_LAB_LOCK_DIR="+dir, "LAB_PLAYBOOKS_DIR="+filepath.Join(dir, "playbooks"), "LAB_IMAGE_TEMPLATE_ID=9100", "LAB_BASE_TEMPLATE_ID=9010", "LAB_SSH_USER=milkman")
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("image build failed: %v %s", err, out)
+	}
+	b, err := os.ReadFile(calls)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, required := range []string{"qm clone 9010 9100 --name painkiller-image-9100 --full 1", "qm shutdown 9100", "qm template 9100", "crictl pull", "image-version"} {
+		if !strings.Contains(string(b), required) {
+			t.Fatalf("missing build step %q: %s", required, b)
+		}
+	}
+	for _, forbidden := range []string{"qm set 9010", "qm start 9010", "--net0", "cloud-init clean", "machine-id", "ssh-keygen", "qm destroy"} {
+		if strings.Contains(string(b), forbidden) {
+			t.Fatalf("unsafe build step %q: %s", forbidden, b)
+		}
+	}
+}
+
+func TestPrebakedProvisionSkipsInstallAndReset(t *testing.T) {
+	dir := t.TempDir()
+	playbookDir := filepath.Join(dir, "playbooks", "kubeadm-cluster")
+	if err := os.MkdirAll(playbookDir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	fixture := `---
+- name: Build in-memory inventory from controller_ips and worker_ips
+  hosts: localhost
+  tasks: []
+- name: Prepare all kubeadm nodes
+  hosts: all
+  tasks:
+    - name: Install packages
+      ansible.builtin.debug: msg=install
+- name: Bootstrap first kubeadm control-plane node
+  hosts: all
+  tasks:
+    - name: Check if Kubernetes control plane is already initialized
+      ansible.builtin.stat: path=/etc/kubernetes/admin.conf
+    - name: Check if existing etcd manifest references a different IP
+      ansible.builtin.debug: msg=reset
+    - name: Pre-pull Kubernetes control plane images
+      ansible.builtin.command: kubeadm config images pull
+    - name: Initialize first control-plane node
+      ansible.builtin.debug: msg=init
+`
+	if err := os.WriteFile(filepath.Join(playbookDir, "kubeadm-cluster.yml"), []byte(fixture), 0600); err != nil {
+		t.Fatal(err)
+	}
+	ssh := `#!/bin/sh
+echo "$*" >> "$CALLS"
+case "$*" in
+ *"qm config 3000"*) echo 'description: painkiller-mvp' ;;
+ *"qm agent 3000 network-get-interfaces"*) echo '[{"ip-addresses":[{"ip-address-type":"ipv4","ip-address":"192.168.254.10"}]}]' ;;
+ *"qm guest exec "*"ssh_host_ed25519_key.pub"*) echo '{"exited":1,"exitcode":0,"out-data":"ssh-ed25519 YWJj lab"}' ;;
+ *"qm guest exec "*) echo '{"exited":1,"exitcode":0}' ;;
+ *"kubectl get nodes --no-headers"*) echo node1 ;;
+ *"bash -s -- 1.36.1"*) if [ "$FAIL_VALIDATE" = 1 ]; then exit 24; fi ;;
+ *"bash -s -- 192.168.254.10"*) if [ "$FAIL_HEALTH" = 1 ]; then echo 'Existing control plane unhealthy' >&2; exit 25; fi ;;
+esac
+`
+	git := "#!/bin/sh\ncase \"$*\" in *'rev-parse HEAD'*) echo 8ec676e93017ce3e110c27485e25d1f32d541056;; esac\n"
+	ansible := "#!/bin/sh\necho \"$*\" >> \"$CALLS\"\nfor arg in \"$@\"; do case \"$arg\" in */bootstrap.yml) cp \"$arg\" \"$CAPTURE\";; esac; done\n"
+	for name, body := range map[string]string{"ssh": ssh, "git": git, "ansible-playbook": ansible} {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(body), 0700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	known := filepath.Join(dir, "known")
+	if err := os.WriteFile(known, []byte("# Painkiller managed host keys\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	script, err := filepath.Abs("../../scripts/create-lab.sh")
+	if err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.Command("bash", script, "provision")
+	cmd.Dir = dir
+	calls := filepath.Join(dir, "calls")
+	capture := filepath.Join(dir, "captured.yml")
+	cmd.Env = append(os.Environ(), "PATH="+dir+string(os.PathListSeparator)+os.Getenv("PATH"), "CALLS="+calls, "CAPTURE="+capture, "LAB_PLAYBOOKS_DIR="+filepath.Join(dir, "playbooks"), "LAB_PROVISION_MODE=prebaked", "LAB_TEMPLATE_ID=9100", "LAB_VM_START=3000", "LAB_VM_END=3000", "LAB_CONTROLLERS=1", "LAB_CNI_PLUGIN=flannel", "LAB_CONTROL_PLANE_ENDPOINT=", "LAB_KNOWN_HOSTS="+known)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("prebaked provision failed: %v %s", err, out)
+	}
+	b, err := os.ReadFile(capture)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, forbidden := range []string{"Install packages", "msg=reset", "kubeadm config images pull"} {
+		if strings.Contains(string(b), forbidden) {
+			t.Fatalf("prebaked playbook contains %q: %s", forbidden, b)
+		}
+	}
+	if !strings.Contains(string(b), "kubeadm_reset_needed: false") {
+		t.Fatalf("missing safe retry fact: %s", b)
+	}
+	b, err = os.ReadFile(calls)
+	if err != nil || strings.Contains(string(b), "sudo -n apt-get") || !strings.Contains(string(b), "flannel_manifest_url=/opt/painkiller/flannel.yml") {
+		t.Fatalf("unexpected provision commands: %s %v", b, err)
+	}
+	failedCapture := filepath.Join(dir, "must-not-exist.yml")
+	cmd2 := exec.Command("bash", script, "provision")
+	cmd2.Dir = dir
+	cmd2.Env = append(cmd.Env, "FAIL_VALIDATE=1", "CAPTURE="+failedCapture)
+	if out, err := cmd2.CombinedOutput(); err == nil || !strings.Contains(string(out), "Incompatible image") {
+		t.Fatalf("invalid image accepted: %v %s", err, out)
+	}
+	if _, err := os.Stat(failedCapture); !os.IsNotExist(err) {
+		t.Fatalf("bootstrap ran despite invalid image: %v", err)
+	}
+	cmd3 := exec.Command("bash", script, "provision")
+	cmd3.Dir = dir
+	cmd3.Env = append(cmd.Env, "FAIL_HEALTH=1", "CAPTURE="+failedCapture)
+	if out, err := cmd3.CombinedOutput(); err == nil || !strings.Contains(string(out), "Existing control plane unhealthy") {
+		t.Fatalf("unhealthy control plane accepted: %v %s", err, out)
+	}
+	if _, err := os.Stat(failedCapture); !os.IsNotExist(err) {
+		t.Fatalf("bootstrap ran despite unhealthy control plane: %v", err)
+	}
+}
+
 func TestSelectionPersistsAndRejectsUnknownTask(t *testing.T) {
 	a := testApp(t)
 	a.state = state{Phase: "running", Deadline: time.Now().Add(time.Hour)}
@@ -639,12 +896,15 @@ esac
 }
 
 func TestCreateUsesLinkedClonesAndWaitsForReady(t *testing.T) {
-	dir := t.TempDir()
-	ssh := `#!/bin/bash
+	for _, mode := range []string{"legacy", "prebaked"} {
+		t.Run(mode, func(t *testing.T) {
+			dir := t.TempDir()
+			ssh := `#!/bin/bash
 echo "$*" >> "$CALLS"
 case "$*" in
   *"qm list"*) echo 'VMID NAME STATUS' ;;
   *"MemAvailable:"*) echo 65536 ;;
+  *"qm config 9100"*) printf 'template: 1\ndescription: painkiller-image-v1-1.36.1-8ec676e93017ce3e110c27485e25d1f32d541056\n' ;;
   *"qm config "*) echo 'description: painkiller-mvp' ;;
   *"qm guest exec "*"ssh_host_ed25519_key.pub"*)
     id=$(echo "$*" | sed -n 's/.*qm guest exec \([0-9]*\).*/\1/p'); material=$(printf '%s' "$id" | base64 -w0); printf '{"exited":1,"exitcode":0,"out-data":"ssh-ed25519 %s lab"}\n' "$material" ;;
@@ -653,41 +913,47 @@ case "$*" in
     printf '[{"ip-addresses":[{"ip-address-type":"ipv4","ip-address":"192.168.254.%s"}]}]\n' "$((id-2990))" ;;
 esac
 `
-	git := `#!/bin/sh
+			git := `#!/bin/sh
 case "$*" in *"rev-parse HEAD"*) echo 8ec676e93017ce3e110c27485e25d1f32d541056 ;; esac
 `
-	for name, body := range map[string]string{"ssh": ssh, "git": git, "sleep": "#!/bin/sh\nexit 0\n"} {
-		if err := os.WriteFile(filepath.Join(dir, name), []byte(body), 0700); err != nil {
-			t.Fatal(err)
-		}
-	}
-	cmd := exec.Command("bash", "../../scripts/create-lab.sh", "create")
-	calls := filepath.Join(dir, "calls")
-	cmd.Env = append(os.Environ(), "PATH="+dir+string(os.PathListSeparator)+os.Getenv("PATH"), "CALLS="+calls, "LAB_KNOWN_HOSTS="+filepath.Join(dir, "known"), "LAB_VM_START=3000", "LAB_VM_END=3002", "LAB_CONTROLLERS=1")
-	if out, err := cmd.CombinedOutput(); err != nil {
-		t.Fatalf("create failed: %v %s", err, out)
-	}
-	b, err := os.ReadFile(calls)
-	if err != nil {
-		t.Fatal(err)
-	}
-	log := string(b)
-	for _, id := range []string{"3000", "3001", "3002"} {
-		if !strings.Contains(log, "qm clone 9010 "+id+" --name k8s-"+id+" --full 0 --description painkiller-mvp") {
-			t.Fatalf("expected a linked clone for %s: %s", id, log)
-		}
-		if !strings.Contains(log, "qm start "+id) {
-			t.Fatalf("VM %s was not started: %s", id, log)
-		}
-		if strings.Contains(log, "qm set "+id+" --net0") || strings.Contains(log, "qm reset "+id) || strings.Contains(log, "qm guest exec "+id+" -- sh -c 'set -e; rm -f /var/lib/dbus/machine-id") {
-			t.Fatalf("VM %s was subjected to network/identity manipulation: %s", id, log)
-		}
-		if !strings.Contains(log, "qm guest exec "+id+" -- cat /etc/ssh/ssh_host_ed25519_key.pub") {
-			t.Fatalf("host key for VM %s was not read via the guest agent: %s", id, log)
-		}
-		if strings.Contains(log, "qm stop "+id) || strings.Contains(log, "qm destroy "+id) {
-			t.Fatalf("successful create stopped/destroyed VM %s: %s", id, log)
-		}
+			for name, body := range map[string]string{"ssh": ssh, "git": git, "sleep": "#!/bin/sh\nexit 0\n"} {
+				if err := os.WriteFile(filepath.Join(dir, name), []byte(body), 0700); err != nil {
+					t.Fatal(err)
+				}
+			}
+			cmd := exec.Command("bash", "../../scripts/create-lab.sh", "create")
+			calls := filepath.Join(dir, "calls")
+			template := "9010"
+			if mode == "prebaked" {
+				template = "9100"
+			}
+			cmd.Env = append(os.Environ(), "PATH="+dir+string(os.PathListSeparator)+os.Getenv("PATH"), "CALLS="+calls, "LAB_KNOWN_HOSTS="+filepath.Join(dir, "known"), "LAB_VM_START=3000", "LAB_VM_END=3002", "LAB_CONTROLLERS=1", "LAB_PROVISION_MODE="+mode, "LAB_TEMPLATE_ID="+template)
+			if out, err := cmd.CombinedOutput(); err != nil {
+				t.Fatalf("create failed: %v %s", err, out)
+			}
+			b, err := os.ReadFile(calls)
+			if err != nil {
+				t.Fatal(err)
+			}
+			log := string(b)
+			for _, id := range []string{"3000", "3001", "3002"} {
+				if !strings.Contains(log, "qm clone "+template+" "+id+" --name k8s-"+id+" --full 0 --description painkiller-mvp") {
+					t.Fatalf("expected a linked clone for %s: %s", id, log)
+				}
+				if !strings.Contains(log, "qm start "+id) {
+					t.Fatalf("VM %s was not started: %s", id, log)
+				}
+				if strings.Contains(log, "qm set "+id+" --net0") || strings.Contains(log, "qm reset "+id) || strings.Contains(log, "qm guest exec "+id+" -- sh -c 'set -e; rm -f /var/lib/dbus/machine-id") {
+					t.Fatalf("VM %s was subjected to network/identity manipulation: %s", id, log)
+				}
+				if !strings.Contains(log, "qm guest exec "+id+" -- cat /etc/ssh/ssh_host_ed25519_key.pub") {
+					t.Fatalf("host key for VM %s was not read via the guest agent: %s", id, log)
+				}
+				if strings.Contains(log, "qm stop "+id) || strings.Contains(log, "qm destroy "+id) {
+					t.Fatalf("successful create stopped/destroyed VM %s: %s", id, log)
+				}
+			}
+		})
 	}
 }
 

@@ -5,7 +5,8 @@
 set -Eeuo pipefail
 command=${1:-help}
 host=${LAB_PROXMOX_HOST:-root@prox-k12}
-template=${LAB_TEMPLATE_ID:-9010}
+mode=${LAB_PROVISION_MODE:-legacy}
+if [[ $mode == prebaked ]]; then template=${LAB_TEMPLATE_ID:-9100}; else template=${LAB_TEMPLATE_ID:-9010}; fi
 start=${LAB_VM_START:-3000}
 end=${LAB_VM_END:-3002}
 controllers=${LAB_CONTROLLERS:-1}
@@ -17,10 +18,15 @@ playbooks=${LAB_PLAYBOOKS_DIR:-$HOME/repo/_nowhereworks/lab-ansible-playbooks}
 revision=${LAB_PLAYBOOKS_REV:-8ec676e93017ce3e110c27485e25d1f32d541056}
 memory=${LAB_VM_MEMORY:-3072}
 known_hosts=${LAB_KNOWN_HOSTS:-$PWD/data/lab_known_hosts}
+version=${LAB_KUBERNETES_VERSION:-1.36.1}
 
 [[ $start =~ ^[0-9]+$ && $end =~ ^[0-9]+$ && $template =~ ^[0-9]+$ && $controllers =~ ^[0-9]+$ && $timeout =~ ^[0-9]+$ && $memory =~ ^[0-9]+$ ]] || { echo 'Invalid numeric configuration' >&2; exit 1; }
 [[ $start -ge 3000 && $end -le 3999 && $start -le $end && $controllers -gt 0 && $controllers -le $((end-start+1)) && $timeout -gt 0 ]] || { echo 'VM range must be within 3000–3999 and controller count must be valid' >&2; exit 1; }
 [[ $marker =~ ^[a-zA-Z0-9_-]+$ && $prefix =~ ^[0-9.]+$ && $ssh_user =~ ^[a-zA-Z0-9_-]+$ ]] || { echo 'Invalid marker, IP prefix, or SSH user' >&2; exit 1; }
+[[ $mode == legacy || $mode == prebaked ]] || { echo 'Invalid provisioning mode' >&2; exit 1; }
+if [[ $mode == prebaked ]]; then
+  [[ $template -ge 9100 && $template -le 9200 && $controllers == 1 && ${LAB_CNI_PLUGIN:-flannel} == flannel && $version =~ ^[0-9]+\.[0-9]+\.[0-9]+$ && $revision =~ ^[a-f0-9]{40}$ && -z ${LAB_CONTROL_PLANE_ENDPOINT:-} ]] || { echo 'Prebaked mode requires a Painkiller template, one controller, Flannel, and no custom endpoint' >&2; exit 1; }
+fi
 remote() {
   # Retry only when the SSH connection itself could not be established (e.g. a
   # transient DNS blip), never on a command error, so non-idempotent commands
@@ -82,7 +88,12 @@ wait_ip() {
 case "$command" in
   help) echo "Usage: $0 {create|provision|status|start|stop|destroy}" ;;
   create)
+    started=$SECONDS
     check_playbooks
+    if [[ $mode == prebaked ]]; then
+      config=$(remote "qm config $template") || { echo 'Cannot inspect image template' >&2; exit 1; }
+      if ! grep -Fxq 'template: 1' <<<"$config" || ! grep -Fxq "description: painkiller-image-v1-$version-$revision" <<<"$config"; then echo 'Image template missing or incompatible' >&2; exit 1; fi
+    fi
     # Preflight every ID before cloning anything; an SSH failure must not mean 'free'.
     list_vms
     for ((id=start; id<=end; id++)); do
@@ -105,12 +116,15 @@ case "$command" in
       remote "qm set $id --memory $memory"
       remote "qm start $id"
     done
+    echo "Linked cloning and start: $((SECONDS-started))s" >&2
+    boot_started=$SECONDS
     echo 'Waiting for guest agents and SSH...' >&2
     for ((id=start; id<=end; id++)); do
       if ! wait_ip "$id" >/dev/null; then
         echo "Lab VM $id did not become reachable; inspect it and reset" >&2; exit 1
       fi
     done
+    echo "Guest readiness: $((SECONDS-boot_started))s; create total: $((SECONDS-started))s" >&2
     "$0" status
     ;;
   status)
@@ -122,6 +136,7 @@ case "$command" in
     jq -n --arg control "$control_ips" --arg workers "$worker_ips" '{controller_ips:$control,worker_ips:$workers}'
     ;;
   provision)
+    started=$SECONDS
     check_playbooks
     state=$("$0" status)
     control_ips=$(jq -r .controller_ips <<<"$state")
@@ -147,19 +162,55 @@ case "$command" in
         done
         echo "Guest package manager still busy" >&2; exit 1' </dev/null || { echo "VM $id did not finish booting" >&2; exit 1; }
     done
+    if [[ $mode == prebaked ]]; then
+      IFS=, read -r -a node_ips <<<"$control_ips${worker_ips:+,$worker_ips}"
+      for ip in "${node_ips[@]}"; do
+        node_ssh "$ssh_user@$ip" bash -s -- "$version" "$revision" < "$(dirname "$0")/validate-image.sh" || { echo "Incompatible image or missing cached images on $ip" >&2; exit 1; }
+      done
+      first=${control_ips%%,*}
+      node_ssh "$ssh_user@$first" bash -s -- "$first" <<'HEALTH' || exit 1
+set -eu
+if sudo -n test -e /etc/kubernetes/admin.conf; then
+  sudo -n grep -Fxq -- "    - --advertise-address=$1" /etc/kubernetes/manifests/kube-apiserver.yaml || { echo 'Control-plane address changed; reset the lab' >&2; exit 1; }
+  sudo -n kubectl --kubeconfig=/etc/kubernetes/admin.conf --request-timeout=15s get --raw=/readyz >/dev/null || { echo 'Existing control plane unhealthy; inspect and reset the lab' >&2; exit 1; }
+fi
+HEALTH
+    fi
     mkdir -p "$PWD/data/kubeconfigs"
     kubeconfig_dir=$(mktemp -d "$PWD/data/kubeconfigs/exam.XXXXXXXX")
     kubeconfig_vars=$(jq -nc --arg dir "$kubeconfig_dir" '{local_kubeconfig_dir:$dir}')
-    args=( -i 'localhost,' -c local "$playbooks/kubeadm-cluster/kubeadm-cluster.yml" -e "controller_ips=$control_ips worker_ips=$worker_ips ansible_ssh_user=$ssh_user kubernetes_version=${LAB_KUBERNETES_VERSION:-1.36.1} cni_plugin=${LAB_CNI_PLUGIN:-flannel}" -e "$kubeconfig_vars" )
+    playbook=$playbooks/kubeadm-cluster/kubeadm-cluster.yml
+    if [[ $mode == prebaked ]]; then
+      # Keep inventory and bootstrap plays from the pinned playbook, but never
+      # run package preparation, automatic reset, or network image pulls.
+      awk '
+        /^- name: Prepare all kubeadm nodes$/ {prep=1; next}
+        /^- name: Bootstrap first kubeadm control-plane node$/ {prep=0; bootstrap=1}
+        prep {next}
+        bootstrap && /^    - name: Check if existing etcd manifest references a different IP$/ {skip=1; next}
+        skip && /^    - name: Initialize first control-plane node$/ {skip=0; print "    - name: Preserve existing cluster on retry\n      ansible.builtin.set_fact:\n        kubeadm_reset_needed: false\n"}
+        skip {next}
+        {print}
+      ' "$playbook" > "$kubeconfig_dir/bootstrap.yml"
+      playbook=$kubeconfig_dir/bootstrap.yml
+      if ! grep -Fxq -- '- name: Bootstrap first kubeadm control-plane node' "$playbook" || ! grep -Fq 'kubeadm_reset_needed: false' "$playbook" || grep -Fxq -- '- name: Prepare all kubeadm nodes' "$playbook" || grep -Fq 'kubeadm config images pull' "$playbook"; then echo 'Unexpected playbook layout' >&2; exit 1; fi
+    fi
+    args=( -i 'localhost,' -c local "$playbook" -e "controller_ips=$control_ips ansible_ssh_user=$ssh_user kubernetes_version=$version cni_plugin=${LAB_CNI_PLUGIN:-flannel}" -e "$kubeconfig_vars" )
+    if [[ -n $worker_ips ]]; then args+=( -e "worker_ips=$worker_ips" ); fi
+    if [[ $mode == prebaked ]]; then args+=( -e 'flannel_manifest_url=/opt/painkiller/flannel.yml' ); fi
     if [[ -n ${LAB_CONTROL_PLANE_ENDPOINT:-} ]]; then args+=( -e "control_plane_endpoint=$LAB_CONTROL_PLANE_ENDPOINT" ); fi
     ansible-playbook "${args[@]}" --ssh-common-args "-o UserKnownHostsFile=$known_hosts -o GlobalKnownHostsFile=/dev/null -o StrictHostKeyChecking=yes"
     first=${control_ips%%,*}
     # Expand the home directory and user IDs on the guest, not on the management host.
     # shellcheck disable=SC2016
-    node_ssh "$ssh_user@$first" 'set -eu; mkdir -p "$HOME/.kube"; chmod 700 "$HOME/.kube"; sudo -n install -m 600 -o "$(id -u)" -g "$(id -g)" /etc/kubernetes/admin.conf "$HOME/.kube/config"; if ! command -v jq >/dev/null || ! command -v etcdctl >/dev/null; then sudo -n apt-get update && sudo -n apt-get install -y jq etcd-client; fi'
+    node_ssh "$ssh_user@$first" 'set -eu; mkdir -p "$HOME/.kube"; chmod 700 "$HOME/.kube"; sudo -n install -m 600 -o "$(id -u)" -g "$(id -g)" /etc/kubernetes/admin.conf "$HOME/.kube/config"'
+    if [[ $mode == legacy ]]; then
+      node_ssh "$ssh_user@$first" 'if ! command -v jq >/dev/null || ! command -v etcdctl >/dev/null; then sudo -n apt-get update && sudo -n apt-get install -y jq etcd-client; fi'
+    fi
     node_count=$(node_ssh "$ssh_user@$first" 'kubectl get nodes --no-headers' | wc -l)
     [[ $node_count -eq $((end-start+1)) ]] || { echo "Expected $((end-start+1)) nodes, got $node_count" >&2; exit 1; }
     node_ssh "$ssh_user@$first" "kubectl wait --for=condition=Ready nodes --all --timeout=${timeout}s"
+    echo "Provision ($mode): $((SECONDS-started))s" >&2
     ;;
   start|stop|destroy)
     # Check all VMs before acting, so a mixed range is never partially operated on.

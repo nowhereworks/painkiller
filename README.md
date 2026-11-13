@@ -24,6 +24,32 @@ Prepare creates three linked clones and invokes `kubeadm-cluster/kubeadm-cluster
 
 Preparation also creates a new, lab-only SSH key on the controller and installs its public key on the other lab nodes. From the terminal, use `kubectl get nodes -o wide` to find node addresses and `ssh <node-ip>` to connect. The private key is generated on the disposable controller and is never copied to the management host.
 
+### Prebaked image (opt-in)
+
+To avoid repeating Kubernetes package installation and image downloads on every lab, build a shared controller/worker template from `9010`:
+
+```sh
+scripts/build-template.sh
+LAB_PROVISION_MODE=prebaked go run ./cmd/painkiller
+```
+
+The builder full-clones `9010` to the unused template ID `9100`, prepares packages and cached images, then shuts down and converts the VM into a template. It requires the same pinned playbook checkout as the legacy path and network access during the build. It takes the lab-operation lock, refuses an occupied destination, and never modifies the base. A failed build leaves its marked VM for inspection; after investigating, `scripts/build-template.sh --resume` can resume an unfinished VM with the exact builder marker. It refuses templates and unmarked VMs. Do not blindly delete an unverified VM. Only IDs `9100–9200` are accepted as builder destinations.
+
+Prebaked mode verifies the template marker, package versions, guest build metadata, and cached images, then makes linked clones and bootstraps a new cluster without the playbook's package-preparation phase. It currently supports one controller, Flannel, and the default control-plane endpoint only. Incompatible images or settings fail rather than silently falling back. The original provisioning remains available with `LAB_PROVISION_MODE=legacy` (the default). Build updated images under a new free ID; do not replace a template that has dependent linked clones. Cached images do not make the entire lab offline: for example, first-boot services may still use the network.
+
+The image contains no initialized Kubernetes cluster, certificates, admin kubeconfig, etcd data, or candidate SSH key. `/opt/painkiller/` records the build identity, exact installed package versions, cached image metadata, the runtime's sandbox image, and the cached Flannel manifest checksum. Kubernetes packages are held at the requested patch version. Both kubeadm's pause image and containerd's sandbox default are cached, since these can differ. A retry preserves a healthy initialized cluster; an unhealthy control plane or changed controller address requires inspection and an explicit lab reset, not an automatic `kubeadm reset`.
+
+Live validation on 2026-11-13, one controller and two workers on `prox-k12`:
+
+| Phase | Legacy | Prebaked run 1 | Prebaked run 2 |
+| --- | ---: | ---: | ---: |
+| Linked cloning and start | 16 s | 14 s | 14 s |
+| Guest readiness | 13 s | 12 s | 11 s |
+| Provision to all nodes Ready | 207 s | 46 s | 41 s |
+| Sum of logged phases | 236 s | 72 s | 66 s |
+
+These are phase timings, excluding inter-command status overhead, candidate access setup, and exam object setup; run 1's external create/provision wall time was 76 s. They are measurements, not a startup-time guarantee. Legacy retains its existing package behavior (the minor repository's current patch); the prebaked nodes were verified at exactly `1.36.1`. Run 1 verified distinct node identities, no Kubernetes bootstrap image-pull events, and retry preserving the same cluster. Run 2 passed the browser/scoring flow `0 → 100 → 98 → 100`, terminal reconnect, final submission, and reset. Tests used the separate marked range `3100–3102`, then removed it; the existing lab was not reset.
+
 | Environment variable | Default | Purpose |
 | --- | --- | --- |
 | `PAINKILLER_LISTEN` | `127.0.0.1:8080` | HTTP listen address |
@@ -31,7 +57,10 @@ Preparation also creates a new, lab-only SSH key on the controller and installs 
 | `PAINKILLER_LAB_LOCK_DIR` | `data` | Shared lab lock directory; all servers managing the same lab must use the same directory |
 | `PAINKILLER_MINUTES` | `120` | Exam duration in minutes |
 | `LAB_PROXMOX_HOST` | `root@prox-k12` | SSH destination for Proxmox |
-| `LAB_TEMPLATE_ID` | `9010` | Proxmox VM template |
+| `LAB_PROVISION_MODE` | `legacy` | `legacy` or opt-in `prebaked` |
+| `LAB_TEMPLATE_ID` | `9010` (legacy), `9100` (prebaked) | Proxmox VM template |
+| `LAB_IMAGE_TEMPLATE_ID` | `9100` | Destination for `scripts/build-template.sh` (9100–9200) |
+| `LAB_BASE_TEMPLATE_ID` | `9010` | Builder source; currently must be 9010 |
 | `LAB_VM_MEMORY` | `3072` | Memory per clone in MiB; preflight requires an additional 4 GiB of available host memory |
 | `LAB_VM_START`, `LAB_VM_END` | `3000`, `3002` | Inclusive VM range, restricted to 3000–3999 |
 | `LAB_CONTROLLERS` | `1` | Number of first VMs assigned control-plane role |
@@ -57,7 +86,7 @@ Checks award the points shown in the result breakdown. Capture commands have a t
 ```sh
 go test -race ./...
 go vet ./...
-shellcheck scripts/create-lab.sh scripts/configure-exam-access.sh exam/reference-solutions.sh
+shellcheck scripts/create-lab.sh scripts/build-template.sh scripts/validate-image.sh scripts/configure-exam-access.sh exam/reference-solutions.sh
 node --check web/app.js
 ```
 

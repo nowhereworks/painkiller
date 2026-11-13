@@ -8,6 +8,9 @@ scripts and exam data are resolved relative to the working directory.
 
 - A prepared Proxmox lab (see `README.md`) and the server running on
   `http://127.0.0.1:8080` (`PAINKILLER_LISTEN`).
+- For the prebaked path, build and validate a template first and start the
+  server with `LAB_PROVISION_MODE=prebaked`. Use an idle, marked lab range;
+  never reset an existing lab merely to run this harness.
 - `ssh` with the lab key setup from `scripts/configure-exam-access.sh` for the
   management host (`data/lab_known_hosts` is used by default).
 - `node`, `jq`, and Google Chrome at `/usr/bin/google-chrome`.
@@ -78,6 +81,8 @@ Failure paths are automated where a browser is not needed (see
 | Path | Coverage |
 | --- | --- |
 | Provisioning fails mid-run, retry reuses VMs | `TestRetryPreparationReusesLabAndPreservesLog`, `TestFreshPreparationCreatesAndProvisions` |
+| Image builder ownership, ranges, clone safety, shared lock | `TestImageBuilderRejectsOccupiedDestination`, `TestImageBuilderResumeRefusesUnownedOrPublishedVM`, `TestImageBuilderRejectsOutsideTemplateRange`, `TestImageBuilderFullClonesWithoutChangingBaseOrIdentity`, `TestImageBuilderSharesLabOperationLock` |
+| Prebaked compatibility, linked clones, no install/reset on provision | `TestPrebakedCreateRejectsUnmarkedTemplate`, `TestPrebakedRejectsUnsupportedConfiguration`, `TestCreateUsesLinkedClonesAndWaitsForReady`, `TestPrebakedProvisionSkipsInstallAndReset` |
 | Failed cleanup (destroy), retry reset | `TestRetryResetRerunsDestroy`, `TestRetryIsRestrictedToLabOperationFailures` |
 | Duplicate start / submit → 409 | `TestConcurrentStartOnlyStartsOnce`, `TestDuplicateSubmitGradesOnlyOnce` |
 | Restart during preparing/resetting/running/grading | `TestResumeAfterRestart`, `TestStartPersistsDeadline` |
