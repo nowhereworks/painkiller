@@ -2,7 +2,8 @@
   "$schema": "https://opencode.ai/v2/cli.json",
   "references": {
     "lab-ansible-playbooks": {
-      "path": "$HOME/repo/_nowhereworks/lab-ansible-playbooks",
+      "path": "/home/milkman/repo/_nowhereworks/lab-ansible-playbooks",
       "description": "Ansible playbooks for lab environments"
     }
+  }
 }
