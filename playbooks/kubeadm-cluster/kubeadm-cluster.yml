@@ -10,9 +10,7 @@
     kubernetes_repo_minor: "v{{ (kubernetes_version | regex_search('^([0-9]+\\.[0-9]+)')) }}"
     flannel_version: "0.28.4"
     calico_version: "3.32.0"
-    cilium_version: "1.19.4"
-    helm_version: "v3.19.0"
-    # choose from flannel, calico, cilium
+    # choose from flannel or calico
     cni_plugin: "flannel"
 
   tasks:
@@ -55,8 +53,6 @@
         cni_plugin: "{{ cni_plugin }}"
         flannel_version: "{{ flannel_version }}"
         calico_version: "{{ calico_version }}"
-        cilium_version: "{{ cilium_version }}"
-        helm_version: "{{ helm_version }}"
       loop: "{{ kubeadm_controller_ips }}"
 
     - name: Add workers to in-memory inventory
@@ -75,8 +71,6 @@
         cni_plugin: "{{ cni_plugin }}"
         flannel_version: "{{ flannel_version }}"
         calico_version: "{{ calico_version }}"
-        cilium_version: "{{ cilium_version }}"
-        helm_version: "{{ helm_version }}"
       loop: "{{ kubeadm_worker_ips }}"
 
 
@@ -295,7 +289,6 @@
     selected_cni_plugin: "{{ cni_plugin }}"
     flannel_manifest_url: "https://github.com/flannel-io/flannel/releases/download/v{{ flannel_version }}/kube-flannel.yml"
     calico_manifest_url: "https://raw.githubusercontent.com/projectcalico/calico/v{{ calico_version }}/manifests/calico.yaml"
-    cilium_helm_repo_url: "https://helm.cilium.io/"
 
   tasks:
     - name: Check if Kubernetes control plane is already initialized
@@ -390,6 +383,7 @@
       when: kubeadm_reset_needed | bool
 
     - name: Pre-pull Kubernetes control plane images
+      tags: [images]
       ansible.builtin.command: >
         kubeadm config images pull
         --kubernetes-version={{ kubernetes_version }}
@@ -709,8 +703,8 @@
     - name: Validate selected CNI plugin
       ansible.builtin.assert:
         that:
-          - selected_cni_plugin in ['flannel', 'calico', 'cilium']
-        fail_msg: "Unsupported cni_plugin '{{ selected_cni_plugin }}'. Supported values: flannel, calico, cilium"
+          - selected_cni_plugin in ['flannel', 'calico']
+        fail_msg: "Unsupported cni_plugin '{{ selected_cni_plugin }}'. Supported values: flannel, calico"
 
     - name: Install Flannel CNI plugin
       ansible.builtin.command: >
@@ -725,88 +719,6 @@
       register: cni_apply
       changed_when: "'created' in cni_apply.stdout or 'configured' in cni_apply.stdout or 'unchanged' not in cni_apply.stdout"
       when: selected_cni_plugin == 'calico'
-
-    - name: Check Helm is installed for Cilium deployment
-      ansible.builtin.command: helm version --short
-      register: helm_version_check
-      changed_when: false
-      failed_when: false
-      when: selected_cni_plugin == 'cilium'
-
-    - name: Install Helm when missing for Cilium deployment
-      when:
-        - selected_cni_plugin == 'cilium'
-        - helm_version_check.rc != 0
-      block:
-        - name: Detect CPU architecture for Helm binary installation
-          ansible.builtin.command: uname -m
-          register: helm_uname
-          changed_when: false
-
-        - name: Map architecture to Helm release artifact
-          ansible.builtin.set_fact:
-            helm_arch: "{{ 'amd64' if helm_uname.stdout in ['x86_64', 'amd64'] else 'arm64' if helm_uname.stdout in ['aarch64', 'arm64'] else '' }}"
-
-        - name: Fail if architecture is unsupported for Helm binary install
-          ansible.builtin.fail:
-            msg: "Unsupported architecture '{{ helm_uname.stdout }}' for Helm binary installation."
-          when: helm_arch | length == 0
-
-        - name: Download Helm binary archive
-          ansible.builtin.get_url:
-            url: "https://get.helm.sh/helm-{{ helm_version }}-linux-{{ helm_arch }}.tar.gz"
-            dest: "/tmp/helm-{{ helm_version }}-linux-{{ helm_arch }}.tar.gz"
-            mode: '0644'
-
-        - name: Extract Helm binary archive
-          ansible.builtin.unarchive:
-            src: "/tmp/helm-{{ helm_version }}-linux-{{ helm_arch }}.tar.gz"
-            dest: /tmp
-            remote_src: true
-
-        - name: Install Helm binary from extracted archive
-          ansible.builtin.copy:
-            src: "/tmp/linux-{{ helm_arch }}/helm"
-            dest: /usr/local/bin/helm
-            mode: '0755'
-            remote_src: true
-
-    - name: Re-check Helm version after installation attempts
-      ansible.builtin.command: helm version --short
-      register: helm_version_check_after_install
-      changed_when: false
-      failed_when: false
-      when:
-        - selected_cni_plugin == 'cilium'
-        - helm_version_check.rc != 0
-
-    - name: Fail if Helm is still unavailable when Cilium is selected
-      ansible.builtin.fail:
-        msg: "Helm installation failed or helm is still unavailable in PATH on this node."
-      when:
-        - selected_cni_plugin == 'cilium'
-        - (helm_version_check.rc != 0)
-        - (helm_version_check_after_install is not defined or helm_version_check_after_install.rc != 0)
-
-    - name: Add Cilium Helm repository
-      ansible.builtin.command: >
-        helm repo add cilium {{ cilium_helm_repo_url }}
-      register: cilium_repo_add
-      changed_when: "'already exists' not in cilium_repo_add.stderr"
-      when: selected_cni_plugin == 'cilium'
-
-    - name: Update Helm repositories for Cilium deployment
-      ansible.builtin.command: helm repo update
-      register: cilium_repo_update
-      changed_when: false
-      when: selected_cni_plugin == 'cilium'
-
-    - name: Install Cilium CNI plugin via Helm
-      ansible.builtin.command: >
-        helm upgrade --install cilium cilium/cilium --version {{ cilium_version }} --namespace kube-system --create-namespace --kubeconfig /etc/kubernetes/admin.conf --set operator.replicas=1
-      register: cni_apply
-      changed_when: "'STATUS: deployed' in cni_apply.stdout or 'STATUS: upgraded' in cni_apply.stdout"
-      when: selected_cni_plugin == 'cilium'
 
     - name: Wait until Flannel daemonset is ready
       ansible.builtin.command: kubectl --kubeconfig=/etc/kubernetes/admin.conf rollout status daemonset/kube-flannel-ds -n kube-flannel --timeout=5m
@@ -834,24 +746,6 @@
       delay: 10
       until: calico_controllers_ready.rc == 0
       when: selected_cni_plugin == 'calico'
-
-    - name: Wait until Cilium daemonset is ready
-      ansible.builtin.command: kubectl --kubeconfig=/etc/kubernetes/admin.conf rollout status daemonset/cilium -n kube-system --timeout=5m
-      register: cilium_ds_ready
-      changed_when: false
-      retries: 3
-      delay: 10
-      until: cilium_ds_ready.rc == 0
-      when: selected_cni_plugin == 'cilium'
-
-    - name: Wait until Cilium operator deployment is ready
-      ansible.builtin.command: kubectl --kubeconfig=/etc/kubernetes/admin.conf rollout status deployment/cilium-operator -n kube-system --timeout=5m
-      register: cilium_operator_ready
-      changed_when: false
-      retries: 3
-      delay: 10
-      until: cilium_operator_ready.rc == 0
-      when: selected_cni_plugin == 'cilium'
 
     - name: Wait until first controller node is Ready
       ansible.builtin.shell: |

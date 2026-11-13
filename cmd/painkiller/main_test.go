@@ -638,7 +638,7 @@ func TestPrebakedRejectsUnsupportedConfiguration(t *testing.T) {
 func isolatedLabScripts(t *testing.T) string {
 	t.Helper()
 	root := t.TempDir()
-	for _, name := range []string{"scripts/create-lab.sh", "scripts/build-template.sh", "scripts/validate-image.sh", "scripts/playbooks.sh", "playbooks/SHA256SUMS", "playbooks/kubeadm-cluster/kubeadm-cluster.yml", "playbooks/api-load-balancer.yml"} {
+	for _, name := range []string{"scripts/create-lab.sh", "scripts/build-template.sh", "scripts/validate-image.sh", "scripts/playbooks.sh", "playbooks/SHA256SUMS", "playbooks/kubeadm-cluster/kubeadm-cluster.yml"} {
 		b, err := os.ReadFile(filepath.Join("../..", name))
 		if err != nil {
 			t.Fatal(err)
@@ -777,7 +777,7 @@ case "$*" in
 esac
 `
 	git := "#!/bin/sh\necho 'unexpected git dependency' >> \"$CALLS\"\nexit 99\n"
-	ansible := "#!/bin/sh\necho \"$*\" >> \"$CALLS\"\nfor arg in \"$@\"; do case \"$arg\" in */bootstrap.yml) cp \"$arg\" \"$CAPTURE\";; esac; done\n"
+	ansible := "#!/bin/sh\necho \"$*\" >> \"$CALLS\"\necho \"$*\" > \"$CAPTURE\"\n"
 	for name, body := range map[string]string{"ssh": ssh, "git": git, "ansible-playbook": ansible} {
 		if err := os.WriteFile(filepath.Join(dir, name), []byte(body), 0700); err != nil {
 			t.Fatal(err)
@@ -800,16 +800,16 @@ esac
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, forbidden := range []string{"- name: Prepare all kubeadm nodes", "- name: Reset kubeadm if IP mismatch or force_reset requested", "kubeadm config images pull"} {
-		if strings.Contains(string(b), forbidden) {
-			t.Fatalf("prebaked playbook contains %q: %s", forbidden, b)
+	for _, required := range []string{"kubeadm-cluster/kubeadm-cluster.yml", "--skip-tags prerequisites,images", "preserve_existing=true", "flannel_manifest_url=/opt/painkiller/flannel.yml"} {
+		if !strings.Contains(string(b), required) {
+			t.Fatalf("missing prebaked provision arg %q: %s", required, b)
 		}
 	}
-	if !strings.Contains(string(b), "kubeadm_reset_needed: false") {
-		t.Fatalf("missing safe retry fact: %s", b)
+	if strings.Contains(string(b), "--tags inventory,prerequisites") {
+		t.Fatalf("prebaked provision must skip preparation, not select it: %s", b)
 	}
 	b, err = os.ReadFile(calls)
-	if err != nil || strings.Contains(string(b), "unexpected git dependency") || strings.Contains(string(b), "sudo -n apt-get") || !strings.Contains(string(b), "flannel_manifest_url=/opt/painkiller/flannel.yml") {
+	if err != nil || strings.Contains(string(b), "unexpected git dependency") || !strings.Contains(string(b), "flannel_manifest_url=/opt/painkiller/flannel.yml") {
 		t.Fatalf("unexpected provision commands: %s %v", b, err)
 	}
 	failedCapture := filepath.Join(dir, "must-not-exist.yml")

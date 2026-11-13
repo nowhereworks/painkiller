@@ -93,7 +93,7 @@ ShellCheck, and original/generated Ansible playbook syntax checks passed.
 | `LAB_CNI_PLUGIN` | `flannel` | kubeadm playbook CNI |
 | `LAB_CONTROL_PLANE_ENDPOINT` | unset | Stable API endpoint, e.g. `192.0.2.10:6443` |
 
-`scripts/create-lab.sh help` lists the direct lifecycle commands. `status` emits JSON; `provision` requires an existing lab. `prerequisites` prepares guests without bootstrapping Kubernetes. Inspect the actual environment before using any command. API balancing is an explicit separate helper, `scripts/configure-api-load-balancer.sh`, not part of default provisioning.
+`scripts/create-lab.sh help` lists the direct lifecycle commands. `status` emits JSON; `provision` requires an existing lab. `prerequisites` prepares guests without bootstrapping Kubernetes. Inspect the actual environment before using any command. API balancing is a CKA-002-owned helper, `exam/CKA-002/configure-api-load-balancer.sh`, not part of default provisioning.
 
 The default Flannel CNI does not enforce NetworkPolicy. The NetworkPolicy exercise checks the Kubernetes resource; use a policy-capable CNI such as Calico if network enforcement is required.
 

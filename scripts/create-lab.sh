@@ -191,23 +191,11 @@ HEALTH
     kubeconfig_dir=$(mktemp -d "$PWD/data/kubeconfigs/exam.XXXXXXXX")
     kubeconfig_vars=$(jq -nc --arg dir "$kubeconfig_dir" '{local_kubeconfig_dir:$dir}')
     playbook=$playbooks/kubeadm-cluster/kubeadm-cluster.yml
-    if [[ $mode == prebaked ]]; then
-      # Keep inventory and bootstrap plays from the pinned playbook, but never
-      # run package preparation, automatic reset, or network image pulls.
-      awk '
-        /^- name: Prepare all kubeadm nodes$/ {prep=1; next}
-        /^- name: Bootstrap first kubeadm control-plane node$/ {prep=0; bootstrap=1}
-        prep {next}
-        bootstrap && /^    - name: Check if existing etcd manifest references a different IP$/ {skip=1; next}
-        skip && /^    - name: Initialize first control-plane node$/ {skip=0; print "    - name: Preserve existing cluster on retry\n      ansible.builtin.set_fact:\n        kubeadm_reset_needed: false\n"}
-        skip {next}
-        {print}
-      ' "$playbook" > "$kubeconfig_dir/bootstrap.yml"
-      playbook=$kubeconfig_dir/bootstrap.yml
-      if ! grep -Fxq -- '- name: Bootstrap first kubeadm control-plane node' "$playbook" || ! grep -Fq 'kubeadm_reset_needed: false' "$playbook" || grep -Fxq -- '- name: Prepare all kubeadm nodes' "$playbook" || grep -Fq 'kubeadm config images pull' "$playbook"; then echo 'Unexpected playbook layout' >&2; exit 1; fi
-    fi
     args=( -i 'localhost,' -c local "$playbook" -e "controller_ips=$control_ips ansible_ssh_user=$ssh_user kubernetes_version=$version cni_plugin=${LAB_CNI_PLUGIN:-flannel} initial_controllers=$initial_controllers preserve_existing=true" -e "$kubeconfig_vars" )
     if [[ $command == prerequisites ]]; then args+=( --tags 'inventory,prerequisites' ); fi
+    # Prebaked images already contain packages and cached images; skip the
+    # package-preparation play and the bootstrap image pull (both tagged).
+    if [[ $mode == prebaked ]]; then args+=( --skip-tags 'prerequisites,images' ); fi
     if [[ -n $worker_ips ]]; then args+=( -e "worker_ips=$worker_ips" ); fi
     if [[ $mode == prebaked ]]; then args+=( -e 'flannel_manifest_url=/opt/painkiller/flannel.yml' ); fi
     if [[ -n ${LAB_CONTROL_PLANE_ENDPOINT:-} ]]; then args+=( -e "control_plane_endpoint=$LAB_CONTROL_PLANE_ENDPOINT" ); fi

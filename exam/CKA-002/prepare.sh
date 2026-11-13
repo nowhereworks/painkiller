@@ -78,7 +78,7 @@ infrastructure)
   if node_ssh "$user@$w1_ip" 'systemctl is-active --quiet keepalived' 2>/dev/null; then
     echo "API balancer already configured; skipping"
   else
-    "$root/scripts/configure-api-load-balancer.sh"
+    "$root/exam/CKA-002/configure-api-load-balancer.sh"
   fi
   ;;
 
