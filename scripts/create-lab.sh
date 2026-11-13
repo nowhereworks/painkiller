@@ -10,6 +10,7 @@ if [[ $mode == prebaked ]]; then template=${LAB_TEMPLATE_ID:-9100}; else templat
 start=${LAB_VM_START:-3000}
 end=${LAB_VM_END:-3002}
 controllers=${LAB_CONTROLLERS:-1}
+initial_controllers=${LAB_INITIAL_CONTROLLERS:-$controllers}
 marker=${LAB_MARKER:-painkiller-mvp}
 prefix=${LAB_IP_PREFIX:-192.168.254.}
 timeout=${LAB_READY_TIMEOUT:-600}
@@ -19,11 +20,14 @@ source "$(dirname -- "${BASH_SOURCE[0]}")/playbooks.sh"
 memory=${LAB_VM_MEMORY:-3072}
 known_hosts=${LAB_KNOWN_HOSTS:-$PWD/data/lab_known_hosts}
 version=${LAB_KUBERNETES_VERSION:-1.36.1}
+api_vip=${LAB_CONTROL_PLANE_ENDPOINT:-}
+api_vip=${api_vip%:*}
 
-[[ $start =~ ^[0-9]+$ && $end =~ ^[0-9]+$ && $template =~ ^[0-9]+$ && $controllers =~ ^[0-9]+$ && $timeout =~ ^[0-9]+$ && $memory =~ ^[0-9]+$ ]] || { echo 'Invalid numeric configuration' >&2; exit 1; }
+[[ $start =~ ^[0-9]+$ && $end =~ ^[0-9]+$ && $template =~ ^[0-9]+$ && $controllers =~ ^[0-9]+$ && $initial_controllers =~ ^[0-9]+$ && $timeout =~ ^[0-9]+$ && $memory =~ ^[0-9]+$ ]] || { echo 'Invalid numeric configuration' >&2; exit 1; }
 [[ $start -ge 3000 && $end -le 3999 && $start -le $end && $controllers -gt 0 && $controllers -le $((end-start+1)) && $timeout -gt 0 ]] || { echo 'VM range must be within 3000–3999 and controller count must be valid' >&2; exit 1; }
 [[ $marker =~ ^[a-zA-Z0-9_-]+$ && $prefix =~ ^[0-9.]+$ && $ssh_user =~ ^[a-zA-Z0-9_-]+$ ]] || { echo 'Invalid marker, IP prefix, or SSH user' >&2; exit 1; }
 [[ $mode == legacy || $mode == prebaked ]] || { echo 'Invalid provisioning mode' >&2; exit 1; }
+(( initial_controllers >= 1 && initial_controllers <= controllers )) || { echo 'Invalid initial controller count' >&2; exit 1; }
 if [[ $mode == prebaked ]]; then
   [[ $template -ge 9100 && $template -le 9200 && $controllers == 1 && ${LAB_CNI_PLUGIN:-flannel} == flannel && $version =~ ^[0-9]+\.[0-9]+\.[0-9]+$ && -z ${LAB_CONTROL_PLANE_ENDPOINT:-} ]] || { echo 'Prebaked mode requires a Painkiller template, one controller, Flannel, and no custom endpoint' >&2; exit 1; }
 fi
@@ -54,8 +58,10 @@ require_owned() { owned "$1" || { echo "VM $1 is not marked $marker; refusing op
 ip_for() {
   local json ips
   json=$(remote "qm agent $1 network-get-interfaces") || return 1
-  ips=$(jq -r --arg prefix "$prefix" '[.[] | ."ip-addresses"[]? | select(."ip-address-type" == "ipv4") | ."ip-address" | select(startswith($prefix))] | unique | .[]' <<<"$json") || return 1
-  [[ $(grep -c . <<<"$ips") == 1 ]] || return 1
+  # A balancing worker also carries the /32 API VIP. That is an endpoint,
+  # never the guest's DHCP/SSH identity.
+  ips=$(jq -r --arg prefix "$prefix" --arg vip "$api_vip" '[.[] | ."ip-addresses"[]? | select(."ip-address-type" == "ipv4") | select(."ip-address" != $vip or .prefix != 32) | ."ip-address" | select(startswith($prefix))] | unique | .[]' <<<"$json") || return 1
+  [[ $(grep -c . <<<"$ips") == 1 ]] || { echo "VM $1 must have exactly one primary lab IPv4 address (excluding the API VIP)" >&2; return 1; }
   printf '%s\n' "$ips"
 }
 guest_host_key() {
@@ -82,14 +88,10 @@ wait_ip() {
   echo "Timed out waiting for guest agent and SSH on VM $id" >&2; return 1
 }
 case "$command" in
-  help) echo "Usage: $0 {create|provision|status|start|stop|destroy}" ;;
-  create)
+  help) echo "Usage: $0 {preflight|create|prerequisites|provision|status|start|stop|destroy}" ;;
+  preflight|create)
     started=$SECONDS
     check_playbooks
-    if [[ $mode == prebaked ]]; then
-      config=$(remote "qm config $template") || { echo 'Cannot inspect image template' >&2; exit 1; }
-      grep -Fxq 'template: 1' <<<"$config" || { echo 'Selected image is not a template' >&2; exit 1; }
-    fi
     # Preflight every ID before cloning anything; an SSH failure must not mean 'free'.
     list_vms
     for ((id=start; id<=end; id++)); do
@@ -99,12 +101,15 @@ case "$command" in
     if [[ -e $known_hosts ]] && [[ $(head -n 1 "$known_hosts") != '# Painkiller managed host keys' ]]; then
       echo "Refusing to overwrite unmanaged $known_hosts" >&2; exit 1
     fi
-    mkdir -p "$(dirname "$known_hosts")"
-    (umask 077; printf '%s\n' '# Painkiller managed host keys' > "$known_hosts")
+    config=$(remote "qm config $template") || { echo 'Cannot inspect image template' >&2; exit 1; }
+    grep -Fxq 'template: 1' <<<"$config" || { echo 'Selected image is not a template' >&2; exit 1; }
     available=$(remote "awk '/MemAvailable:/ {print int(\$2/1024)}' /proc/meminfo")
     if ! [[ $available =~ ^[0-9]+$ ]] || (( available < (end-start+1)*memory + 4096 )); then
       echo 'Insufficient available host memory (including 4 GiB reserve)' >&2; exit 1
     fi
+    if [[ $command == preflight ]]; then exit 0; fi
+    mkdir -p "$(dirname "$known_hosts")"
+    (umask 077; printf '%s\n' '# Painkiller managed host keys' > "$known_hosts")
     for ((id=start; id<=end; id++)); do
       echo "Creating linked clone VM $id" >&2
       remote "qm clone $template $id --name k8s-$id --full 0 --description $marker"
@@ -131,7 +136,7 @@ case "$command" in
     worker_ips=$(IFS=,; echo "${ips[*]:controllers}")
     jq -n --arg control "$control_ips" --arg workers "$worker_ips" '{controller_ips:$control,worker_ips:$workers}'
     ;;
-  provision)
+  prerequisites|provision)
     started=$SECONDS
     check_playbooks
     state=$("$0" status)
@@ -191,11 +196,13 @@ HEALTH
       playbook=$kubeconfig_dir/bootstrap.yml
       if ! grep -Fxq -- '- name: Bootstrap first kubeadm control-plane node' "$playbook" || ! grep -Fq 'kubeadm_reset_needed: false' "$playbook" || grep -Fxq -- '- name: Prepare all kubeadm nodes' "$playbook" || grep -Fq 'kubeadm config images pull' "$playbook"; then echo 'Unexpected playbook layout' >&2; exit 1; fi
     fi
-    args=( -i 'localhost,' -c local "$playbook" -e "controller_ips=$control_ips ansible_ssh_user=$ssh_user kubernetes_version=$version cni_plugin=${LAB_CNI_PLUGIN:-flannel}" -e "$kubeconfig_vars" )
+    args=( -i 'localhost,' -c local "$playbook" -e "controller_ips=$control_ips ansible_ssh_user=$ssh_user kubernetes_version=$version cni_plugin=${LAB_CNI_PLUGIN:-flannel} initial_controllers=$initial_controllers preserve_existing=true" -e "$kubeconfig_vars" )
+    if [[ $command == prerequisites ]]; then args+=( --tags 'inventory,prerequisites' ); fi
     if [[ -n $worker_ips ]]; then args+=( -e "worker_ips=$worker_ips" ); fi
     if [[ $mode == prebaked ]]; then args+=( -e 'flannel_manifest_url=/opt/painkiller/flannel.yml' ); fi
     if [[ -n ${LAB_CONTROL_PLANE_ENDPOINT:-} ]]; then args+=( -e "control_plane_endpoint=$LAB_CONTROL_PLANE_ENDPOINT" ); fi
     ANSIBLE_FORCE_COLOR=1 ansible-playbook "${args[@]}" --ssh-common-args "-o UserKnownHostsFile=$known_hosts -o GlobalKnownHostsFile=/dev/null -o StrictHostKeyChecking=yes"
+    if [[ $command == prerequisites ]]; then exit 0; fi
     first=${control_ips%%,*}
     # Expand the home directory and user IDs on the guest, not on the management host.
     # shellcheck disable=SC2016
@@ -204,7 +211,8 @@ HEALTH
       node_ssh "$ssh_user@$first" 'if ! command -v jq >/dev/null || ! command -v etcdctl >/dev/null; then sudo -n apt-get update && sudo -n apt-get install -y jq etcd-client; fi'
     fi
     node_count=$(node_ssh "$ssh_user@$first" 'kubectl get nodes --no-headers' | wc -l)
-    [[ $node_count -eq $((end-start+1)) ]] || { echo "Expected $((end-start+1)) nodes, got $node_count" >&2; exit 1; }
+    expected=$((end-start+1-controllers+initial_controllers))
+    [[ $node_count -eq $expected ]] || { echo "Expected $expected joined nodes, got $node_count" >&2; exit 1; }
     node_ssh "$ssh_user@$first" "kubectl wait --for=condition=Ready nodes --all --timeout=${timeout}s"
     echo "Provision ($mode): $((SECONDS-started))s" >&2
     ;;

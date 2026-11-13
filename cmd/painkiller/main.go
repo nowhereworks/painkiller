@@ -57,6 +57,7 @@ type result struct {
 }
 type state struct {
 	TestID          string                    `json:"test_id,omitempty"`
+	Lab             *labConfig                `json:"lab,omitempty"`
 	Phase           string                    `json:"phase"`
 	Deadline        time.Time                 `json:"deadline,omitempty"`
 	DurationSeconds int64                     `json:"duration_seconds,omitempty"`
@@ -129,6 +130,7 @@ func (a *app) status(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	public.Answers = nil // snapshots can contain secrets
+	public.Lab = nil     // operational configuration is server-only
 	json.NewEncoder(w).Encode(public)
 }
 func output(name string, args ...string) (string, error) {
@@ -149,7 +151,7 @@ func (a *app) run(name string, args ...string) (string, error) {
 		lockDir = filepath.Dir(a.file)
 	}
 	command := append([]string{"-n", "-E", "75", filepath.Join(lockDir, "lab-operation.lock"), name}, args...)
-	c := exec.Command("flock", command...)
+	c := a.labCommand("flock", command...)
 	c.Stdout = io.MultiWriter(f, &b)
 	c.Stderr = c.Stdout
 	err = c.Run()
@@ -194,10 +196,33 @@ func (a *app) prepareLab(create bool) {
 	}
 	var out string
 	var err error
-	if create {
-		out, err = a.run("scripts/create-lab.sh", "create")
-	} else {
+	preparation, err := a.preparationPath()
+	if err == nil && preparation != "" {
+		out, err = a.run("timeout", "180s", "bash", preparation, "preflight")
+	}
+	// Record mutation eligibility only after an all-range read-only preflight.
+	// A failed occupied-ID preflight must not let reset destroy an older lab
+	// that happens to carry the same operator-configured marker.
+	needsCreate := create || (a.state.Lab != nil && !a.state.Lab.CreationStarted)
+	if err == nil && needsCreate {
+		out, err = a.run("scripts/create-lab.sh", "preflight")
+		if err == nil && a.state.Lab != nil {
+			a.mu.Lock()
+			a.state.Lab.CreationStarted = true
+			err = a.save()
+			if err != nil {
+				a.state.Lab.CreationStarted = false
+			}
+			a.mu.Unlock()
+		}
+		if err == nil {
+			out, err = a.run("scripts/create-lab.sh", "create")
+		}
+	} else if err == nil {
 		out, err = a.run("scripts/create-lab.sh", "status")
+	}
+	if err == nil && preparation != "" {
+		out, err = a.run("timeout", "1800s", "bash", preparation, "infrastructure")
 	}
 	if err == nil {
 		out, err = a.run("scripts/create-lab.sh", "provision")
@@ -211,7 +236,7 @@ func (a *app) prepareLab(create bool) {
 			Controllers string `json:"controller_ips"`
 		}
 		var b []byte
-		b, err = exec.Command("scripts/create-lab.sh", "status").Output()
+		b, err = a.labCommand("scripts/create-lab.sh", "status").Output()
 		if err == nil {
 			err = json.Unmarshal(b, &s)
 			host = strings.Split(s.Controllers, ",")[0]
@@ -220,13 +245,16 @@ func (a *app) prepareLab(create bool) {
 			}
 		}
 	}
-	if err == nil {
+	if err == nil && preparation != "" {
+		out, err = a.run("timeout", "2400s", "bash", preparation, "fixtures")
+	}
+	if err == nil && preparation == "" {
 		var setup *os.File
 		setup, err = os.Open(a.setupPath())
 		if err == nil {
 			defer setup.Close()
-			args := append([]string{"120s", "ssh"}, labSSHArgs()...)
-			args = append(args, env("LAB_SSH_USER", "milkman")+"@"+host, "kubectl apply -f -")
+			args := append([]string{"120s", "ssh"}, a.labSSHArgs()...)
+			args = append(args, a.labValue("LAB_SSH_USER", "milkman")+"@"+host, "kubectl apply -f -")
 			cmd := exec.Command("timeout", args...)
 			cmd.Stdin = setup
 			var b []byte
@@ -241,7 +269,7 @@ func (a *app) prepareLab(create bool) {
 		a.state.FailedOperation = "prepare"
 		a.state.Message = fmt.Sprintf("%v: %s", err, out)
 	} else {
-		a.state = state{Phase: "ready", Host: host, TestID: a.state.TestID}
+		a.state = state{Phase: "ready", Host: host, TestID: a.state.TestID, Lab: a.state.Lab}
 	}
 	a.saveBackground()
 }
@@ -252,7 +280,7 @@ func (a *app) prepareLab(create bool) {
 const captureConcurrency = 6
 
 func (a *app) captureAnswer(user, host string, t task) answerSnapshot {
-	args := append([]string{"30s", "ssh"}, labSSHArgs()...)
+	args := append([]string{"30s", "ssh"}, a.labSSHArgs()...)
 	args = append(args, user+"@"+host, t.Resource)
 	out, err := output("timeout", args...)
 	snap := answerSnapshot{Data: json.RawMessage("null")}
@@ -317,7 +345,11 @@ func (a *app) captureAnswers(user, host string, pending []task, answers map[stri
 }
 
 func (a *app) reset() {
-	out, err := a.run("scripts/create-lab.sh", "destroy")
+	var out string
+	var err error
+	if a.state.Lab == nil || a.state.Lab.CreationStarted {
+		out, err = a.run("scripts/create-lab.sh", "destroy")
+	}
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	if err != nil {
@@ -359,7 +391,7 @@ func (a *app) grade() {
 		answers = make(map[string]answerSnapshot)
 	}
 	a.mu.Unlock()
-	user := env("LAB_SSH_USER", "milkman")
+	user := a.labValue("LAB_SSH_USER", "milkman")
 	// Capture every answer before evaluating any check. Captures run
 	// concurrently, so the cluster is read within a few seconds; checks then
 	// evaluate the immutable snapshots and never re-read live state.
@@ -383,7 +415,7 @@ func (a *app) grade() {
 			continue
 		}
 		if t.Resource == "" {
-			args := append([]string{"30s", "ssh"}, labSSHArgs()...)
+			args := append([]string{"30s", "ssh"}, a.labSSHArgs()...)
 			args = append(args, user+"@"+host, "kubectl get --raw=/readyz")
 			if health, err := output("timeout", args...); err != nil {
 				results = append(results, result{ID: t.ID, Error: fmt.Sprintf("cluster unavailable: %v %s", err, strings.TrimSpace(health))})
@@ -407,7 +439,7 @@ func (a *app) grade() {
 				b, err = cmd.CombinedOutput()
 				out = strings.TrimSpace(string(b))
 			} else {
-				args := append([]string{"30s", "ssh"}, labSSHArgs()...)
+				args := append([]string{"30s", "ssh"}, a.labSSHArgs()...)
 				args = append(args, user+"@"+host, "bash -o pipefail -c "+shellQuote(c.Command))
 				out, err = output("timeout", args...)
 			}
@@ -448,9 +480,6 @@ func env(k, d string) string {
 	}
 	return d
 }
-func labSSHArgs() []string {
-	return []string{"-o", "BatchMode=yes", "-o", "ConnectTimeout=10", "-o", "StrictHostKeyChecking=yes", "-o", "GlobalKnownHostsFile=/dev/null", "-o", "UserKnownHostsFile=" + env("LAB_KNOWN_HOSTS", "data/lab_known_hosts")}
-}
 func (a *app) action(w http.ResponseWriter, r *http.Request) {
 	if r.Method != "POST" {
 		http.Error(w, "method not allowed", 405)
@@ -478,6 +507,18 @@ func (a *app) action(w http.ResponseWriter, r *http.Request) {
 		if err := a.selectExam(selection.TestID); err != nil {
 			http.Error(w, err.Error(), 400)
 			return
+		}
+		for _, exam := range a.exams {
+			if exam.ID != selection.TestID {
+				continue
+			}
+			config, err := resolveLab(exam)
+			if err != nil {
+				a.tasks, a.duration = beforeTasks, beforeDuration
+				http.Error(w, err.Error(), 400)
+				return
+			}
+			a.state.Lab = config
 		}
 		a.state.TestID = selection.TestID
 		a.state.Phase = "preparing"
@@ -658,8 +699,8 @@ func (a *app) terminal(w http.ResponseWriter, r *http.Request) {
 		a.mu.Unlock()
 		return
 	}
-	args := append([]string{"-tt"}, labSSHArgs()...)
-	args = append(args, env("LAB_SSH_USER", "milkman")+"@"+host)
+	args := append([]string{"-tt"}, a.labSSHArgs()...)
+	args = append(args, a.labValue("LAB_SSH_USER", "milkman")+"@"+host)
 	cmd := exec.Command("ssh", args...)
 	f, err := pty.Start(cmd)
 	if err != nil {

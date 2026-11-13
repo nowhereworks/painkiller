@@ -8,7 +8,7 @@ An early single-user CKA practice simulator: a timed question panel and SSH term
 - The terminal is an SSH session as the configured lab user. The management host needs Go with CGO and a C compiler, Ansible, `community.general`, `ssh`, `sha256sum`, `jq`, `flock`, and GNU `timeout`. Install the collection with `ansible-galaxy collection install -r playbooks/requirements.yml`. Provisioning configures the first controller with an administrator kubeconfig; the prebaked image includes `jq` and `etcd-client`.
 - Passwordless SSH and a verified Proxmox host key are required from the management host. Prebaked template `9100` is the default; legacy template `9010` is also pre-configured (SSH access, DNS, DHCP). `create` makes **linked clones** (fast, shared base disk), sets their memory, and starts them; it does not modify the clone's `net0`, machine-id, cloud-init, or SSH host keys. Clone host keys are read through the Proxmox guest agent and pinned in `data/lab_known_hosts`. Provisioning grants the configured lab user passwordless sudo on these disposable VMs. The template is not modified.
 - The browser assets, including xterm.js, are bundled in the server. The server must be started from the repository root for scripts and exam data.
-- Playbooks are owned by this repository under `playbooks/`; no external playbook checkout or Git metadata is required. Local checksums and image compatibility metadata are verified before provisioning. The default cluster uses one controller and two workers. Multiple controllers or a custom stable control-plane endpoint require explicit legacy mode; its kubeadm playbook can reset Kubernetes state on target hosts.
+- Playbooks are owned by this repository under `playbooks/`; no external playbook checkout or Git metadata is required. Local checksums and image compatibility metadata are verified before provisioning. The default cluster uses one controller and two workers. Multiple controllers or a custom stable control-plane endpoint require explicit legacy mode. Lifecycle provisioning refuses automatic resets of an existing unhealthy or address-changed cluster.
 - VM operations are restricted to IDs 3000–3999; the default lab uses 3000–3002. Create refuses existing IDs; start/stop/destroy refuse existing VMs without the configured ownership description. If cloning succeeds but marking fails, clean up that VM manually after confirming ownership. Cleanup is destructive: inspect the target host and VM range first. The description marker is a guard, not an isolation boundary.
 - A running candidate can start background processes on lab nodes. Closing the browser terminal at submission does not guarantee those processes stop. Answers are captured after submission with bounded concurrency (six captures at a time), so the whole cluster is read within a few seconds; that is a much smaller window than a sequential capture but still not a transactional cluster snapshot. Once captured, checks and retries use the saved snapshot and never re-read live state. Do not treat this as a secure exam environment.
 
@@ -19,6 +19,10 @@ The original 29-task test is **CKA-001**, organized under `exam/CKA-001/`.
 Additional tests follow the [test folder standard](exam/README.md) and appear
 automatically after a server restart. Only one lab/attempt is active at a time;
 reset before selecting another test. Existing saved attempts map to CKA-001.
+Tests can declare their own topology and trusted staged preparation through the
+[optional lab contract](exam/README.md#optional-exam-owned-lab-contract). New
+attempts save their resolved lab configuration; retries, SSH, grading, and reset
+keep using it even if the server's environment changes.
 
 ```sh
 # Configure the management host and lab first; review scripts/create-lab.sh.
@@ -79,6 +83,7 @@ ShellCheck, and original/generated Ansible playbook syntax checks passed.
 | `LAB_VM_MEMORY` | `3072` | Memory per clone in MiB; preflight requires an additional 4 GiB of available host memory |
 | `LAB_VM_START`, `LAB_VM_END` | `3000`, `3002` | Inclusive VM range, restricted to 3000–3999 |
 | `LAB_CONTROLLERS` | `1` | Number of first VMs assigned control-plane role |
+| `LAB_INITIAL_CONTROLLERS` | controller count | Initially joined controllers; remaining controllers receive prerequisites and candidate SSH access but are not joined as workers |
 | `LAB_MARKER` | `painkiller-mvp` | Required Proxmox VM description |
 | `LAB_IP_PREFIX` | `192.168.254.` | Prefix used to select exactly one guest IPv4 address |
 | `LAB_READY_TIMEOUT` | `600` | Guest-agent/SSH readiness timeout per VM in seconds |
@@ -88,7 +93,7 @@ ShellCheck, and original/generated Ansible playbook syntax checks passed.
 | `LAB_CNI_PLUGIN` | `flannel` | kubeadm playbook CNI |
 | `LAB_CONTROL_PLANE_ENDPOINT` | unset | Stable API endpoint, e.g. `192.0.2.10:6443` |
 
-`scripts/create-lab.sh help` lists the direct lifecycle commands. `status` emits JSON; `provision` requires an existing lab. Inspect the actual environment before using any command. The script does not install dependencies or a load balancer.
+`scripts/create-lab.sh help` lists the direct lifecycle commands. `status` emits JSON; `provision` requires an existing lab. `prerequisites` prepares guests without bootstrapping Kubernetes. Inspect the actual environment before using any command. API balancing is an explicit separate helper, `scripts/configure-api-load-balancer.sh`, not part of default provisioning.
 
 The default Flannel CNI does not enforce NetworkPolicy. The NetworkPolicy exercise checks the Kubernetes resource; use a policy-capable CNI such as Calico if network enforcement is required.
 

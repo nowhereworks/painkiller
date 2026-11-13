@@ -1,0 +1,10 @@
+{
+  "baseline": 0,
+  "mutations": [
+    {
+      "task": "configmap",
+      "remove": "kubectl -n exam-workloads delete configmap settings --ignore-not-found",
+      "restore": "kubectl -n exam-workloads create configmap settings --from-literal=mode=production"
+    }
+  ]
+}

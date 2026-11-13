@@ -27,5 +27,60 @@ restore the selected test, and attempts predating test selection belong to
 `CKA-001`. Do not remove or edit a test while its attempt is active.
 
 Duration comes from `test.json`; `PAINKILLER_MINUTES`, when set, overrides it.
-Provisioning remains shared: tests currently use the configured lab topology
-(one controller and two workers by default).
+Without `lab`, tests retain the configured lab topology and provisioning
+defaults (one controller and two workers, prebaked template 9100).
+
+## Optional exam-owned lab contract
+
+An exam may declare requirements in `test.json`:
+
+```json
+"lab": {
+  "controllers": 3,
+  "workers": 2,
+  "initial_controllers": 2,
+  "provision_mode": "legacy",
+  "cni": "calico",
+  "endpoint": "192.168.254.80:8443",
+  "memory_mb": 4096,
+  "prepare": "prepare.sh"
+}
+```
+
+All fields except `endpoint` and `prepare` are required when `lab` is present.
+`memory_mb` is a minimum per VM. Explicit conflicting topology, mode, CNI,
+endpoint, range end, or insufficient memory environment settings fail selection;
+they never silently replace exam requirements. The VM range end is derived from
+`LAB_VM_START` and the exam's total machine count. Proxmox host, SSH user, VM range
+start, ownership marker, and template ID remain operator-configurable. Legacy
+mode defaults to template 9010. The catalog publishes only controller/worker
+counts, not the trusted preparation path or endpoint.
+
+New attempts persist their resolved operational environment. Creation, retries,
+status, guest access, grading, and reset use that snapshot even after a server
+restart or environment change. Older attempts without a snapshot retain legacy
+environment-based behavior; do not change their lab environment before reset.
+An all-range read-only preflight checks IDs, template, host keys, and memory
+before creation is authorized and persisted. Reset after a failed preflight
+clears only the attempt; it cannot destroy an existing lab with the same marker.
+
+`prepare` names a regular shell script inside the exam directory. Traversal,
+absolute paths, shell metacharacters, and symlink escapes are rejected. The server
+invokes it using argument arrays, not shell interpolation, with these phases:
+
+1. `preflight` (180 seconds): read-only prerequisite/allocation checks, before cloning.
+2. `infrastructure` (1800 seconds): guest prerequisites and pre-bootstrap services.
+3. Shared cluster bootstrap and candidate SSH access to **all** machines.
+4. `fixtures` (2400 seconds): exam dependencies, assets, readiness, then faults.
+
+Each invocation is logged through the existing operation log. Preparation scripts
+must use explicit readiness checks and exam-specific phase markers, reconcile on
+retry, and never repeatedly inject faults or reset a healthy cluster. A trusted
+preparation script owns applying its `setup.yaml`; exams without `prepare` retain
+the original setup.yaml-only path. `scripts/create-lab.sh prerequisites` prepares
+all guests without joining any; `LAB_INITIAL_CONTROLLERS` reserves remaining
+controllers without treating them as workers. The API-balancing helper configures
+only ownership-checked workers and requires the explicit HA lab configuration.
+
+Every exam must own its dependencies, fixtures, faults, grading, and reference
+answers. Do not invoke another exam's setup, assets, or solutions.

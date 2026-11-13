@@ -13,10 +13,11 @@ import (
 
 // Exam folders are trusted server-side content, never paths supplied by clients.
 type examDefinition struct {
-	ID          string `json:"id"`
-	Title       string `json:"title"`
-	Description string `json:"description"`
-	Minutes     int    `json:"minutes"`
+	ID          string   `json:"id"`
+	Title       string   `json:"title"`
+	Description string   `json:"description"`
+	Minutes     int      `json:"minutes"`
+	Lab         *labSpec `json:"lab,omitempty"`
 	dir         string
 	tasks       []task
 }
@@ -64,6 +65,9 @@ func loadExams(root string) ([]examDefinition, error) {
 			return nil, fmt.Errorf("%s: %w", dir, err)
 		}
 		exam.dir = dir
+		if err := validateLabSpec(exam); err != nil {
+			return nil, err
+		}
 		exams = append(exams, exam)
 	}
 	if len(exams) == 0 {
@@ -100,6 +104,15 @@ func (a *app) setupPath() string {
 	return ""
 }
 
+func (a *app) preparationPath() (string, error) {
+	for _, exam := range a.exams {
+		if exam.ID == a.state.TestID && exam.Lab != nil && exam.Lab.Prepare != "" {
+			return trustedExamFile(exam, exam.Lab.Prepare)
+		}
+	}
+	return "", nil
+}
+
 // Restore definitions before score migration or resuming background grading.
 func (a *app) restoreExam() (bool, error) {
 	migrated := a.state.TestID == "" && a.state.Phase != "idle"
@@ -109,6 +122,9 @@ func (a *app) restoreExam() (bool, error) {
 	if a.state.TestID != "" {
 		if err := a.selectExam(a.state.TestID); err != nil {
 			return false, err
+		}
+		if a.state.Lab != nil && a.state.Lab.TestID != a.state.TestID {
+			return false, fmt.Errorf("saved lab belongs to %s, not selected test %s; refusing to change topology", a.state.Lab.TestID, a.state.TestID)
 		}
 	}
 	return migrated, nil
@@ -121,7 +137,25 @@ func (a *app) testList(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "application/json")
 	// Do not expose task solutions or capture/check commands in the catalog.
-	public := append([]examDefinition{}, a.exams...)
+	type topology struct {
+		Controllers int `json:"controllers"`
+		Workers     int `json:"workers"`
+	}
+	type catalogExam struct {
+		ID          string    `json:"id"`
+		Title       string    `json:"title"`
+		Description string    `json:"description"`
+		Minutes     int       `json:"minutes"`
+		Lab         *topology `json:"lab,omitempty"`
+	}
+	public := make([]catalogExam, 0, len(a.exams))
+	for _, exam := range a.exams {
+		entry := catalogExam{ID: exam.ID, Title: exam.Title, Description: exam.Description, Minutes: exam.Minutes}
+		if exam.Lab != nil {
+			entry.Lab = &topology{Controllers: exam.Lab.Controllers, Workers: exam.Lab.Workers}
+		}
+		public = append(public, entry)
+	}
 	if minutes, err := strconv.Atoi(os.Getenv("PAINKILLER_MINUTES")); err == nil && minutes >= 1 && minutes <= 1440 {
 		for i := range public {
 			public[i].Minutes = minutes

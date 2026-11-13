@@ -2,6 +2,7 @@
 - name: Build in-memory inventory from controller_ips and worker_ips
   hosts: localhost
   gather_facts: false
+  tags: [inventory]
 
   vars:
     ssh_user: "{{ ansible_ssh_user | default('milkman') }}"
@@ -83,6 +84,7 @@
   hosts: kubeadm_nodes
   become: true
   gather_facts: true
+  tags: [prerequisites]
 
   vars:
     kubernetes_apt_keyring: "/etc/apt/keyrings/kubernetes-apt-keyring.gpg"
@@ -337,6 +339,13 @@
             )
           }}
 
+    - name: Refuse to reset an existing cluster during lab reconciliation
+      ansible.builtin.assert:
+        that:
+          - not (kubeadm_reset_needed | bool)
+        fail_msg: "Existing control plane is unhealthy or changed address. Inspect it; automatic reset is disabled."
+      when: preserve_existing | default(false) | bool
+
     - name: Show reset reason
       ansible.builtin.debug:
         msg: "kubeadm reset triggered: existing etcd IP {{ existing_etcd_ip.stdout }} does not match target IP {{ first_controller_ip }}"
@@ -400,6 +409,7 @@
         --service-cidr={{ service_cidr }}
         --upload-certs
       register: kubeadm_init
+      no_log: true
       async: 600
       poll: 10
       failed_when: false
@@ -443,12 +453,6 @@
           ansible.builtin.fail:
             msg: |
               kubeadm init failed after {{ kubeadm_init.delta | default('unknown time') }}.
-
-              === kubeadm init stdout ===
-              {{ kubeadm_init.stdout | default('') }}
-
-              === kubeadm init stderr ===
-              {{ kubeadm_init.stderr | default('') }}
 
               === etcd Pod Status ===
               {{ etcd_pod_check.stdout | default('No etcd pod found') }}
@@ -910,6 +914,7 @@
   hosts: kubeadm_controllers[1:]
   become: true
   gather_facts: false
+  serial: 1
 
   vars:
     first_controller: "{{ groups['kubeadm_controllers'][0] }}"
@@ -937,7 +942,9 @@
 
     - name: Join node as additional control-plane
       ansible.builtin.command: "{{ hostvars[first_controller].kubeadm_control_plane_join_command }}"
-      when: not kubelet_conf.stat.exists
+      when:
+        - not kubelet_conf.stat.exists
+        - groups['kubeadm_controllers'].index(inventory_hostname) < (initial_controllers | default(groups['kubeadm_controllers'] | length) | int)
       no_log: true
 
     - name: Ensure kubelet is started and enabled
@@ -1111,7 +1118,7 @@
       until: >
         cluster_nodes.rc == 0 and
         (cluster_nodes.stdout_lines | length) >=
-        ((groups.get('kubeadm_controllers', []) | length) + (groups.get('kubeadm_workers', []) | length))
+        ((initial_controllers | default(groups.get('kubeadm_controllers', []) | length) | int) + (groups.get('kubeadm_workers', []) | length))
 
     - name: Show cluster nodes
       ansible.builtin.command: kubectl --kubeconfig=/etc/kubernetes/admin.conf get nodes -o wide

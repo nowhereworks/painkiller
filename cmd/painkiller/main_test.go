@@ -280,7 +280,7 @@ func TestFreshPreparationCreatesAndProvisions(t *testing.T) {
 		}
 	}
 	files := map[string]string{
-		"scripts/create-lab.sh":            "#!/bin/sh\necho \"$1\" >> calls\ncase \"$1\" in status) echo '{\"controller_ips\":\"192.0.2.1\"}';; create|provision) :;; *) exit 88;; esac\n",
+		"scripts/create-lab.sh":            "#!/bin/sh\necho \"$1\" >> calls\ncase \"$1\" in status) echo '{\"controller_ips\":\"192.0.2.1\"}';; preflight|create|provision) :;; *) exit 88;; esac\n",
 		"scripts/configure-exam-access.sh": "#!/bin/sh\necho access >> calls\n",
 		"bin/ssh":                          "#!/bin/sh\ncat >/dev/null\n",
 		"exam/CKA-001/setup.yaml":          "kind: List\nitems: []\n",
@@ -301,7 +301,7 @@ func TestFreshPreparationCreatesAndProvisions(t *testing.T) {
 		t.Fatalf("fresh preparation failed: %+v", a.state)
 	}
 	b, err := os.ReadFile("calls")
-	if err != nil || string(b) != "create\nprovision\naccess\nstatus\n" {
+	if err != nil || string(b) != "preflight\ncreate\nprovision\naccess\nstatus\n" {
 		t.Fatalf("unexpected preparation sequence: %q %v", b, err)
 	}
 }
@@ -522,7 +522,7 @@ func TestLabAcceptsUpperAuthorizedBoundary(t *testing.T) {
 func TestPrebakedCreateRejectsNonTemplate(t *testing.T) {
 	dir := t.TempDir()
 	calls := filepath.Join(dir, "calls")
-	ssh := "#!/bin/sh\necho \"$*\" >> \"$CALLS\"\ncase \"$*\" in *'qm config 9100'*) printf 'description: unrelated\\n';; *) exit 99;; esac\n"
+	ssh := "#!/bin/sh\necho \"$*\" >> \"$CALLS\"\ncase \"$*\" in *'qm list'*) echo 'VMID NAME STATUS';; *'qm config 9100'*) printf 'description: unrelated\\n';; *) exit 99;; esac\n"
 	git := "#!/bin/sh\ncase \"$*\" in *'rev-parse HEAD'*) echo 8ec676e93017ce3e110c27485e25d1f32d541056;; esac\n"
 	for name, body := range map[string]string{"ssh": ssh, "git": git} {
 		if err := os.WriteFile(filepath.Join(dir, name), []byte(body), 0700); err != nil {
@@ -638,7 +638,7 @@ func TestPrebakedRejectsUnsupportedConfiguration(t *testing.T) {
 func isolatedLabScripts(t *testing.T) string {
 	t.Helper()
 	root := t.TempDir()
-	for _, name := range []string{"scripts/create-lab.sh", "scripts/build-template.sh", "scripts/validate-image.sh", "scripts/playbooks.sh", "playbooks/SHA256SUMS", "playbooks/kubeadm-cluster/kubeadm-cluster.yml"} {
+	for _, name := range []string{"scripts/create-lab.sh", "scripts/build-template.sh", "scripts/validate-image.sh", "scripts/playbooks.sh", "playbooks/SHA256SUMS", "playbooks/kubeadm-cluster/kubeadm-cluster.yml", "playbooks/api-load-balancer.yml"} {
 		b, err := os.ReadFile(filepath.Join("../..", name))
 		if err != nil {
 			t.Fatal(err)
@@ -655,7 +655,7 @@ func isolatedLabScripts(t *testing.T) string {
 }
 
 func TestLocalPlaybooksFailBeforeRemoteOperations(t *testing.T) {
-	for _, action := range []string{"create", "provision", "build"} {
+	for _, action := range []string{"preflight", "create", "prerequisites", "provision", "build"} {
 		for _, damage := range []string{"missing", "modified", "missing-manifest"} {
 			t.Run(action+"/"+damage, func(t *testing.T) {
 				root := isolatedLabScripts(t)
@@ -963,7 +963,7 @@ echo "$*" >> "$CALLS"
 case "$*" in
   *"qm list"*) echo 'VMID NAME STATUS' ;;
   *"MemAvailable:"*) echo 65536 ;;
-  *"qm config 9100"*) printf 'template: 1\ndescription: painkiller-image-v1-1.36.1-8ec676e93017ce3e110c27485e25d1f32d541056\n' ;;
+  *"qm config 9100"*|*"qm config 9010"*) printf 'template: 1\ndescription: painkiller-image-v1-1.36.1-8ec676e93017ce3e110c27485e25d1f32d541056\n' ;;
   *"qm config "*) echo 'description: painkiller-mvp' ;;
   *"qm guest exec "*"ssh_host_ed25519_key.pub"*)
     id=$(echo "$*" | sed -n 's/.*qm guest exec \([0-9]*\).*/\1/p'); material=$(printf '%s' "$id" | base64 -w0); printf '{"exited":1,"exitcode":0,"out-data":"ssh-ed25519 %s lab"}\n' "$material" ;;
@@ -990,6 +990,18 @@ exit 99
 				template = "9100"
 			}
 			cmd.Env = append(os.Environ(), "PATH="+dir+string(os.PathListSeparator)+os.Getenv("PATH"), "CALLS="+calls, "LAB_KNOWN_HOSTS="+filepath.Join(dir, "known"), "LAB_VM_START=3000", "LAB_VM_END=3002", "LAB_CONTROLLERS=1", "LAB_PROVISION_MODE="+mode, "LAB_TEMPLATE_ID=")
+			preflight := exec.Command("bash", filepath.Join(root, "scripts/create-lab.sh"), "preflight")
+			preflight.Dir, preflight.Env = cmd.Dir, cmd.Env
+			if out, err := preflight.CombinedOutput(); err != nil {
+				t.Fatalf("preflight failed: %v %s", err, out)
+			}
+			before, err := os.ReadFile(calls)
+			if err != nil || strings.Contains(string(before), "qm clone") || strings.Contains(string(before), "qm set") || strings.Contains(string(before), "qm start") {
+				t.Fatalf("preflight changed VMs: %s %v", before, err)
+			}
+			if _, err := os.Stat(filepath.Join(dir, "known")); !os.IsNotExist(err) {
+				t.Fatalf("preflight changed the host-key file: %v", err)
+			}
 			if out, err := cmd.CombinedOutput(); err != nil {
 				t.Fatalf("create failed: %v %s", err, out)
 			}

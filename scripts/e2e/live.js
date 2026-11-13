@@ -3,23 +3,30 @@
 //
 //   E2E_SKIP_RESET=1 node scripts/e2e/live.js   # keep the lab for other scripts
 const fs = require('fs');
-const {base, ssh, score, points, launch, status, post, waitPhase, check} = require('./lib');
+const {base, examID, ssh, score, points, launch, status, post, waitPhase, check} = require('./lib');
+const fixture = JSON.parse(fs.readFileSync(`exam/${examID}/e2e.json`, 'utf8'));
 
 (async () => {
+  const initial = await status();
+  check(initial.phase === 'idle' || process.env.E2E_RESUME === '1',
+    `existing ${initial.phase} attempt retained; E2E_RESUME=1 is required to resume your own harness lab`);
+  if (initial.phase !== 'idle') check(initial.test_id === examID, 'refusing a different active exam');
   const browser = await launch();
   const page = await browser.newPage();
   page.on('pageerror', (e) => console.error('PAGE ERROR', e));
   page.on('dialog', (d) => d.accept());
   await page.goto(base);
 
-  let phase = await waitPhase(page, ['idle', 'ready', 'error']);
+  let phase = await waitPhase(page, process.env.E2E_RESUME === '1' ? ['idle', 'ready', 'running', 'error'] : ['idle', 'ready', 'error']);
   if (phase === 'idle') {
+    await page.locator('#test-select').selectOption(examID);
     await page.getByRole('button', {name: 'Prepare lab'}).click();
     phase = await waitPhase(page, ['ready', 'error']);
   }
   if (phase === 'error') throw Error('lab preparation failed: ' + await page.locator('#message').innerText());
   if (phase === 'idle') throw Error('lab did not become ready');
-  const {host} = await status();
+  const {host, test_id: selected} = await status();
+  check(selected === examID, `active test ${selected} differs from requested ${examID}; refusing to modify it`);
   console.log('LAB READY', host);
 
   if (phase === 'ready') await page.getByRole('button', {name: 'Start exam'}).click();
@@ -35,9 +42,19 @@ const {base, ssh, score, points, launch, status, post, waitPhase, check} = requi
   check(await page.locator('#flag').isChecked(), 'flag lost after reload');
   console.log('MARKS PERSIST: passed');
 
-  const baseline = score(host);
+  // Faulted deployments can briefly retain old ready replicas after apply.
+  // Require two matching captures, bounded to 60 seconds; persistent unintended
+  // baseline credit must fail rather than being silently accepted.
+  let baseline, stable = 0;
+  const deadline = Date.now() + 60000;
+  do {
+    baseline = score(host);
+    stable = baseline === fixture.baseline ? stable + 1 : 0;
+    if (stable >= 2) break;
+    await new Promise((resolve) => setTimeout(resolve, 1000));
+  } while (Date.now() < deadline);
   console.log('BASELINE SCORE', baseline);
-  check(baseline === 0, `baseline should be 0, got ${baseline}`);
+  check(stable >= 2, `baseline should stabilize at ${fixture.baseline}, got ${baseline}`);
 
   // Terminal works and a reconnect keeps the attempt (timer) alive.
   await page.waitForFunction(() => document.querySelector('.xterm-screen')?.textContent.includes('Connected.'),
@@ -54,17 +71,19 @@ const {base, ssh, score, points, launch, status, post, waitPhase, check} = requi
   console.log('TERMINAL AND RECONNECT: passed');
 
   console.log('APPLYING REFERENCE SOLUTIONS');
-  ssh(host, 'bash -s', fs.readFileSync('exam/CKA-001/reference-solutions.sh', 'utf8'));
+  ssh(host, 'bash -s', fs.readFileSync(`exam/${examID}/reference-solutions.sh`, 'utf8'));
   const reference = score(host);
   console.log('REFERENCE SCORE', reference);
   check(reference === 100, `reference answers should score 100, got ${reference}`);
 
-  // One removed answer must cost exactly that task's points.
-  ssh(host, 'kubectl -n exam-workloads delete configmap settings --ignore-not-found');
-  const removed = score(host);
-  console.log('ONE-ANSWER-REMOVED SCORE', removed);
-  check(removed === 100 - points('configmap'), `expected ${100 - points('configmap')}, got ${removed}`);
-  ssh(host, 'kubectl -n exam-workloads create configmap settings --from-literal=mode=production');
+  for (const mutation of fixture.mutations) {
+    ssh(host, mutation.remove);
+    const removed = score(host);
+    console.log('ONE-ANSWER-REMOVED SCORE', mutation.task, removed);
+    check(removed === 100 - points(mutation.task), `expected ${100 - points(mutation.task)}, got ${removed}`);
+    ssh(host, mutation.restore);
+    check(score(host) === 100, `restoring ${mutation.task} did not recover 100`);
+  }
 
   await page.reload();
   await waitPhase(page, ['running']);

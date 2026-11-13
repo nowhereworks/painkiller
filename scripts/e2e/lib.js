@@ -6,9 +6,11 @@ const fs = require('fs');
 const base = process.env.E2E_BASE_URL || 'http://127.0.0.1:8080';
 const chrome = process.env.E2E_CHROME || '/usr/bin/google-chrome';
 const knownHosts = process.env.LAB_KNOWN_HOSTS || 'data/lab_known_hosts';
+const examID = process.env.E2E_EXAM || 'CKA-001';
+if (!/^[A-Z][A-Z0-9]*-[0-9]{3}$/.test(examID)) throw Error('invalid E2E_EXAM');
 const sshBase = ['-o', 'BatchMode=yes', '-o', 'ConnectTimeout=10', '-o', 'StrictHostKeyChecking=yes',
   '-o', 'GlobalKnownHostsFile=/dev/null', '-o', 'UserKnownHostsFile=' + knownHosts];
-const tasks = JSON.parse(fs.readFileSync(process.env.E2E_TASKS || 'exam/CKA-001/tasks.json', 'utf8'));
+const tasks = JSON.parse(fs.readFileSync(process.env.E2E_TASKS || `exam/${examID}/tasks.json`, 'utf8'));
 
 function ssh(host, command, input) {
   const r = spawnSync('ssh', [...sshBase, 'milkman@' + host, command],
@@ -29,8 +31,8 @@ function jq(expression, input) {
 function score(host) {
   let total = 0;
   for (const t of tasks) {
+    const captured = (ssh(host, t.resource) || '').trim() || 'null';
     for (const c of t.checks) {
-      const captured = (ssh(host, t.resource) || '').trim() || 'null';
       if (jq(c.expression, captured)) total += c.points;
     }
   }
@@ -57,7 +59,7 @@ async function post(action, body) {
   return fetch(base + '/api/' + action, {
     method: 'POST',
     headers: {'Content-Type': 'application/json', Origin: base},
-    body: JSON.stringify(body || (action === 'prepare' ? {test_id: 'CKA-001'} : {})),
+    body: JSON.stringify(body || (action === 'prepare' ? {test_id: examID} : {})),
   });
 }
 
@@ -71,4 +73,4 @@ function check(condition, message) {
   if (!condition) throw Error(message);
 }
 
-module.exports = {base, chrome, tasks, ssh, jq, score, points, launch, status, post, waitPhase, check};
+module.exports = {base, chrome, examID, tasks, ssh, jq, score, points, launch, status, post, waitPhase, check};
