@@ -199,7 +199,7 @@ HEALTH
     if [[ -n $worker_ips ]]; then args+=( -e "worker_ips=$worker_ips" ); fi
     if [[ $mode == prebaked ]]; then args+=( -e 'flannel_manifest_url=/opt/painkiller/flannel.yml' ); fi
     if [[ -n ${LAB_CONTROL_PLANE_ENDPOINT:-} ]]; then args+=( -e "control_plane_endpoint=$LAB_CONTROL_PLANE_ENDPOINT" ); fi
-    ansible-playbook "${args[@]}" --ssh-common-args "-o UserKnownHostsFile=$known_hosts -o GlobalKnownHostsFile=/dev/null -o StrictHostKeyChecking=yes"
+    ANSIBLE_FORCE_COLOR=1 ansible-playbook "${args[@]}" --ssh-common-args "-o UserKnownHostsFile=$known_hosts -o GlobalKnownHostsFile=/dev/null -o StrictHostKeyChecking=yes"
     first=${control_ips%%,*}
     # Expand the home directory and user IDs on the guest, not on the management host.
     # shellcheck disable=SC2016

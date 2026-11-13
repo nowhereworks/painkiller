@@ -4,8 +4,8 @@ main{height:calc(100dvh - 56px)}
 #home[hidden]{display:none}
 #home>h1,#home>p,.lab-actions{flex-shrink:0}
 .lab-actions{display:flex;flex-wrap:wrap;gap:8px}
-#log{flex:1;min-height:0;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere;background:#111;color:#eee;padding:12px;border:1px solid #303744;border-radius:4px;font:14px/1.5 ui-monospace,monospace}
-#log:empty{display:none}
+#log{flex:1;min-height:0;overflow:hidden;background:#111;color:#eee;padding:12px;margin:14px 0;border:1px solid #303744;border-radius:4px}
+#log[hidden]{display:none}
 #results{background:#f3f4f6}
 #results .result-list{list-style:none;padding:0;margin:24px 0;display:grid;gap:20px}
 #results .result-card{min-width:0;margin:0;padding:20px;background:white;border:1px solid #cbd0d8;border-left:5px solid;border-radius:6px;line-height:1.55;overflow-wrap:anywhere}
