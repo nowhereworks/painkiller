@@ -1,0 +1,6 @@
+{
+  "id": "CKA-001",
+  "title": "CKA practice exam",
+  "description": "29 tasks covering cluster architecture, workloads, networking, storage, troubleshooting, and RBAC.",
+  "minutes": 120
+}

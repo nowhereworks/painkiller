@@ -44,7 +44,7 @@ func TestTaskListWalkthroughs(t *testing.T) {
 }
 
 func TestPackagedWalkthroughs(t *testing.T) {
-	b, err := os.ReadFile("../../exam/tasks.json")
+	b, err := os.ReadFile("../../exam/CKA-001/tasks.json")
 	if err != nil {
 		t.Fatal(err)
 	}

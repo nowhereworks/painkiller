@@ -14,7 +14,10 @@ const {launch, check} = require('./lib');
     await page.evaluate(() => {
       window.logOutput = Array.from({length: 200}, (_, i) => `Provisioning line ${i}`).join('\n');
       window.fetch = async url => ({
-        json: async () => ({phase: 'preparing'}),
+        ok: true,
+        json: async () => url === '/api/tests'
+          ? [{id:'CKA-001',title:'CKA practice exam',description:'Practice test',minutes:120}]
+          : {phase: 'preparing',test_id:'CKA-001'},
         text: async () => window.logOutput
       });
     });

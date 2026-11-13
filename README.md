@@ -14,13 +14,19 @@ An early single-user CKA practice simulator: a timed question panel and SSH term
 
 ## Run
 
+Select a test from the dropdown on the first screen before preparing the lab.
+The original 29-task test is **CKA-001**, organized under `exam/CKA-001/`.
+Additional tests follow the [test folder standard](exam/README.md) and appear
+automatically after a server restart. Only one lab/attempt is active at a time;
+reset before selecting another test. Existing saved attempts map to CKA-001.
+
 ```sh
 # Configure the management host and lab first; review scripts/create-lab.sh.
 go run ./cmd/painkiller
 # Open http://127.0.0.1:8080
 ```
 
-Prepare creates three linked clones and invokes the bootstrap phases of `playbooks/kubeadm-cluster/kubeadm-cluster.yml`, verifies node readiness, then applies `exam/setup.yaml`. Explicit legacy mode also runs package preparation and installs `jq` and the `etcd-client` tools if necessary. Progress is shown in the web interface and stored in `data/operation.log`. If provisioning fails after all VMs are available, use **Retry operation**; inspect the error and use reset if the lab is incomplete. Start begins the timer. Submit closes app-managed terminal sessions, captures Kubernetes answer objects, and grades the saved data; expiration does the same. Failed captures can be retried without recapturing successful ones. Reset destroys marked lab VMs; a failed reset can be retried as well. A failed operation requires inspection; if interrupted during cloning, manual cleanup may be needed. SQLite stores the current attempt and sensitive answer snapshots in `data/state.db` with restrictive permissions. A default `data/state.json` from the previous release is imported once when a new database is initialized; the original file is not deleted. Back up state if needed; reset clears the current attempt. Kubeconfigs fetched by Ansible are stored in unique directories under `data/kubeconfigs/`.
+Prepare creates three linked clones and invokes the bootstrap phases of `playbooks/kubeadm-cluster/kubeadm-cluster.yml`, verifies node readiness, then applies the selected test's `exam/<ID>/setup.yaml`. Explicit legacy mode also runs package preparation and installs `jq` and the `etcd-client` tools if necessary. Progress is shown in the web interface and stored in `data/operation.log`. If provisioning fails after all VMs are available, use **Retry operation**; inspect the error and use reset if the lab is incomplete. Start begins the timer. Submit closes app-managed terminal sessions, captures Kubernetes answer objects, and grades the saved data; expiration does the same. Failed captures can be retried without recapturing successful ones. Reset destroys marked lab VMs; a failed reset can be retried as well. A failed operation requires inspection; if interrupted during cloning, manual cleanup may be needed. SQLite stores the current attempt and sensitive answer snapshots in `data/state.db` with restrictive permissions. A default `data/state.json` from the previous release is imported once when a new database is initialized; the original file is not deleted. Back up state if needed; reset clears the current attempt. Kubeconfigs fetched by Ansible are stored in unique directories under `data/kubeconfigs/`.
 
 Preparation also creates a new, lab-only SSH key on the controller and installs its public key on the other lab nodes. From the terminal, use `kubectl get nodes -o wide` to find node addresses and `ssh <node-ip>` to connect. The private key is generated on the disposable controller and is never copied to the management host.
 
@@ -64,7 +70,7 @@ ShellCheck, and original/generated Ansible playbook syntax checks passed.
 | `PAINKILLER_LISTEN` | `127.0.0.1:8080` | HTTP listen address |
 | `PAINKILLER_STATE` | `data/state.db` | Current attempt SQLite database |
 | `PAINKILLER_LAB_LOCK_DIR` | `data` | Shared lab lock directory; all servers managing the same lab must use the same directory |
-| `PAINKILLER_MINUTES` | `120` | Exam duration in minutes |
+| `PAINKILLER_MINUTES` | selected test's duration (`120` for CKA-001) | Optional exam duration override in minutes |
 | `LAB_PROXMOX_HOST` | `root@prox-k12` | SSH destination for Proxmox |
 | `LAB_PROVISION_MODE` | `prebaked` | `prebaked` or explicit `legacy` |
 | `LAB_TEMPLATE_ID` | `9010` (legacy), `9100` (prebaked) | Proxmox VM template |
@@ -86,14 +92,14 @@ ShellCheck, and original/generated Ansible playbook syntax checks passed.
 
 The default Flannel CNI does not enforce NetworkPolicy. The NetworkPolicy exercise checks the Kubernetes resource; use a policy-capable CNI such as Calico if network enforcement is required.
 
-Checks award the points shown in the result breakdown. Capture commands have a timeout and one automatic retry. Infrastructure or capture failures are reported separately from incorrect answers, and totals with grading errors are provisional. A manual retry recaptures only failed resources; previously captured answers are not changed. `exam/reference-solutions.sh` is intended only for validation against a fresh disposable exam lab.
+Checks award the points shown in the result breakdown. Capture commands have a timeout and one automatic retry. Infrastructure or capture failures are reported separately from incorrect answers, and totals with grading errors are provisional. A manual retry recaptures only failed resources; previously captured answers are not changed. `exam/CKA-001/reference-solutions.sh` is intended only for validation against a fresh disposable exam lab.
 
 ## Development
 
 ```sh
 go test -race ./...
 go vet ./...
-shellcheck -x scripts/create-lab.sh scripts/build-template.sh scripts/playbooks.sh scripts/validate-image.sh scripts/configure-exam-access.sh exam/reference-solutions.sh
+shellcheck -x scripts/create-lab.sh scripts/build-template.sh scripts/playbooks.sh scripts/validate-image.sh scripts/configure-exam-access.sh exam/*/reference-solutions.sh
 ansible-playbook --syntax-check -i localhost, playbooks/kubeadm-cluster/kubeadm-cluster.yml -e controller_ips=192.0.2.1
 node --check web/app.js
 ```

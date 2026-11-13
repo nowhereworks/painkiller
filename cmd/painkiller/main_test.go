@@ -238,8 +238,8 @@ func TestCaptureRunsConcurrently(t *testing.T) {
 func TestRetryPreparationReusesLabAndPreservesLog(t *testing.T) {
 	dir := t.TempDir()
 	t.Chdir(dir)
-	for _, path := range []string{"scripts", "exam", "bin"} {
-		if err := os.Mkdir(path, 0700); err != nil {
+	for _, path := range []string{"scripts", "exam/CKA-001", "bin"} {
+		if err := os.MkdirAll(path, 0700); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -247,7 +247,7 @@ func TestRetryPreparationReusesLabAndPreservesLog(t *testing.T) {
 		"scripts/create-lab.sh":            "#!/bin/sh\ncase \"$1\" in status) echo '{\"controller_ips\":\"192.0.2.1\",\"worker_ips\":\"192.0.2.2\"}';; provision) echo provisioned;; *) exit 88;; esac\n",
 		"scripts/configure-exam-access.sh": "#!/bin/sh\necho configured\n",
 		"bin/ssh":                          "#!/bin/sh\ncat >/dev/null\n",
-		"exam/setup.yaml":                  "kind: List\nitems: []\n",
+		"exam/CKA-001/setup.yaml":          "kind: List\nitems: []\n",
 		"operation.log":                    "earlier failure\n",
 	}
 	for name, body := range files {
@@ -259,7 +259,8 @@ func TestRetryPreparationReusesLabAndPreservesLog(t *testing.T) {
 	a := testApp(t)
 	a.file = filepath.Join(dir, "state.db")
 	a.lockDir = dir
-	a.state = state{Phase: "preparing"}
+	a.exams = []examDefinition{{ID: "CKA-001", dir: "exam/CKA-001"}}
+	a.state = state{Phase: "preparing", TestID: "CKA-001"}
 	a.prepareLab(false)
 	if a.state.Phase != "ready" || a.state.Host != "192.0.2.1" {
 		t.Fatalf("retry failed: %+v", a.state)
@@ -273,8 +274,8 @@ func TestRetryPreparationReusesLabAndPreservesLog(t *testing.T) {
 func TestFreshPreparationCreatesAndProvisions(t *testing.T) {
 	dir := t.TempDir()
 	t.Chdir(dir)
-	for _, path := range []string{"scripts", "exam", "bin"} {
-		if err := os.Mkdir(path, 0700); err != nil {
+	for _, path := range []string{"scripts", "exam/CKA-001", "bin"} {
+		if err := os.MkdirAll(path, 0700); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -282,7 +283,7 @@ func TestFreshPreparationCreatesAndProvisions(t *testing.T) {
 		"scripts/create-lab.sh":            "#!/bin/sh\necho \"$1\" >> calls\ncase \"$1\" in status) echo '{\"controller_ips\":\"192.0.2.1\"}';; create|provision) :;; *) exit 88;; esac\n",
 		"scripts/configure-exam-access.sh": "#!/bin/sh\necho access >> calls\n",
 		"bin/ssh":                          "#!/bin/sh\ncat >/dev/null\n",
-		"exam/setup.yaml":                  "kind: List\nitems: []\n",
+		"exam/CKA-001/setup.yaml":          "kind: List\nitems: []\n",
 	}
 	for name, body := range files {
 		if err := os.WriteFile(name, []byte(body), 0700); err != nil {
@@ -293,7 +294,8 @@ func TestFreshPreparationCreatesAndProvisions(t *testing.T) {
 	a := testApp(t)
 	a.file = filepath.Join(dir, "state.db")
 	a.lockDir = dir
-	a.state = state{Phase: "preparing"}
+	a.exams = []examDefinition{{ID: "CKA-001", dir: "exam/CKA-001"}}
+	a.state = state{Phase: "preparing", TestID: "CKA-001"}
 	a.prepareLab(true)
 	if a.state.Phase != "ready" || a.state.Host != "192.0.2.1" {
 		t.Fatalf("fresh preparation failed: %+v", a.state)
@@ -383,7 +385,7 @@ func TestNormalizeLegacyScores(t *testing.T) {
 }
 
 func TestPackagedExam(t *testing.T) {
-	b, err := os.ReadFile("../../exam/tasks.json")
+	b, err := os.ReadFile("../../exam/CKA-001/tasks.json")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1178,7 +1180,7 @@ func TestReferenceAnswersRefuseUnmarkedCluster(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "kubectl"), []byte(script), 0700); err != nil {
 		t.Fatal(err)
 	}
-	cmd := exec.Command("bash", "../../exam/reference-solutions.sh")
+	cmd := exec.Command("bash", "../../exam/CKA-001/reference-solutions.sh")
 	cmd.Env = append(os.Environ(), "PATH="+dir+string(os.PathListSeparator)+os.Getenv("PATH"), "CALLS="+calls)
 	if out, err := cmd.CombinedOutput(); err == nil || !strings.Contains(string(out), "Refusing to modify") {
 		t.Fatalf("unmarked cluster accepted: %v %s", err, out)
@@ -1263,7 +1265,7 @@ func TestCaptureRetriesTransientFailure(t *testing.T) {
 }
 
 // fixtures maps every packaged task to one captured document that satisfies
-// all of its checks. Real captures come from exam/tasks.json "resource" commands.
+// all of its checks. Real captures come from exam/CKA-001/tasks.json "resource" commands.
 var fixtures = map[string]string{
 	"namespace":      `{"metadata":{"name":"exam-sandbox"}}`,
 	"node-label":     `{"items":[{"metadata":{"name":"k8s-3000"}}]}`,
@@ -1310,7 +1312,7 @@ func TestExamChecksAcceptCorrectFixtures(t *testing.T) {
 
 func packagedTasks(t *testing.T) []task {
 	t.Helper()
-	b, err := os.ReadFile("../../exam/tasks.json")
+	b, err := os.ReadFile("../../exam/CKA-001/tasks.json")
 	if err != nil {
 		t.Fatal(err)
 	}

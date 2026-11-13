@@ -14,7 +14,9 @@ const {launch, check} = require('./lib');
     await page.addStyleTag({path: 'web/style.css'});
     await page.addStyleTag({path: 'web/vendor/xterm.css'});
     await page.evaluate(() => {
-      window.fetch = async () => ({json: async () => ({phase: 'idle'})});
+      window.fetch = async url => ({ok:true,json: async () => url === '/api/tests'
+        ? [{id:'CKA-001',title:'CKA practice exam',description:'Practice test',minutes:120}]
+        : {phase: 'idle'}});
       window.WebSocket = class {
         constructor() { this.readyState = 1; queueMicrotask(() => this.onopen?.()); }
         send(data) { window.lastTerminalSize = JSON.parse(data); }

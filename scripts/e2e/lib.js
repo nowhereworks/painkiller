@@ -8,7 +8,7 @@ const chrome = process.env.E2E_CHROME || '/usr/bin/google-chrome';
 const knownHosts = process.env.LAB_KNOWN_HOSTS || 'data/lab_known_hosts';
 const sshBase = ['-o', 'BatchMode=yes', '-o', 'ConnectTimeout=10', '-o', 'StrictHostKeyChecking=yes',
   '-o', 'GlobalKnownHostsFile=/dev/null', '-o', 'UserKnownHostsFile=' + knownHosts];
-const tasks = JSON.parse(fs.readFileSync(process.env.E2E_TASKS || 'exam/tasks.json', 'utf8'));
+const tasks = JSON.parse(fs.readFileSync(process.env.E2E_TASKS || 'exam/CKA-001/tasks.json', 'utf8'));
 
 function ssh(host, command, input) {
   const r = spawnSync('ssh', [...sshBase, 'milkman@' + host, command],
@@ -57,7 +57,7 @@ async function post(action, body) {
   return fetch(base + '/api/' + action, {
     method: 'POST',
     headers: {'Content-Type': 'application/json', Origin: base},
-    body: JSON.stringify(body || {}),
+    body: JSON.stringify(body || (action === 'prepare' ? {test_id: 'CKA-001'} : {})),
   });
 }
 

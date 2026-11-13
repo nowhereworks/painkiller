@@ -26,7 +26,7 @@ scripts and exam data are resolved relative to the working directory.
 | --- | --- | --- |
 | `E2E_BASE_URL` | `http://127.0.0.1:8080` | Server under test |
 | `E2E_CHROME` | `/usr/bin/google-chrome` | Chrome/Chromium binary |
-| `E2E_TASKS` | `exam/tasks.json` | Task definitions used for scoring |
+| `E2E_TASKS` | `exam/CKA-001/tasks.json` | Task definitions used for scoring |
 | `E2E_SKIP_RESET` | unset | Keep the lab after `live.js` |
 | `LAB_KNOWN_HOSTS` | `data/lab_known_hosts` | Guest host keys used by `ssh` |
 
@@ -38,7 +38,7 @@ Prepares the lab if it is idle, starts the exam, checks that marks and the
 selected question survive a reload, then:
 
 1. scores the untouched lab: **0 / 100**;
-2. applies `exam/reference-solutions.sh` on the controller and re-scores:
+2. applies `exam/CKA-001/reference-solutions.sh` on the controller and re-scores:
    **100 / 100**;
 3. deletes one answer (`kubectl -n exam-workloads delete configmap settings`)
    and expects exactly that task's points to be lost (currently 100 − 2 = 98);

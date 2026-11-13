@@ -41,10 +41,15 @@ async function main() {
     await page.route('**/api/**', async route => {
       const name = new URL(route.request().url()).pathname.split('/').pop();
       if (name === 'status') return route.fulfill({json:state});
+      if (name === 'tests') return route.fulfill({json:[
+        {id:'CKA-001',title:'CKA practice exam',description:'Original test',minutes:120},
+        {id:'CKA-002',title:'Second test fixture',description:'Another test',minutes:60}
+      ]});
       if (name === 'tasks') return route.fulfill({json:tasks});
       if (name === 'log') return route.fulfill({body:''});
       const body = route.request().postDataJSON();
       actions.push(name);
+      if (name === 'prepare') { state.test_id = body.test_id; state.phase = 'preparing'; }
       if (name === 'select') state.selected = body.id;
       if (name === 'mark') { state.flags[body.id] = body.flag; state.done[body.id] = body.done; }
       await route.fulfill({status:204});
@@ -172,7 +177,7 @@ async function main() {
     await page.waitForFunction(() => document.documentElement.scrollWidth <= innerWidth);
     if (process.env.E2E_SCREENSHOT_DIR) await page.screenshot({path:path.join(process.env.E2E_SCREENSHOT_DIR,'question-mobile.png')});
     // Every packaged question has its own steps and exact solution commands.
-    const packaged = JSON.parse(await fs.readFile(path.resolve(__dirname, '../../exam/tasks.json'), 'utf8'));
+    const packaged = JSON.parse(await fs.readFile(path.resolve(__dirname, '../../exam/CKA-001/tasks.json'), 'utf8'));
     tasks.splice(0, tasks.length, ...packaged.map(t => ({ID:t.id,Title:t.title,Points:t.points,Instructions:t.instructions,Steps:t.steps,Solution:t.solution,Explanation:t.explanation})));
     for (const task of tasks) {
       state.selected = task.ID;
@@ -245,8 +250,29 @@ async function main() {
     state.results = state.results.filter(r => r.id !== 'error');
     await page.evaluate(() => refresh());
     assert.equal(await page.getByRole('button', {name:'Retry grading',exact:true}).count(), 0);
+    state.phase = 'idle';
+    delete state.test_id;
+    await page.evaluate(() => refresh());
+    assert.equal(await page.locator('#test-select option').count(), 2);
+    assert.equal(await page.locator('#test-select').isEnabled(), true);
+    assert.equal(await page.locator('#test-select').inputValue(), 'CKA-001');
+    await page.locator('#test-select').selectOption('CKA-002');
+    assert.equal(await page.locator('#test-description').innerText(), 'Another test (60 minutes)');
+    await page.locator('#prepare').click();
+    await page.waitForFunction(() => document.querySelector('#phase').textContent === 'preparing');
+    assert.equal(state.test_id, 'CKA-002');
+    assert.equal(await page.locator('#test-select').isDisabled(), true);
+    state.phase = 'ready';
+    await page.reload();
+    await page.waitForFunction(() => document.querySelector('#test-select').value === 'CKA-002');
+    assert.equal(await page.locator('#test-select').isDisabled(), true);
+    state.phase = 'idle';
+    delete state.test_id;
+    await page.evaluate(() => refresh());
+    assert.equal(await page.locator('#test-select').isEnabled(), true);
+    await page.locator('#test-select').selectOption('CKA-001');
     assert.deepEqual(errors, []);
-    console.log('UI checks passed: navigation, polling, reload, timer boundaries, Markdown, syntax highlighting, sanitization, responsive layout, all 29 solution walkthroughs, results cards and reset controls.');
+    console.log('UI checks passed: test selection and locking, navigation, polling, reload, timer boundaries, Markdown, syntax highlighting, sanitization, responsive layout, all 29 solution walkthroughs, results cards and reset controls.');
   } finally {
     if (browser) await browser.close();
     await new Promise(resolve => server.close(resolve));

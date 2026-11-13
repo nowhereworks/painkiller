@@ -56,6 +56,7 @@ type result struct {
 	Checks []checkResult `json:"checks,omitempty"`
 }
 type state struct {
+	TestID          string                    `json:"test_id,omitempty"`
 	Phase           string                    `json:"phase"`
 	Deadline        time.Time                 `json:"deadline,omitempty"`
 	DurationSeconds int64                     `json:"duration_seconds,omitempty"`
@@ -69,6 +70,7 @@ type state struct {
 	Answers         map[string]answerSnapshot `json:"answers,omitempty"`
 }
 type app struct {
+	exams     []examDefinition
 	mu        sync.Mutex
 	state     state
 	tasks     []task
@@ -220,7 +222,7 @@ func (a *app) prepareLab(create bool) {
 	}
 	if err == nil {
 		var setup *os.File
-		setup, err = os.Open("exam/setup.yaml")
+		setup, err = os.Open(a.setupPath())
 		if err == nil {
 			defer setup.Close()
 			args := append([]string{"120s", "ssh"}, labSSHArgs()...)
@@ -239,7 +241,7 @@ func (a *app) prepareLab(create bool) {
 		a.state.FailedOperation = "prepare"
 		a.state.Message = fmt.Sprintf("%v: %s", err, out)
 	} else {
-		a.state = state{Phase: "ready", Host: host}
+		a.state = state{Phase: "ready", Host: host, TestID: a.state.TestID}
 	}
 	a.saveBackground()
 }
@@ -458,6 +460,7 @@ func (a *app) action(w http.ResponseWriter, r *http.Request) {
 	defer a.mu.Unlock()
 	a.expire()
 	before := a.state
+	beforeTasks, beforeDuration := a.tasks, a.duration
 	var next func()
 	switch strings.TrimPrefix(r.URL.Path, "/api/") {
 	case "prepare":
@@ -465,6 +468,18 @@ func (a *app) action(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "lab is not idle", 409)
 			return
 		}
+		var selection struct {
+			TestID string `json:"test_id"`
+		}
+		if json.NewDecoder(http.MaxBytesReader(w, r.Body, 1024)).Decode(&selection) != nil {
+			http.Error(w, "invalid test selection", 400)
+			return
+		}
+		if err := a.selectExam(selection.TestID); err != nil {
+			http.Error(w, err.Error(), 400)
+			return
+		}
+		a.state.TestID = selection.TestID
 		a.state.Phase = "preparing"
 		next = a.prepare
 	case "retry":
@@ -605,6 +620,7 @@ func (a *app) action(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := a.save(); err != nil {
 		a.state = before
+		a.tasks, a.duration = beforeTasks, beforeDuration
 		http.Error(w, "could not persist attempt state", http.StatusServiceUnavailable)
 		log.Printf("persist action: %v", err)
 		return
@@ -695,17 +711,11 @@ func (a *app) terminal(w http.ResponseWriter, r *http.Request) {
 	}
 }
 func main() {
-	b, err := os.ReadFile("exam/tasks.json")
+	exams, err := loadExams("exam")
 	if err != nil {
 		log.Fatal(err)
 	}
-	a := &app{file: env("PAINKILLER_STATE", "data/state.db"), lockDir: env("PAINKILLER_LAB_LOCK_DIR", "data"), terminals: map[*os.File]*exec.Cmd{}, state: state{Phase: "idle"}}
-	if err = json.Unmarshal(b, &a.tasks); err != nil {
-		log.Fatal(err)
-	}
-	if err = validateTasks(a.tasks); err != nil {
-		log.Fatal(err)
-	}
+	a := &app{exams: exams, file: env("PAINKILLER_STATE", "data/state.db"), lockDir: env("PAINKILLER_LAB_LOCK_DIR", "data"), terminals: map[*os.File]*exec.Cmd{}, state: state{Phase: "idle"}}
 	minutes, err := strconv.Atoi(env("PAINKILLER_MINUTES", "120"))
 	if err != nil || minutes < 1 || minutes > 1440 {
 		log.Fatal("PAINKILLER_MINUTES must be between 1 and 1440")
@@ -772,7 +782,11 @@ func main() {
 	} else {
 		log.Fatal(err)
 	}
-	if normalizeLegacyScores(&a.state, a.tasks) {
+	migrated, err := a.restoreExam()
+	if err != nil {
+		log.Fatal(err)
+	}
+	if normalizeLegacyScores(&a.state, a.tasks) || migrated {
 		if err = a.save(); err != nil {
 			log.Fatal(err)
 		}
@@ -788,6 +802,7 @@ func main() {
 		}
 	}()
 	http.HandleFunc("/api/status", a.status)
+	http.HandleFunc("/api/tests", a.testList)
 	http.HandleFunc("/api/log", func(w http.ResponseWriter, r *http.Request) {
 		f, err := os.Open(filepath.Join(filepath.Dir(a.file), "operation.log"))
 		if err != nil {

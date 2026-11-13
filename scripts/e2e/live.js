@@ -54,7 +54,7 @@ const {base, ssh, score, points, launch, status, post, waitPhase, check} = requi
   console.log('TERMINAL AND RECONNECT: passed');
 
   console.log('APPLYING REFERENCE SOLUTIONS');
-  ssh(host, 'bash -s', fs.readFileSync('exam/reference-solutions.sh', 'utf8'));
+  ssh(host, 'bash -s', fs.readFileSync('exam/CKA-001/reference-solutions.sh', 'utf8'));
   const reference = score(host);
   console.log('REFERENCE SCORE', reference);
   check(reference === 100, `reference answers should score 100, got ${reference}`);

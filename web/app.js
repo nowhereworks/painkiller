@@ -1,5 +1,28 @@
 let state={},tasks=[],index=0,term,fit,ws;
+let availableTests=[];
 const $=id=>document.getElementById(id);
+function drawTests(){
+  const select=$('test-select');
+  if(state.test_id)select.value=state.test_id;
+  select.disabled=state.phase!=='idle'||!availableTests.length;
+  $('prepare').disabled=!availableTests.some(test=>test.id===select.value);
+  const test=availableTests.find(test=>test.id===select.value);
+  $('test-description').textContent=test?`${test.description} (${test.minutes} minutes)`:'';
+}
+$('test-select').onchange=drawTests;
+async function loadTests(){
+  const response=await fetch('/api/tests',{cache:'no-store'});
+  if(!response.ok)throw Error('Could not load available tests.');
+  availableTests=await response.json();
+  $('test-select').replaceChildren();
+  for(const test of availableTests){
+    const option=document.createElement('option');
+    option.value=test.id;option.textContent=`${test.id} — ${test.title}`;
+    $('test-select').append(option);
+  }
+  if(availableTests.some(test=>test.id==='CKA-001'))$('test-select').value='CKA-001';
+  drawTests();
+}
 const exam=$('exam'),divider=$('panel-divider'),questionPanel=$('question-panel');
 function setQuestionWidth(width){
   const available=exam.clientWidth-divider.offsetWidth;
@@ -35,7 +58,7 @@ new ResizeObserver(()=>{
   divider.setAttribute('aria-valuenow',Math.round(questionPanel.getBoundingClientRect().width/available*100));
 }).observe(questionPanel);
 async function action(name,body){const r=await fetch('/api/'+name,{method:'POST',headers:{'Content-Type':'application/json'},body:body?JSON.stringify(body):'{}',keepalive:true});if(!r.ok)alert(await r.text());await refresh()}
-$('prepare').onclick=()=>action('prepare');$('retry').onclick=()=>action('retry');$('start').onclick=()=>action('start');$('reset').onclick=()=>{if(confirm('Destroy all VMs belonging to this lab?'))action('reset')};$('submit').onclick=()=>{if(confirm('Submit the exam? This cannot be undone.'))action('submit')};
+$('prepare').onclick=()=>action('prepare',{test_id:$('test-select').value});$('retry').onclick=()=>action('retry');$('start').onclick=()=>action('start');$('reset').onclick=()=>{if(confirm('Destroy all VMs belonging to this lab?'))action('reset')};$('submit').onclick=()=>{if(confirm('Submit the exam? This cannot be undone.'))action('submit')};
 $('flag').onchange=$('done').onchange=()=>{state.flags??={};state.done??={};state.flags[tasks[index].ID]=$('flag').checked;state.done[tasks[index].ID]=$('done').checked;action('mark',{id:tasks[index].ID,flag:state.flags[tasks[index].ID],done:state.done[tasks[index].ID]})};
 function selectQuestion(i){if(i<0||i>=tasks.length)return;index=i;state.selected=tasks[i].ID;draw();action('select',{id:tasks[i].ID})}
 $('previous').onclick=()=>selectQuestion(index-1);
@@ -189,6 +212,7 @@ function renderResults(){
   resetButton();
 }
 function tick(){
+  drawTests();
   if(state.phase!=='running'){$('timer').textContent='';return}
   const remaining=Math.max(0,(new Date(state.deadline)-Date.now())/1000);
   const percent=Math.min(100,remaining/(state.duration_seconds||7200)*100);
@@ -199,4 +223,5 @@ function tick(){
   $('time-progress').setAttribute('aria-valuenow',String(Math.round(percent)));
   $('time-progress').setAttribute('aria-valuetext',text+' remaining');
 }
+loadTests().catch(error=>{$('message').textContent=error.message});
 refresh();setInterval(refresh,5000);setInterval(tick,1000);

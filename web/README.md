@@ -15,7 +15,7 @@ for browser-only layout checks (no server or lab required).
 it does not copy the question to the clipboard. **Hide Instructions** collapses
 the block. Switching questions hides and clears it; polling keeps it open.
 
-`exam/tasks.json` stores each question's `steps`, `solution`, and `explanation`.
+`exam/<ID>/tasks.json` stores each question's `steps`, `solution`, and `explanation`.
 The tasks API includes these during running and completed attempts. Walkthrough
 steps and explanations use the same sanitized Markdown renderer as question text; command blocks
 use text content and Bash highlighting. Internal grading checks stay server-side.
