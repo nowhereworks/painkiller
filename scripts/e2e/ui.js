@@ -42,6 +42,7 @@ async function main() {
       const name = new URL(route.request().url()).pathname.split('/').pop();
       if (name === 'status') return route.fulfill({json:state});
       if (name === 'tasks') return route.fulfill({json:tasks});
+      if (name === 'log') return route.fulfill({body:''});
       const body = route.request().postDataJSON();
       actions.push(name);
       if (name === 'select') state.selected = body.id;
@@ -108,6 +109,38 @@ async function main() {
     await page.waitForFunction(() => document.querySelector('#next').disabled);
     await page.locator('#previous').click();
     await page.waitForFunction(() => document.querySelector('#question-select').value === '1');
+
+    // A new attempt in the same page must not inherit question or terminal state.
+    await page.locator('#reveal').click();
+    await page.evaluate(() => term.write('OLD LAB OUTPUT\r\n'));
+    await page.clock.runFor(100);
+    now.setTime(now.getTime()+100);
+    assert.equal(await page.evaluate(() => {
+      const buffer = term.buffer.active;
+      return Array.from({length:buffer.length}, (_, i) => buffer.getLine(i).translateToString()).join('\n').includes('OLD LAB OUTPUT');
+    }), true);
+    await page.evaluate(() => { window.oldSocket = ws; });
+    state.phase = 'resetting';
+    await page.evaluate(() => refresh());
+    state.phase = 'idle';
+    delete state.selected;
+    state.flags = {}; state.done = {};
+    await page.evaluate(() => refresh());
+    state.phase = 'running';
+    await page.evaluate(() => refresh());
+    assert.equal(await page.locator('#question-select').inputValue(), '0');
+    assert.equal(await page.locator('#solution').isHidden(), true);
+    assert.equal(await page.locator('#solution').innerHTML(), '');
+    assert.equal(await page.locator('#flag').isChecked(), false);
+    assert.equal(await page.locator('#done').isChecked(), false);
+    await page.evaluate(() => {
+      window.oldSocket.onmessage({data:new TextEncoder().encode('STALE OUTPUT').buffer});
+      window.oldSocket.onclose();
+    });
+    assert.equal(await page.evaluate(() => {
+      const buffer = term.buffer.active;
+      return Array.from({length:buffer.length}, (_, i) => buffer.getLine(i).translateToString()).join('\n');
+    }).then(text => /OLD LAB OUTPUT|STALE OUTPUT|Disconnected/.test(text)), false);
 
     for (const [seconds, duration, level, width, text] of [
       [1800,7200,'orange',25,'30 minutes'], [720,7200,'red',10,'12 minutes'],
