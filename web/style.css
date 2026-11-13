@@ -2,3 +2,23 @@
 #log{max-height:35vh;overflow:auto;white-space:pre-wrap;background:#eef1f5;padding:8px}
 #log:empty{display:none}
 #results li{white-space:pre-wrap}
+header #submit{margin-left:auto}
+#time-progress{height:18px;margin:8px 5px 0;position:relative;background:#e9ecef;color:#111;font:13px Arial,sans-serif;text-align:center}
+#time-fill{height:100%;background:#28a745}
+#time-progress[data-level="orange"] #time-fill{background:#f0a020}
+#time-progress[data-level="red"] #time-fill{background:#dc3545}
+#timer{position:absolute;inset:0;line-height:18px;font-variant-numeric:tabular-nums}
+#nav{display:flex;flex-wrap:nowrap;align-items:center;gap:24px;padding:30px 24px;border:0}
+#nav button,#question-select{height:40px;border:1px solid #b9c7d8;border-radius:0;color:#333;font:inherit}
+#nav button{width:36px;padding:0;flex-shrink:0;background:#f8f9fa}
+#question-select{flex:1;min-width:0;width:100%;padding:0 8px;background:white}
+article{padding:0 5px 20px;font:16px Arial,sans-serif;color:#222}
+article h2{font-size:20px;margin:0 0 18px}
+#instructions{line-height:1.55;overflow-wrap:anywhere}
+#instructions p{white-space:normal;margin:0 0 16px}
+#instructions ul,#instructions ol{padding-left:32px;margin:0 0 16px}
+#instructions li{margin:4px 0}
+#instructions :not(pre)>code{background:#f1f1f1;color:#222;font:0.9em ui-monospace,monospace;padding:2px 5px;border-radius:2px;white-space:break-spaces}
+#instructions pre{max-width:100%;overflow-x:auto;white-space:pre;overflow-wrap:normal;font-size:14px;border:1px solid #e2e5e8;border-radius:3px}
+#instructions pre code{white-space:pre}
+@media(max-width:700px){#nav{gap:16px;padding:20px 16px}}

@@ -27,7 +27,7 @@ const {base, ssh, score, points, launch, status, post, waitPhase, check} = requi
   console.log('EXAM STARTED');
 
   // Marks and the current question survive a reload.
-  await page.locator('#nav button').nth(4).click();
+  await page.locator('#question-select').selectOption('4');
   await page.locator('#flag').check();
   await page.reload();
   await waitPhase(page, ['running']);

@@ -3,6 +3,7 @@
   "private": true,
   "description": "Browser and scoring checks for a real Painkiller Shell lab",
   "scripts": {
+    "ui": "node ui.js",
     "live": "node live.js",
     "terminal": "node terminal.js",
     "expiry": "node expiry.js"

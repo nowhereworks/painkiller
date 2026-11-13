@@ -57,6 +57,7 @@ type result struct {
 type state struct {
 	Phase           string                    `json:"phase"`
 	Deadline        time.Time                 `json:"deadline,omitempty"`
+	DurationSeconds int64                     `json:"duration_seconds,omitempty"`
 	Results         []result                  `json:"results,omitempty"`
 	Flags           map[string]bool           `json:"flags,omitempty"`
 	Done            map[string]bool           `json:"done,omitempty"`
@@ -117,6 +118,13 @@ func (a *app) status(w http.ResponseWriter, r *http.Request) {
 	defer a.mu.Unlock()
 	a.expire()
 	public := a.state
+	// Older saved attempts have no duration; use the configured duration as a fallback.
+	if public.DurationSeconds == 0 {
+		public.DurationSeconds = int64(a.duration / time.Second)
+		if public.DurationSeconds == 0 {
+			public.DurationSeconds = 120 * 60
+		}
+	}
 	public.Answers = nil // snapshots can contain secrets
 	json.NewEncoder(w).Encode(public)
 }
@@ -484,6 +492,7 @@ func (a *app) action(w http.ResponseWriter, r *http.Request) {
 			duration = 120 * time.Minute
 		}
 		a.state.Deadline = time.Now().Add(duration)
+		a.state.DurationSeconds = int64(duration / time.Second)
 		a.state.Flags = map[string]bool{}
 		a.state.Done = map[string]bool{}
 	case "submit":
