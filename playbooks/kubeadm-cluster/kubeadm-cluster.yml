@@ -988,6 +988,107 @@
         enabled: true
 
 
+- name: Configure lab hostnames and SSH access
+  hosts: kubeadm_nodes
+  become: true
+  gather_facts: true
+
+  tasks:
+    - name: Validate unique lab hostnames
+      ansible.builtin.assert:
+        that:
+          - groups['kubeadm_nodes'] | map('extract', hostvars, 'ansible_hostname') | unique | length == groups['kubeadm_nodes'] | length
+        fail_msg: "Lab nodes must have unique hostnames."
+
+    - name: Look up lab SSH account
+      ansible.builtin.getent:
+        database: passwd
+        key: "{{ ansible_user }}"
+
+    - name: Set lab SSH home directory
+      ansible.builtin.set_fact:
+        lab_ssh_home: "{{ getent_passwd[ansible_user][4] }}"
+
+    - name: Ensure lab SSH directory exists
+      ansible.builtin.file:
+        path: "{{ lab_ssh_home }}/.ssh"
+        state: directory
+        owner: "{{ ansible_user }}"
+        mode: "0700"
+
+    - name: Generate a private SSH identity on each lab node
+      ansible.builtin.command:
+        argv:
+          - ssh-keygen
+          - -q
+          - -t
+          - ed25519
+          - -N
+          - ""
+          - -f
+          - "{{ lab_ssh_home }}/.ssh/painkiller_node"
+        creates: "{{ lab_ssh_home }}/.ssh/painkiller_node"
+      become_user: "{{ ansible_user }}"
+
+    - name: Read each node's public SSH identity
+      ansible.builtin.slurp:
+        src: "{{ lab_ssh_home }}/.ssh/painkiller_node.pub"
+      register: lab_public_key
+
+    - name: Read each node's SSH host key
+      ansible.builtin.slurp:
+        src: /etc/ssh/ssh_host_ed25519_key.pub
+      register: lab_host_key
+
+    - name: Configure lab hostname resolution
+      ansible.builtin.blockinfile:
+        path: /etc/hosts
+        marker: "# {mark} PAINKILLER LAB HOSTS"
+        insertbefore: BOF
+        block: |
+          {% for node in groups['kubeadm_nodes'] %}
+          {{ hostvars[node].ansible_host }} {{ hostvars[node].ansible_hostname }}
+          {% endfor %}
+
+    - name: Authorize lab node identities
+      ansible.builtin.blockinfile:
+        path: "{{ lab_ssh_home }}/.ssh/authorized_keys"
+        create: true
+        owner: "{{ ansible_user }}"
+        mode: "0600"
+        marker: "# {mark} PAINKILLER LAB KEYS"
+        block: |
+          {% for node in groups['kubeadm_nodes'] %}
+          {{ hostvars[node].lab_public_key.content | b64decode | trim }}
+          {% endfor %}
+
+    - name: Install verified lab host keys
+      ansible.builtin.copy:
+        dest: "{{ lab_ssh_home }}/.ssh/painkiller_node_known_hosts"
+        owner: "{{ ansible_user }}"
+        mode: "0600"
+        content: |
+          {% for node in groups['kubeadm_nodes'] %}
+          {{ hostvars[node].ansible_hostname }},{{ hostvars[node].ansible_host }} {{ (hostvars[node].lab_host_key.content | b64decode | trim).split()[:2] | join(' ') }}
+          {% endfor %}
+
+    - name: Configure SSH for lab hostnames
+      ansible.builtin.blockinfile:
+        path: "{{ lab_ssh_home }}/.ssh/config"
+        create: true
+        owner: "{{ ansible_user }}"
+        mode: "0600"
+        marker: "# {mark} PAINKILLER LAB NODES"
+        insertbefore: BOF
+        block: |
+          Host {% for node in groups['kubeadm_nodes'] %}{{ hostvars[node].ansible_hostname }} {% endfor %}
+            User {{ ansible_user }}
+            IdentityFile ~/.ssh/painkiller_node
+            IdentitiesOnly yes
+            UserKnownHostsFile ~/.ssh/painkiller_node_known_hosts
+            StrictHostKeyChecking yes
+
+
 - name: Validate cluster and fetch admin kubeconfig
   hosts: kubeadm_controllers[0]
   become: true
