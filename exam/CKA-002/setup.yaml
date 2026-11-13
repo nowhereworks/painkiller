@@ -1,0 +1,472 @@
+# CKA-002 fixtures and intentional faults. Applied by prepare.sh after the
+# cluster bootstrap and dependency installation, before node-level faults.
+# Namespaces carry the exam marker so reference solutions can refuse a foreign
+# cluster. Faults are declared last so the rest of the exam still functions.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: exam-workloads
+  labels:
+    painkiller-shell/exam: "true"
+    painkiller-shell/exam-id: "CKA-002"
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: exam-rbac
+  labels:
+    painkiller-shell/exam: "true"
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: exam-helm
+  labels:
+    painkiller-shell/exam: "true"
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: exam-ops
+  labels:
+    painkiller-shell/exam: "true"
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: exam-netpol
+  labels:
+    painkiller-shell/exam: "true"
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: exam-gw
+  labels:
+    painkiller-shell/exam: "true"
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: exam-gw-backend
+  labels:
+    painkiller-shell/exam: "true"
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: exam-ingress
+  labels:
+    painkiller-shell/exam: "true"
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: exam-lb
+  labels:
+    painkiller-shell/exam: "true"
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: exam-storage
+  labels:
+    painkiller-shell/exam: "true"
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: exam-repair
+  labels:
+    painkiller-shell/exam: "true"
+---
+# Task 2: drain target with a PodDisruptionBudget.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: web
+  namespace: exam-workloads
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: web
+  template:
+    metadata:
+      labels:
+        app: web
+    spec:
+      containers:
+        - name: web
+          image: nginx:1.27
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: web-pdb
+  namespace: exam-workloads
+spec:
+  minAvailable: 2
+  selector:
+    matchLabels:
+      app: web
+---
+# Task 3: RBAC fixtures.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: auditor
+  namespace: exam-rbac
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: app
+  namespace: exam-rbac
+  labels:
+    app: rbac-app
+spec:
+  containers:
+    - name: app
+      image: nginx:1.27
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: credentials
+  namespace: exam-rbac
+stringData:
+  username: operator
+---
+# Task 6: failed rollout with an unpullable image and no probes.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: app
+  namespace: exam-workloads
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: app
+  template:
+    metadata:
+      labels:
+        app: app
+    spec:
+      containers:
+        - name: app
+          image: nginx:9.9.9
+---
+# Task 7: HPA target plus ConfigMap/Secret to consume.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: app-config
+  namespace: exam-workloads
+data:
+  mode: production
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: app-secret
+  namespace: exam-workloads
+stringData:
+  password: secret
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: hpa-web
+  namespace: exam-workloads
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: hpa-web
+  template:
+    metadata:
+      labels:
+        app: hpa-web
+    spec:
+      containers:
+        - name: web
+          image: nginx:1.27
+---
+# Task 9: NetworkPolicy isolation fixtures.
+apiVersion: v1
+kind: Pod
+metadata:
+  name: db
+  namespace: exam-netpol
+  labels:
+    app: db
+spec:
+  containers:
+    - name: db
+      image: nginx:1.27
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: db
+  namespace: exam-netpol
+spec:
+  selector:
+    app: db
+  ports:
+    - port: 80
+      targetPort: 80
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: web
+  namespace: exam-netpol
+  labels:
+    app: web
+spec:
+  containers:
+    - name: web
+      image: busybox:1.36
+      command: ["sh", "-c", "sleep 3600"]
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: other
+  namespace: exam-netpol
+  labels:
+    app: other
+spec:
+  containers:
+    - name: other
+      image: busybox:1.36
+      command: ["sh", "-c", "sleep 3600"]
+---
+# Task 10: Gateway API cross-namespace backend.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: backend
+  namespace: exam-gw-backend
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: backend
+  template:
+    metadata:
+      labels:
+        app: backend
+    spec:
+      containers:
+        - name: web
+          image: nginx:1.27
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: backend
+  namespace: exam-gw-backend
+spec:
+  selector:
+    app: backend
+  ports:
+    - port: 80
+      targetPort: 80
+---
+# Task 11: Ingress + NodePort fixtures.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: web
+  namespace: exam-ingress
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: web
+  template:
+    metadata:
+      labels:
+        app: web
+    spec:
+      containers:
+        - name: web
+          image: nginx:1.27
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: web
+  namespace: exam-ingress
+spec:
+  selector:
+    app: web
+  ports:
+    - port: 80
+      targetPort: 80
+---
+# Task 12: LoadBalancer repair. The requested IP is outside the reserved pool,
+# so MetalLB refuses to allocate until the annotation is corrected.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: app
+  namespace: exam-lb
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: lb-app
+  template:
+    metadata:
+      labels:
+        app: lb-app
+    spec:
+      containers:
+        - name: web
+          image: nginx:1.27
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: lb-app
+  namespace: exam-lb
+  annotations:
+    metallb.universe.tf/loadBalancerIPs: 192.168.254.99
+spec:
+  type: LoadBalancer
+  selector:
+    app: lb-app
+  ports:
+    - port: 80
+      targetPort: 80
+---
+# Task 14: static local PV/PVC with two faults: the PVC requests a wrong
+# StorageClass and the PV's node affinity names a non-existent worker.
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: exam-local
+provisioner: kubernetes.io/no-provisioner
+volumeBindingMode: WaitForFirstConsumer
+reclaimPolicy: Retain
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: exam-local-pv
+spec:
+  capacity:
+    storage: 1Gi
+  accessModes:
+    - ReadWriteOnce
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: exam-local
+  local:
+    path: /opt/painkiller/local-data
+  nodeAffinity:
+    required:
+      nodeSelectorTerms:
+        - matchExpressions:
+            - key: kubernetes.io/hostname
+              operator: In
+              values:
+                - nonexistent-node
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: exam-local-pvc
+  namespace: exam-storage
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: exam-local-stale
+  resources:
+    requests:
+      storage: 1Gi
+---
+# Task 18: service fault — wrong selector and wrong targetPort.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: backend
+  namespace: exam-repair
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: backend
+  template:
+    metadata:
+      labels:
+        app: backend
+    spec:
+      containers:
+        - name: web
+          image: busybox:1.36
+          command: ["sh", "-c", "mkdir -p /www && echo hello > /www/index.html && httpd -p 8080 -f -h /www"]
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: backend-svc
+  namespace: exam-repair
+spec:
+  selector:
+    app: backend-stale
+  ports:
+    - port: 80
+      targetPort: 80
+---
+# Task 19: OOM fault — a low memory limit under a 64 MiB allocation.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: oom-app
+  namespace: exam-repair
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: oom-app
+  template:
+    metadata:
+      labels:
+        app: oom-app
+    spec:
+      containers:
+        - name: app
+          image: busybox:1.36
+          command: ["sh", "-c", "big=$(dd if=/dev/zero bs=1M count=64 2>/dev/null | tr '\\0' 'x'); echo \"${#big}\"; sleep 3600"]
+          resources:
+            limits:
+              memory: 50Mi
+---
+# Task 20: multi-container crash fault.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: crash-app
+  namespace: exam-repair
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: crash-app
+  template:
+    metadata:
+      labels:
+        app: crash-app
+    spec:
+      containers:
+        - name: app
+          image: busybox:1.36
+          command: ["sh", "-c", "echo crash; exit 1"]
+        - name: log-sidecar
+          image: busybox:1.36
+          command: ["sh", "-c", "exit 1"]

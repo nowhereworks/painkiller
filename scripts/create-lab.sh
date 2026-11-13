@@ -107,6 +107,16 @@ case "$command" in
     if ! [[ $available =~ ^[0-9]+$ ]] || (( available < (end-start+1)*memory + 4096 )); then
       echo 'Insufficient available host memory (including 4 GiB reserve)' >&2; exit 1
     fi
+    # Storage-capacity preflight: the template's datastore must hold the new
+    # linked clones and their deltas (10 GiB headroom). Fail clearly, never
+    # silently over-commit a full datastore.
+    storage=$(remote "qm config $template" | sed -n 's/^\(scsi0\|virtio0\|ide0\|sata0\): \([^:]*\):.*/\2/p' | head -1)
+    if [[ -n $storage ]]; then
+      free_kib=$(remote "pvesm status" | awk -v s="$storage" '$1 == s {print $6}')
+      if [[ $free_kib =~ ^[0-9]+$ ]] && (( free_kib < 10485760 )); then
+        echo "Insufficient free space on datastore $storage (need at least 10 GiB)" >&2; exit 1
+      fi
+    fi
     if [[ $command == preflight ]]; then exit 0; fi
     mkdir -p "$(dirname "$known_hosts")"
     (umask 077; printf '%s\n' '# Painkiller managed host keys' > "$known_hosts")

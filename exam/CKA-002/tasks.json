@@ -1,0 +1,678 @@
+[
+  {
+    "id": "join-controller",
+    "title": "Join the third control-plane node",
+    "points": 6,
+    "instructions": "Two of the three control-plane nodes are already joined. The third has been prepared but never joined. Generate a fresh bootstrap token and a certificate key, join the third control-plane node with kubeadm, and confirm the API endpoint serves three etcd members.",
+    "steps": [
+      "On the first control-plane node run `kubectl get nodes` and note there are two control-plane nodes and two workers.",
+      "Generate a certificate key with `sudo kubeadm init phase upload-certs --upload-certs` and note the 64-character key.",
+      "Create a join command with `sudo kubeadm token create --print-join-command`.",
+      "SSH to the unjoined controller (`kubectl get nodes -o wide` shows node IPs) and run the join command, appending `--control-plane --certificate-key <key>`.",
+      "Verify with `kubectl get nodes` (three control-plane Ready) and `kubectl get pods -n kube-system -l component=etcd` (three Running members)."
+    ],
+    "solution": "key=$(sudo -n kubeadm init phase upload-certs --upload-certs 2>/dev/null | tail -1)\njoin=$(sudo -n kubeadm token create --print-join-command)\nthird=$(kubectl get nodes -o wide --no-headers | awk '$3 !~ /control-plane/ {print $6}' | tail -1)\nssh \"$third\" \"sudo -n $join --control-plane --certificate-key $key\"",
+    "resource": "jq -n --argjson nodes \"$(kubectl get nodes -o json)\" --argjson etcd \"$(kubectl -n kube-system get pods -l component=etcd -o json)\" '{nodes:$nodes,etcd:$etcd}'",
+    "checks": [
+      {
+        "description": "All three control-plane nodes are Ready",
+        "points": 3,
+        "expression": "([.nodes.items[] | select(.metadata.labels[\"node-role.kubernetes.io/control-plane\"] != null)] | length) == 3 and ([.nodes.items[] | select(.metadata.labels[\"node-role.kubernetes.io/control-plane\"] != null and ([.status.conditions[]? | select(.type==\"Ready\")][0].status == \"True\"))] | length) == 3"
+      },
+      {
+        "description": "Three etcd members are running",
+        "points": 3,
+        "expression": "([.etcd.items[] | select(.status.phase == \"Running\")] | length) == 3"
+      }
+    ],
+    "explanation": "A stacked-etcd HA cluster joins additional control-plane nodes with `kubeadm join --control-plane --certificate-key`. The certificate key is uploaded on demand and expires after two hours, so it must be generated as part of the join rather than assumed from preparation."
+  },
+  {
+    "id": "drain-snapshot",
+    "title": "Drain a worker safely and back up etcd",
+    "points": 5,
+    "instructions": "Cordon and drain one worker node while respecting the `web-pdb` PodDisruptionBudget in `exam-workloads`, saving the drain output to `/tmp/drain-evidence.txt`, then return (uncordon) the worker. Finally create an etcd snapshot at `/opt/backup/etcd.db` on the control-plane node and confirm it is readable.",
+    "steps": [
+      "Pick a worker with `kubectl get nodes` and cordon it with `kubectl cordon <worker>`.",
+      "Drain it with `kubectl drain <worker> --ignore-daemonsets --delete-emptydir-data` so its Pods reschedule without violating the PDB, and record the output with `2>&1 | tee /tmp/drain-evidence.txt`.",
+      "Confirm `kubectl get pods -n exam-workloads` still shows the `web` Pods running, then uncordon with `kubectl uncordon <worker>`.",
+      "On a control-plane node run `sudo -n mkdir -p /opt/backup` and `sudo -n env ETCDCTL_API=3 etcdctl snapshot save /opt/backup/etcd.db`.",
+      "Validate with `sudo -n env ETCDCTL_API=3 etcdctl snapshot status /opt/backup/etcd.db -w json` and confirm `totalKey` is greater than zero."
+    ],
+    "solution": "worker=$(kubectl get nodes -o json | jq -r '[.items[] | select(.metadata.labels[\"node-role.kubernetes.io/control-plane\"] == null)][0].metadata.name')\nkubectl cordon \"$worker\"\nkubectl drain \"$worker\" --ignore-daemonsets --delete-emptydir-data --timeout=180s 2>&1 | tee /tmp/drain-evidence.txt\nkubectl uncordon \"$worker\"\nsudo -n mkdir -p /opt/backup\nsudo -n env ETCDCTL_API=3 etcdctl snapshot save /opt/backup/etcd.db",
+    "resource": "jq -n --argjson snap \"$(sudo -n env ETCDCTL_API=3 etcdctl snapshot status /opt/backup/etcd.db -w json 2>/dev/null || echo null)\" --argjson evidence \"$(test -s /tmp/drain-evidence.txt && grep -Eq 'cordoned|evicting|drained|evicted' /tmp/drain-evidence.txt && echo true || echo false)\" '{snapshot:$snap,evidence:$evidence}'",
+    "checks": [
+      {
+        "description": "The etcd snapshot is readable and populated",
+        "points": 3,
+        "expression": "(.snapshot.totalKey // 0) > 0"
+      },
+      {
+        "description": "Drain evidence was recorded",
+        "points": 2,
+        "expression": ".evidence == true"
+      }
+    ],
+    "explanation": "`kubectl drain` evicts Pods after a cordon, and `--delete-emptydir-data` and `--ignore-daemonsets` are needed for many workloads. Because a completed drain is a historical action, the saved output is the evidence of a successful, PDB-respecting drain. `etcdctl snapshot save` captures a consistent etcd backup that `snapshot status` can read back."
+  },
+  {
+    "id": "rbac",
+    "title": "Grant least-privilege Pod log access",
+    "points": 5,
+    "instructions": "In namespace `exam-rbac`, create a Role named `pod-log-reader` that allows `get` and `list` on `pods` and `pods/log`, and bind it to the ServiceAccount `auditor` with a RoleBinding named `read-pod-logs`. The auditor must be able to read Pod logs but must be denied Secrets and access to other namespaces.",
+    "steps": [
+      "Create the Role with `kubectl -n exam-rbac create role pod-log-reader --verb=get,list --resource=pods,pods/log`.",
+      "Bind it with `kubectl -n exam-rbac create rolebinding read-pod-logs --role=pod-log-reader --serviceaccount=exam-rbac:auditor`.",
+      "Verify with `kubectl auth can-i get pods/logs -n exam-rbac --as=system:serviceaccount:exam-rbac:auditor` (should print yes).",
+      "Verify denial with `kubectl auth can-i get secrets -n exam-rbac --as=system:serviceaccount:exam-rbac:auditor` and a cross-namespace `list pods -n kube-system` check (both should print no)."
+    ],
+    "solution": "kubectl -n exam-rbac create role pod-log-reader --verb=get,list --resource=pods,pods/log\nkubectl -n exam-rbac create rolebinding read-pod-logs --role=pod-log-reader --serviceaccount=exam-rbac:auditor",
+    "resource": "jq -n --argjson role \"$(kubectl -n exam-rbac get role pod-log-reader -o json 2>/dev/null || echo null)\" --argjson rb \"$(kubectl -n exam-rbac get rolebinding read-pod-logs -o json 2>/dev/null || echo null)\" --argjson canlogs \"$(kubectl auth can-i get pods/logs -n exam-rbac --as=system:serviceaccount:exam-rbac:auditor 2>/dev/null | grep -q '^yes$' && echo true || echo false)\" --argjson cansecret \"$(kubectl auth can-i get secrets -n exam-rbac --as=system:serviceaccount:exam-rbac:auditor 2>/dev/null | grep -q '^yes$' && echo true || echo false)\" --argjson cancross \"$(kubectl auth can-i list pods -n kube-system --as=system:serviceaccount:exam-rbac:auditor 2>/dev/null | grep -q '^yes$' && echo true || echo false)\" '{role:$role,rolebinding:$rb,can_logs:$canlogs,can_secrets:$cansecret,can_cross_ns:$cancross}'",
+    "checks": [
+      {
+        "description": "Role grants Pod and Pod-log read access",
+        "points": 2,
+        "expression": "(.role != null) and any(.role.rules[]?; (.apiGroups | index(\"\") != null) and (.resources | index(\"pods\") != null) and (.resources | index(\"pods/log\") != null) and (.verbs | index(\"get\") != null) and (.verbs | index(\"list\") != null))"
+      },
+      {
+        "description": "RoleBinding binds the Role to the auditor",
+        "points": 1,
+        "expression": "(.rolebinding != null) and .rolebinding.roleRef.kind == \"Role\" and .rolebinding.roleRef.name == \"pod-log-reader\" and any(.rolebinding.subjects[]?; .kind == \"ServiceAccount\" and .name == \"auditor\" and .namespace == \"exam-rbac\")"
+      },
+      {
+        "description": "Auditor can read Pod logs",
+        "points": 1,
+        "expression": ".can_logs == true"
+      },
+      {
+        "description": "Auditor is denied Secrets and cross-namespace access",
+        "points": 1,
+        "expression": "(.role != null) and .can_secrets == false and .can_cross_ns == false"
+      }
+    ],
+    "explanation": "A Role grants permissions within one namespace, and a RoleBinding attaches it to a ServiceAccount. `pods/log` is a distinct subresource, and denying Secrets plus cross-namespace access demonstrates least privilege."
+  },
+  {
+    "id": "helm-kustomize",
+    "title": "Repair a Helm release and deploy a Kustomize overlay",
+    "points": 5,
+    "instructions": "A Helm release named `demo` in `exam-helm` was installed with an unpullable image tag. Repair it with `helm upgrade` so it runs `nginx:1.27` while staying Helm-managed. Then deploy the supplied Kustomize overlay at `/opt/painkiller/cka002/kustomize/overlay` to create `kustom-app` with three replicas, without editing the base.",
+    "steps": [
+      "Inspect the release with `helm -n exam-helm list` and `kubectl -n exam-helm get deploy demo-web`.",
+      "Repair it with `helm upgrade demo /opt/painkiller/cka002/chart -n exam-helm --set image.tag=1.27`.",
+      "Confirm with `kubectl -n exam-helm get deploy demo-web` (one available replica, image `nginx:1.27`).",
+      "Review the base and overlay under `/opt/painkiller/cka002/kustomize/`, then apply with `kubectl apply -k /opt/painkiller/cka002/kustomize/overlay`.",
+      "Verify `kubectl -n exam-helm get deploy kustom-app` shows three replicas."
+    ],
+    "solution": "helm upgrade demo /opt/painkiller/cka002/chart -n exam-helm --set image.tag=1.27\nkubectl -n exam-helm rollout status deployment/demo-web --timeout=180s\nkubectl apply -k /opt/painkiller/cka002/kustomize/overlay\nkubectl -n exam-helm rollout status deployment/kustom-app --timeout=180s",
+    "resource": "jq -n --argjson helm \"$(kubectl -n exam-helm get deployment demo-web -o json 2>/dev/null || echo null)\" --argjson kustom \"$(kubectl -n exam-helm get deployment kustom-app -o json 2>/dev/null || echo null)\" '{helm:$helm,kustom:$kustom}'",
+    "checks": [
+      {
+        "description": "Helm release uses the correct image and stays Helm-managed",
+        "points": 2,
+        "expression": "(.helm != null) and any(.helm.spec.template.spec.containers[]?; .image == \"nginx:1.27\") and (.helm.metadata.annotations[\"meta.helm.sh/release-name\"] == \"demo\")"
+      },
+      {
+        "description": "Helm release has one available replica",
+        "points": 1,
+        "expression": "(.helm.status.availableReplicas // 0) == 1"
+      },
+      {
+        "description": "Kustomize overlay deployed three replicas",
+        "points": 2,
+        "expression": "(.kustom != null) and .kustom.spec.replicas == 3 and (.kustom.status.availableReplicas // 0) == 3"
+      }
+    ],
+    "explanation": "`helm upgrade` reconciles a release with new values while preserving its Helm ownership labels. Kustomize overlays layer patches on a shared base, so the base stays untouched while the overlay changes replica count and namespace."
+  },
+  {
+    "id": "operator",
+    "title": "Install a CRD and operator",
+    "points": 4,
+    "instructions": "Install the supplied `Widget` CRD and its operator from `/opt/painkiller/cka002/operator/`, create a `Widget` custom resource in `exam-ops`, and verify the operator reconciles it into a ConfigMap.",
+    "steps": [
+      "Apply the CRD and operator with `kubectl apply -f /opt/painkiller/cka002/operator/`.",
+      "Wait for the operator with `kubectl -n exam-ops rollout status deployment/widget-operator`.",
+      "Create a Widget named `demo` with `kubectl -n exam-ops apply -f - <<< 'apiVersion: example.painkiller.io/v1\nkind: Widget\nmetadata:\n  name: demo\nspec:\n  message: hello'`.",
+      "Wait a few seconds and verify `kubectl -n exam-ops get configmap demo-reconciled` exists and carries `message: hello`."
+    ],
+    "solution": "kubectl apply -f /opt/painkiller/cka002/operator/\nkubectl -n exam-ops rollout status deployment/widget-operator --timeout=180s\nkubectl -n exam-ops apply -f - <<'YAML'\napiVersion: example.painkiller.io/v1\nkind: Widget\nmetadata:\n  name: demo\nspec:\n  message: hello\nYAML",
+    "resource": "jq -n --argjson crd \"$(kubectl get crd widgets.example.painkiller.io -o json 2>/dev/null || echo null)\" --argjson operator \"$(kubectl -n exam-ops get deployment widget-operator -o json 2>/dev/null || echo null)\" --argjson widgets \"$(kubectl -n exam-ops get widgets.example.painkiller.io -o json 2>/dev/null || echo null)\" --argjson cm \"$(kubectl -n exam-ops get configmap -o json 2>/dev/null || echo null)\" '{crd:$crd,operator:$operator,widgets:$widgets,configmaps:$cm}'",
+    "checks": [
+      {
+        "description": "The Widget CRD is installed",
+        "points": 1,
+        "expression": ".crd != null and .crd.metadata.name == \"widgets.example.painkiller.io\""
+      },
+      {
+        "description": "The operator is running",
+        "points": 1,
+        "expression": "(.operator.status.availableReplicas // 0) == 1"
+      },
+      {
+        "description": "A Widget custom resource exists",
+        "points": 1,
+        "expression": "(.widgets != null) and (.widgets.items | length) > 0"
+      },
+      {
+        "description": "The operator reconciled a ConfigMap",
+        "points": 1,
+        "expression": "(.configmaps != null) and any(.configmaps.items[]?; .metadata.labels[\"painkiller.io/reconciled-by\"] == \"widget-operator\" and ((.data.message // \"\") != \"\"))"
+      }
+    ],
+    "explanation": "A CustomResourceDefinition extends the API, and an operator is a controller that watches those resources and reconciles the desired state into other objects. Here the operator materializes each Widget into a ConfigMap."
+  },
+  {
+    "id": "rollout",
+    "title": "Recover a rollout with probes and rolling-update limits",
+    "points": 5,
+    "instructions": "The Deployment `app` in `exam-workloads` cannot start because its image is invalid. Fix it to `nginx:1.27`, add a readiness and a liveness probe, and constrain rolling updates so no more than one Pod is replaced at a time (maxUnavailable 0).",
+    "steps": [
+      "Inspect with `kubectl -n exam-workloads describe deployment app` to see the image pull failure.",
+      "Fix the image with `kubectl -n exam-workloads set image deployment/app app=nginx:1.27`.",
+      "Edit the Deployment with `kubectl -n exam-workloads edit deployment app` and add `readinessProbe` and `livenessProbe` (httpGet on port 80).",
+      "Set `spec.strategy.type: RollingUpdate` with `rollingUpdate.maxUnavailable: 0` and `maxSurge: 1`.",
+      "Wait with `kubectl -n exam-workloads rollout status deployment/app` and confirm two available replicas."
+    ],
+    "solution": "kubectl -n exam-workloads set image deployment/app app=nginx:1.27\nkubectl -n exam-workloads rollout status deployment/app --timeout=180s\nkubectl -n exam-workloads patch deployment app --type=strategic -p '{\"spec\":{\"strategy\":{\"type\":\"RollingUpdate\",\"rollingUpdate\":{\"maxUnavailable\":0,\"maxSurge\":1}},\"template\":{\"spec\":{\"containers\":[{\"name\":\"app\",\"readinessProbe\":{\"httpGet\":{\"path\":\"/\",\"port\":80}},\"livenessProbe\":{\"httpGet\":{\"path\":\"/\",\"port\":80}}}]}}}}'\nkubectl -n exam-workloads rollout status deployment/app --timeout=180s",
+    "resource": "kubectl -n exam-workloads get deployment app -o json 2>/dev/null || echo null",
+    "checks": [
+      {
+        "description": "Deployment runs the required image and is available",
+        "points": 2,
+        "expression": "any(.spec.template.spec.containers[]?; .name == \"app\" and .image == \"nginx:1.27\") and (.status.availableReplicas // 0) == 2"
+      },
+      {
+        "description": "Readiness probe is configured",
+        "points": 1,
+        "expression": "any(.spec.template.spec.containers[]?; .readinessProbe != null)"
+      },
+      {
+        "description": "Liveness probe is configured",
+        "points": 1,
+        "expression": "any(.spec.template.spec.containers[]?; .livenessProbe != null)"
+      },
+      {
+        "description": "Rolling update never drops below the replica count",
+        "points": 1,
+        "expression": "(.spec.strategy.type // \"\") == \"RollingUpdate\" and (.spec.strategy.rollingUpdate.maxUnavailable // 1) == 0"
+      }
+    ],
+    "explanation": "An invalid image leaves a Deployment without available replicas. Readiness probes gate traffic, liveness probes restart stuck containers, and `maxUnavailable: 0` ensures the old replicas stay up until replacements are ready."
+  },
+  {
+    "id": "config-hpa",
+    "title": "Configure an application with a CPU autoscaler",
+    "points": 5,
+    "instructions": "In `exam-workloads`, configure the Deployment `hpa-web` to mount the ConfigMap `app-config` at `/etc/config` and the Secret `app-secret` at `/etc/secret`. Give its container a CPU request of `100m`, then create a HorizontalPodAutoscaler named `hpa-web` that scales it between 1 and 5 replicas at 50% CPU.",
+    "steps": [
+      "Edit the Deployment with `kubectl -n exam-workloads edit deployment hpa-web` and add the two volumes and volume mounts.",
+      "Add `resources.requests.cpu: 100m` to the container.",
+      "Wait with `kubectl -n exam-workloads rollout status deployment/hpa-web`.",
+      "Create the HPA with `kubectl -n exam-workloads autoscale deployment hpa-web --min=1 --max=5 --cpu-percent=50`.",
+      "Verify with `kubectl -n exam-workloads get hpa hpa-web` (metrics require the metrics server, which is installed)."
+    ],
+    "solution": "kubectl -n exam-workloads patch deployment hpa-web --type=strategic -p '{\"spec\":{\"template\":{\"spec\":{\"containers\":[{\"name\":\"web\",\"resources\":{\"requests\":{\"cpu\":\"100m\"}},\"volumeMounts\":[{\"name\":\"config\",\"mountPath\":\"/etc/config\"},{\"name\":\"secret\",\"mountPath\":\"/etc/secret\"}]}],\"volumes\":[{\"name\":\"config\",\"configMap\":{\"name\":\"app-config\"}},{\"name\":\"secret\",\"secret\":{\"secretName\":\"app-secret\"}}]}}}}'\nkubectl -n exam-workloads rollout status deployment/hpa-web --timeout=180s\nkubectl -n exam-workloads autoscale deployment hpa-web --min=1 --max=5 --cpu-percent=50",
+    "resource": "jq -n --argjson dep \"$(kubectl -n exam-workloads get deployment hpa-web -o json 2>/dev/null || echo null)\" --argjson hpa \"$(kubectl -n exam-workloads get hpa hpa-web -o json 2>/dev/null || echo null)\" '{deployment:$dep,hpa:$hpa}'",
+    "checks": [
+      {
+        "description": "ConfigMap is mounted at /etc/config",
+        "points": 1,
+        "expression": "(.deployment != null) and any(.deployment.spec.template.spec.volumes[]?; .configMap.name == \"app-config\") and any(.deployment.spec.template.spec.containers[].volumeMounts[]?; .name == \"config\" and .mountPath == \"/etc/config\")"
+      },
+      {
+        "description": "Secret is mounted at /etc/secret",
+        "points": 1,
+        "expression": "(.deployment != null) and any(.deployment.spec.template.spec.volumes[]?; .secret.secretName == \"app-secret\") and any(.deployment.spec.template.spec.containers[].volumeMounts[]?; .name == \"secret\" and .mountPath == \"/etc/secret\")"
+      },
+      {
+        "description": "CPU request is set",
+        "points": 1,
+        "expression": "any(.deployment.spec.template.spec.containers[]?; .resources.requests.cpu == \"100m\")"
+      },
+      {
+        "description": "CPU HPA targets the Deployment",
+        "points": 2,
+        "expression": "(.hpa != null) and .hpa.spec.scaleTargetRef.name == \"hpa-web\" and .hpa.spec.minReplicas == 1 and .hpa.spec.maxReplicas == 5 and any(.hpa.spec.metrics[]?; .type == \"Resource\" and .resource.name == \"cpu\" and .resource.target.averageUtilization == 50)"
+      }
+    ],
+    "explanation": "ConfigMaps and Secrets configure applications as mounted files or environment variables. A CPU HPA needs a CPU request as its baseline and the metrics server to read actual utilization."
+  },
+  {
+    "id": "scheduling",
+    "title": "Pin scheduling with affinity, toleration, and spread",
+    "points": 5,
+    "instructions": "One worker carries the taint `exam=reserved:NoSchedule`. Create a Deployment named `pinned` in `exam-workloads` (3 replicas, image `nginx:1.27`) that tolerates that taint, requires the `topology.kubernetes.io/zone` node affinity, spreads across zones with `maxSkew: 1`, and runs three available replicas. Also create a ResourceQuota named `exam-quota` in `exam-workloads` limiting Pods to 10.",
+    "steps": [
+      "Inspect the taint with `kubectl get nodes -o json | jq '[.items[].spec.taints]'`.",
+      "Create the Deployment with a toleration for `exam=reserved:NoSchedule`, required node affinity on `topology.kubernetes.io/zone`, and a topologySpreadConstraint on the same key with `maxSkew: 1`.",
+      "Wait with `kubectl -n exam-workloads rollout status deployment/pinned` and confirm three replicas.",
+      "Create the quota with `kubectl -n exam-workloads create quota exam-quota --hard=pods=10`."
+    ],
+    "solution": "kubectl -n exam-workloads create quota exam-quota --hard=pods=10\nkubectl apply -f - <<'YAML'\napiVersion: apps/v1\nkind: Deployment\nmetadata:\n  name: pinned\n  namespace: exam-workloads\nspec:\n  replicas: 3\n  selector:\n    matchLabels:\n      app: pinned\n  template:\n    metadata:\n      labels:\n        app: pinned\n    spec:\n      tolerations:\n        - key: exam\n          value: reserved\n          effect: NoSchedule\n      affinity:\n        nodeAffinity:\n          requiredDuringSchedulingIgnoredDuringExecution:\n            nodeSelectorTerms:\n              - matchExpressions:\n                  - key: topology.kubernetes.io/zone\n                    operator: In\n                    values: [west, east]\n      topologySpreadConstraints:\n        - maxSkew: 1\n          topologyKey: topology.kubernetes.io/zone\n          whenUnsatisfiable: DoNotSchedule\n          labelSelector:\n            matchLabels:\n              app: pinned\n      containers:\n        - name: web\n          image: nginx:1.27\nYAML\nkubectl -n exam-workloads rollout status deployment/pinned --timeout=180s",
+    "resource": "jq -n --argjson dep \"$(kubectl -n exam-workloads get deployment pinned -o json 2>/dev/null || echo null)\" --argjson quota \"$(kubectl -n exam-workloads get resourcequota -o json 2>/dev/null || echo null)\" '{deployment:$dep,quota:$quota}'",
+    "checks": [
+      {
+        "description": "Required node affinity targets a zone",
+        "points": 1,
+        "expression": "(.deployment != null) and any(.deployment.spec.template.spec.affinity.nodeAffinity.requiredDuringSchedulingIgnoredDuringExecution.nodeSelectorTerms[].matchExpressions[]?; .key == \"topology.kubernetes.io/zone\")"
+      },
+      {
+        "description": "Toleration accepts the reserved taint",
+        "points": 1,
+        "expression": "(.deployment != null) and any(.deployment.spec.template.spec.tolerations[]?; .key == \"exam\" and .value == \"reserved\" and .effect == \"NoSchedule\")"
+      },
+      {
+        "description": "Topology spread constraint is present",
+        "points": 1,
+        "expression": "(.deployment != null) and any(.deployment.spec.template.spec.topologySpreadConstraints[]?; .topologyKey == \"topology.kubernetes.io/zone\" and .maxSkew == 1)"
+      },
+      {
+        "description": "ResourceQuota bounds the namespace",
+        "points": 1,
+        "expression": "(.quota != null) and any(.quota.items[]?; .metadata.name == \"exam-quota\" and .spec.hard.pods == \"10\")"
+      },
+      {
+        "description": "All three replicas are available",
+        "points": 1,
+        "expression": "(.deployment.status.availableReplicas // 0) == 3"
+      }
+    ],
+    "explanation": "Tolerations let Pods land on tainted nodes, required node affinity constrains where they run, and topology spread distributes replicas across a topology key. A ResourceQuota bounds how much a namespace may consume."
+  },
+  {
+    "id": "netpol",
+    "title": "Isolate a database with NetworkPolicy",
+    "points": 6,
+    "instructions": "In `exam-netpol`, create a NetworkPolicy named `allow-web` that selects the Pod `db` and allows ingress only from Pods labeled `app=web` on port 80. After applying it, the `web` Pod must still reach `db` and resolve it via DNS, while the `other` Pod must be denied.",
+    "steps": [
+      "Inspect the Pods with `kubectl -n exam-netpol get pods --show-labels`.",
+      "Create the NetworkPolicy selecting `app=db` with ingress from `app=web` on port 80.",
+      "Apply it and verify enforcement with `kubectl -n exam-netpol exec web -- wget -q -T 3 -O /dev/null http://db` (should succeed).",
+      "Verify denial with `kubectl -n exam-netpol exec other -- wget -q -T 3 -O /dev/null http://db` (should fail)."
+    ],
+    "solution": "kubectl apply -f - <<'YAML'\napiVersion: networking.k8s.io/v1\nkind: NetworkPolicy\nmetadata:\n  name: allow-web\n  namespace: exam-netpol\nspec:\n  podSelector:\n    matchLabels:\n      app: db\n  policyTypes: [Ingress]\n  ingress:\n    - from:\n        - podSelector:\n            matchLabels:\n              app: web\n      ports:\n        - port: 80\nYAML",
+    "resource": "jq -n --argjson np \"$(kubectl -n exam-netpol get networkpolicy allow-web -o json 2>/dev/null || echo null)\" --argjson webdb \"$(kubectl -n exam-netpol exec web -- sh -c 'wget -q -T 3 -O /dev/null http://db 2>/dev/null && echo true || echo false' 2>/dev/null || echo false)\" --argjson otherdb \"$(kubectl -n exam-netpol exec other -- sh -c 'wget -q -T 3 -O /dev/null http://db 2>/dev/null && echo true || echo false' 2>/dev/null || echo false)\" --argjson dns \"$(kubectl -n exam-netpol exec web -- sh -c 'nslookup db 2>/dev/null | grep -qi address && echo true || echo false' 2>/dev/null || echo false)\" '{np:$np,web_db:$webdb,other_db:$otherdb,dns:$dns}'",
+    "checks": [
+      {
+        "description": "NetworkPolicy allows only the web client",
+        "points": 2,
+        "expression": "(.np != null) and .np.spec.podSelector.matchLabels.app == \"db\" and any(.np.spec.ingress[]?; any(.from[]?; (.podSelector.matchLabels.app == \"web\")) and any(.ports[]?; .port == 80))"
+      },
+      {
+        "description": "The unauthorized client is denied",
+        "points": 2,
+        "expression": ".other_db == false"
+      },
+      {
+        "description": "The authorized client still reaches db",
+        "points": 1,
+        "expression": ".np != null and .web_db == true"
+      },
+      {
+        "description": "Cluster DNS still resolves the service",
+        "points": 1,
+        "expression": ".np != null and .dns == true"
+      }
+    ],
+    "explanation": "Calico enforces NetworkPolicy. The policy denies by default for the selected Pod and re-allows only the labeled client, while DNS (egress) remains open so service names keep resolving."
+  },
+  {
+    "id": "gateway",
+    "title": "Route across namespaces with the Gateway API",
+    "points": 5,
+    "instructions": "Using the installed Envoy Gateway, create a Gateway on port 80, an HTTPRoute that routes host `gw.example.com` path `/` to the Service `backend` in namespace `exam-gw-backend` (a cross-namespace backend), and a ReferenceGrant in `exam-gw-backend` that authorizes the route's namespace.",
+    "steps": [
+      "Create a Gateway in `exam-gw` with a listener on port 80 using the `eg` GatewayClass.",
+      "Create a ReferenceGrant in `exam-gw-backend` permitting HTTPRoute from the `exam-gw` namespace to the `backend` Service.",
+      "Create an HTTPRoute in `exam-gw` with hostname `gw.example.com` and a backendRef to `backend` in `exam-gw-backend`.",
+      "Wait for the Envoy proxy and confirm `kubectl -n exam-gw get httproute` shows Accepted and ResolvedRefs conditions as True."
+    ],
+    "solution": "kubectl apply -f - <<'YAML'\napiVersion: gateway.networking.k8s.io/v1\nkind: GatewayClass\nmetadata:\n  name: eg\nspec:\n  controllerName: gateway.envoyproxy.io/gatewayclass-controller\n---\napiVersion: gateway.networking.k8s.io/v1\nkind: Gateway\nmetadata:\n  name: exam\n  namespace: exam-gw\nspec:\n  gatewayClassName: eg\n  listeners:\n    - name: http\n      protocol: HTTP\n      port: 80\n---\napiVersion: gateway.networking.k8s.io/v1\nkind: ReferenceGrant\nmetadata:\n  name: allow-exam-gw\n  namespace: exam-gw-backend\nspec:\n  from:\n    - group: gateway.networking.k8s.io\n      kind: HTTPRoute\n      namespace: exam-gw\n  to:\n    - group: \"\"\n      kind: Service\n      name: backend\n---\napiVersion: gateway.networking.k8s.io/v1\nkind: HTTPRoute\nmetadata:\n  name: exam\n  namespace: exam-gw\nspec:\n  parentRefs:\n    - name: exam\n      namespace: exam-gw\n  hostnames:\n    - gw.example.com\n  rules:\n    - matches:\n        - path:\n            type: PathPrefix\n            value: /\n      backendRefs:\n        - name: backend\n          namespace: exam-gw-backend\n          port: 80\nYAML",
+    "resource": "jq -n --argjson gw \"$(kubectl get gateway -A -o json 2>/dev/null || echo null)\" --argjson route \"$(kubectl get httproute -A -o json 2>/dev/null || echo null)\" --argjson grant \"$(kubectl get referencegrant -A -o json 2>/dev/null || echo null)\" '{gateways:$gw,httproutes:$route,referencegrants:$grant}'",
+    "checks": [
+      {
+        "description": "A Gateway exposes port 80",
+        "points": 1,
+        "expression": "(.gateways != null) and any(.gateways.items[]?; any(.spec.listeners[]?; .port == 80))"
+      },
+      {
+        "description": "HTTPRoute routes to a cross-namespace backend",
+        "points": 2,
+        "expression": "(.httproutes != null) and any(.httproutes.items[]?; any(.spec.rules[]?; any(.matches[]?; .path.value == \"/\") and any(.backendRefs[]?; .name != null and .namespace != null and .namespace != \"\")))"
+      },
+      {
+        "description": "ReferenceGrant authorizes the route",
+        "points": 1,
+        "expression": "(.referencegrants != null) and (.referencegrants.items | length) > 0"
+      },
+      {
+        "description": "The HTTPRoute is accepted",
+        "points": 1,
+        "expression": "(.httproutes != null) and any(.httproutes.items[]?; any(.status.routeParents[]?; all(.conditions[]?; .status == \"True\" and (.reason == \"Accepted\" or .reason == \"ResolvedRefs\"))))"
+      }
+    ],
+    "explanation": "The Gateway API separates routing (HTTPRoute) from infrastructure (Gateway). A cross-namespace backendRef must be authorized by a ReferenceGrant in the backend's namespace, or the route fails resolution."
+  },
+  {
+    "id": "ingress-nodeport",
+    "title": "Expose an application with Ingress and NodePort",
+    "points": 5,
+    "instructions": "In `exam-ingress`, create an Ingress named `web` that routes host `ing.example.com` to the Service `web` on port 80 using the `traefik` IngressClass. Also create a NodePort Service named `web-np` (port 80 to targetPort 80) selecting the `web` Deployment, and confirm it has ready endpoints.",
+    "steps": [
+      "Create the Ingress with ingressClassName `traefik`, host `ing.example.com`, and a backend to Service `web` port 80.",
+      "Create the NodePort Service `web-np` selecting `app: web` on port 80.",
+      "Verify with `kubectl -n exam-ingress get ingress web` and `kubectl -n exam-ingress get svc web-np`.",
+      "Confirm endpoints with `kubectl -n exam-ingress get endpointslices -l kubernetes.io/service-name=web-np`."
+    ],
+    "solution": "kubectl apply -f - <<'YAML'\napiVersion: networking.k8s.io/v1\nkind: Ingress\nmetadata:\n  name: web\n  namespace: exam-ingress\nspec:\n  ingressClassName: traefik\n  rules:\n    - host: ing.example.com\n      http:\n        paths:\n          - path: /\n            pathType: Prefix\n            backend:\n              service:\n                name: web\n                port:\n                  number: 80\n---\napiVersion: v1\nkind: Service\nmetadata:\n  name: web-np\n  namespace: exam-ingress\nspec:\n  type: NodePort\n  selector:\n    app: web\n  ports:\n    - port: 80\n      targetPort: 80\nYAML",
+    "resource": "jq -n --argjson ingress \"$(kubectl -n exam-ingress get ingress web -o json 2>/dev/null || echo null)\" --argjson svc \"$(kubectl -n exam-ingress get svc web-np -o json 2>/dev/null || echo null)\" --argjson eps \"$(kubectl -n exam-ingress get endpointslice -l kubernetes.io/service-name=web-np -o json 2>/dev/null || echo null)\" '{ingress:$ingress,service:$svc,endpoints:$eps}'",
+    "checks": [
+      {
+        "description": "Ingress routes the host to the backend service",
+        "points": 2,
+        "expression": "(.ingress != null) and any(.ingress.spec.rules[]?; .host == \"ing.example.com\" and any(.http.paths[]?; .backend.service.name == \"web\" and .backend.service.port.number == 80)) and .ingress.spec.ingressClassName == \"traefik\""
+      },
+      {
+        "description": "NodePort service exposes the deployment",
+        "points": 2,
+        "expression": "(.service != null) and .service.spec.type == \"NodePort\" and .service.spec.selector.app == \"web\" and any(.service.spec.ports[]?; .port == 80 and .targetPort == 80 and .nodePort > 0)"
+      },
+      {
+        "description": "NodePort service has ready endpoints",
+        "points": 1,
+        "expression": "(.endpoints != null) and any(.endpoints.items[]?; any(.endpoints[]?; (.conditions.ready != false) and (.addresses | length) > 0))"
+      }
+    ],
+    "explanation": "An Ingress is an API rule consumed by an Ingress controller (here Traefik). A NodePort Service allocates a port on every node and forwards to the selected Pods, whose readiness is reflected in endpoint slices."
+  },
+  {
+    "id": "lb-repair",
+    "title": "Repair a LoadBalancer allocation",
+    "points": 4,
+    "instructions": "The Service `lb-app` in `exam-lb` requests a reserved address outside the MetalLB pool, so it never receives an external IP. Remove the invalid request so MetalLB allocates an address from `192.168.254.81–89`, and confirm the service is reachable on that address.",
+    "steps": [
+      "Inspect with `kubectl -n exam-lb describe service lb-app` and note the external IP is stuck pending.",
+      "Remove the `metallb.universe.tf/loadBalancerIPs` annotation from the Service.",
+      "Wait a moment and confirm `kubectl -n exam-lb get svc lb-app` shows an external IP in the reserved pool.",
+      "Probe it with `wget -q -T 3 -O /dev/null http://<external-ip>`."
+    ],
+    "solution": "kubectl -n exam-lb annotate service lb-app metallb.universe.tf/loadBalancerIPs-\nkubectl -n exam-lb wait --for=jsonpath='{.status.loadBalancer.ingress}' service/lb-app --timeout=120s",
+    "resource": "jq -n --argjson lb \"$(kubectl -n exam-lb get svc lb-app -o json 2>/dev/null || echo null)\" --argjson reach \"$(ip=$(kubectl -n exam-lb get svc lb-app -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null); [ -n \\\"$ip\\\" ] && wget -q -T 3 -O /dev/null http://$ip 2>/dev/null && echo true || echo false)\" '{lb:$lb,reachable:$reach}'",
+    "checks": [
+      {
+        "description": "LoadBalancer received a reserved-pool address",
+        "points": 2,
+        "expression": "(.lb != null) and (((.lb.status.loadBalancer.ingress[0].ip // \"\") | test(\"^192\\\\.168\\\\.254\\\\.8[1-9]$\")))"
+      },
+      {
+        "description": "The invalid allocation request was removed",
+        "points": 1,
+        "expression": "(.lb != null) and (.lb.metadata.annotations[\"metallb.universe.tf/loadBalancerIPs\"] == null)"
+      },
+      {
+        "description": "The service is reachable on its address",
+        "points": 1,
+        "expression": ".reachable == true"
+      }
+    ],
+    "explanation": "MetalLB assigns LoadBalancer IPs from an IPAddressPool. A Service annotation requesting an address outside the pool keeps the service pending until the request is removed and the speaker advertises the allocated address."
+  },
+  {
+    "id": "storage-dynamic",
+    "title": "Provision dynamic storage with delayed binding",
+    "points": 5,
+    "instructions": "In `exam-storage`, create a StorageClass named `exam-sc` (provisioner `rancher.io/local-path`, `WaitForFirstConsumer`, `Retain`), a PVC named `exam-pvc` requesting 1Gi from it, and a Pod named `data-app` that mounts the claim at `/data`. The claim must bind and the bound volume must use `Retain`.",
+    "steps": [
+      "Create the StorageClass with `volumeBindingMode: WaitForFirstConsumer` and `reclaimPolicy: Retain`.",
+      "Create the PVC `exam-pvc` (1Gi, ReadWriteOnce, storageClassName `exam-sc`).",
+      "Create the Pod `data-app` (nginx) mounting the PVC at `/data`; the claim binds only once the Pod is scheduled.",
+      "Verify with `kubectl -n exam-storage get pvc exam-pvc` (Bound) and `kubectl get pv` (a dynamically created PV with Retain)."
+    ],
+    "solution": "kubectl apply -f - <<'YAML'\napiVersion: storage.k8s.io/v1\nkind: StorageClass\nmetadata:\n  name: exam-sc\nprovisioner: rancher.io/local-path\nvolumeBindingMode: WaitForFirstConsumer\nreclaimPolicy: Retain\n---\napiVersion: v1\nkind: PersistentVolumeClaim\nmetadata:\n  name: exam-pvc\n  namespace: exam-storage\nspec:\n  accessModes: [ReadWriteOnce]\n  storageClassName: exam-sc\n  resources:\n    requests:\n      storage: 1Gi\n---\napiVersion: v1\nkind: Pod\nmetadata:\n  name: data-app\n  namespace: exam-storage\nspec:\n  containers:\n    - name: web\n      image: nginx:1.27\n      volumeMounts:\n        - name: data\n          mountPath: /data\n  volumes:\n    - name: data\n      persistentVolumeClaim:\n        claimName: exam-pvc\nYAML",
+    "resource": "jq -n --argjson sc \"$(kubectl get storageclass exam-sc -o json 2>/dev/null || echo null)\" --argjson pvc \"$(kubectl -n exam-storage get pvc exam-pvc -o json 2>/dev/null || echo null)\" --argjson pod \"$(kubectl -n exam-storage get pod data-app -o json 2>/dev/null || echo null)\" --argjson pv \"$(kubectl get pv -o json 2>/dev/null || echo null)\" '{storageclass:$sc,pvc:$pvc,pod:$pod,pvs:$pv}'",
+    "checks": [
+      {
+        "description": "StorageClass uses delayed binding and Retain",
+        "points": 1,
+        "expression": "(.storageclass != null) and .storageclass.provisioner == \"rancher.io/local-path\" and .storageclass.volumeBindingMode == \"WaitForFirstConsumer\" and .storageclass.reclaimPolicy == \"Retain\""
+      },
+      {
+        "description": "Claim is dynamically bound",
+        "points": 2,
+        "expression": "(.pvc != null) and .pvc.status.phase == \"Bound\""
+      },
+      {
+        "description": "Application Pod uses the volume",
+        "points": 1,
+        "expression": "(.pod != null) and .pod.status.phase == \"Running\" and any(.pod.spec.containers[].volumeMounts[]?; .name == \"data\")"
+      },
+      {
+        "description": "Bound volume retains data on release",
+        "points": 1,
+        "expression": "(.pvs != null) and any(.pvs.items[]?; .spec.claimRef.name == \"exam-pvc\" and .spec.persistentVolumeReclaimPolicy == \"Retain\")"
+      }
+    ],
+    "explanation": "A StorageClass drives dynamic provisioning. `WaitForFirstConsumer` delays binding until a Pod is scheduled (so the volume lands on the right node), and `Retain` preserves the underlying data after the claim is released."
+  },
+  {
+    "id": "storage-local",
+    "title": "Recover a static local volume binding",
+    "points": 5,
+    "instructions": "A static local PV `exam-local-pv` and a PVC `exam-local-pvc` in `exam-storage` fail to bind: the PVC requests the wrong StorageClass and the PV's node affinity names a non-existent worker. Fix both so the claim binds, then run a Pod named `local-app` that mounts the claim at `/mnt` and can read the supplied file `data.txt`.",
+    "steps": [
+      "Inspect with `kubectl -n exam-storage get pvc exam-local-pvc` (Pending) and `kubectl get pv exam-local-pv -o yaml`.",
+      "Change the PVC's `storageClassName` to `exam-local`.",
+      "Fix the PV's node affinity so `kubernetes.io/hostname` names a real worker (`kubectl get nodes` lists them).",
+      "Create the Pod `local-app` mounting the PVC at `/mnt`.",
+      "Verify `kubectl -n exam-storage exec local-app -- cat /mnt/data.txt` prints `painkiller-data`."
+    ],
+    "solution": "worker=$(kubectl get nodes -o json | jq -r '[.items[] | select(.metadata.labels[\"node-role.kubernetes.io/control-plane\"] == null)][0].metadata.name')\nkubectl -n exam-storage patch pvc exam-local-pvc -p '{\"spec\":{\"storageClassName\":\"exam-local\"}}'\nkubectl patch pv exam-local-pv --type=json -p \"[{\\\"op\\\":\\\"replace\\\",\\\"path\\\":\\\"/spec/nodeAffinity/required/nodeSelectorTerms/0/matchExpressions/0/values/0\\\",\\\"value\\\":\\\"$worker\\\"}]\"\nkubectl apply -f - <<'YAML'\napiVersion: v1\nkind: Pod\nmetadata:\n  name: local-app\n  namespace: exam-storage\nspec:\n  containers:\n    - name: web\n      image: busybox:1.36\n      command: [\"sh\", \"-c\", \"sleep 3600\"]\n      volumeMounts:\n        - name: data\n          mountPath: /mnt\n  volumes:\n    - name: data\n      persistentVolumeClaim:\n        claimName: exam-local-pvc\nYAML",
+    "resource": "jq -n --argjson nodes \"$(kubectl get nodes -o json)\" --argjson pvc \"$(kubectl -n exam-storage get pvc exam-local-pvc -o json 2>/dev/null || echo null)\" --argjson pv \"$(kubectl get pv exam-local-pv -o json 2>/dev/null || echo null)\" --argjson pod \"$(kubectl -n exam-storage get pod local-app -o json 2>/dev/null || echo null)\" --arg data \"$(kubectl -n exam-storage exec local-app -- cat /mnt/data.txt 2>/dev/null || echo '')\" '{nodes:$nodes,pvc:$pvc,pv:$pv,pod:$pod,data:$data}'",
+    "checks": [
+      {
+        "description": "Claim binds to the local volume",
+        "points": 2,
+        "expression": "(.pvc != null) and .pvc.status.phase == \"Bound\" and .pvc.spec.volumeName == \"exam-local-pv\""
+      },
+      {
+        "description": "Local volume targets a real worker",
+        "points": 1,
+        "expression": "(.pv != null) and .pv.spec.local.path == \"/opt/painkiller/local-data\" and .pv.spec.capacity.storage == \"1Gi\" and any(.pv.spec.nodeAffinity.required.nodeSelectorTerms[].matchExpressions[]?; .key == \"kubernetes.io/hostname\" and any(.values[]?; . as $v | any(.nodes.items[]?; select(.metadata.labels[\"node-role.kubernetes.io/control-plane\"] == null) | .metadata.name == $v)))"
+      },
+      {
+        "description": "Application Pod runs on the volume",
+        "points": 1,
+        "expression": "(.pod != null) and .pod.status.phase == \"Running\""
+      },
+      {
+        "description": "Supplied data is intact",
+        "points": 1,
+        "expression": ".data == \"painkiller-data\""
+      }
+    ],
+    "explanation": "A static local PV binds by storage class, capacity, and access mode, and its mandatory node affinity pins it to a node. Fixing both the claim's class and the volume's node affinity lets the Pod schedule and read the preserved data."
+  },
+  {
+    "id": "kubelet-repair",
+    "title": "Repair a worker kubelet",
+    "points": 5,
+    "instructions": "One worker's kubelet configuration has been corrupted, so the node is NotReady. Repair `/var/lib/kubelet/config.yaml` on the affected worker and restart kubelet so the node becomes Ready again without losing its identity or workloads.",
+    "steps": [
+      "Find the NotReady worker with `kubectl get nodes` and note its IP with `kubectl get nodes -o wide`.",
+      "SSH to the worker and inspect `sudo systemctl status kubelet` and `/var/lib/kubelet/config.yaml`.",
+      "Remove the corrupted line and run `sudo systemctl restart kubelet`.",
+      "Verify `kubectl get nodes` shows all workers Ready."
+    ],
+    "solution": "worker=$(kubectl get nodes -o json | jq -r '[.items[] | select(.metadata.labels[\"node-role.kubernetes.io/control-plane\"] == null and ([.status.conditions[]? | select(.type==\"Ready\")][0].status != \"True\"))][0].metadata.name')\nip=$(kubectl get node \"$worker\" -o jsonpath='{.status.addresses[?(@.type==\"InternalIP\")].address}')\nssh \"$ip\" 'sudo sed -i \"/painkiller-fault/d\" /var/lib/kubelet/config.yaml && sudo systemctl restart kubelet'",
+    "resource": "jq -n --argjson nodes \"$(kubectl get nodes -o json)\" --argjson kubelet \"$(w=$(kubectl get nodes -o json | jq -r '[.items[] | select(.metadata.labels[\\\"node-role.kubernetes.io/control-plane\\\"] == null)][0].metadata.name'); ip=$(kubectl get node \\\"$w\\\" -o jsonpath='{.status.addresses[?(@.type==\\\"InternalIP\\\")].address}'); ssh -o ConnectTimeout=5 \\\"$ip\\\" 'sudo systemctl is-active kubelet' 2>/dev/null | grep -qx active && echo true || echo false)\" '{nodes:$nodes,kubelet:$kubelet}'",
+    "checks": [
+      {
+        "description": "Every worker node is Ready",
+        "points": 3,
+        "expression": "([.nodes.items[] | select(.metadata.labels[\"node-role.kubernetes.io/control-plane\"] == null)] | length) >= 2 and [.nodes.items[] | select(.metadata.labels[\"node-role.kubernetes.io/control-plane\"] == null) | ([.status.conditions[]? | select(.type==\"Ready\")][0].status // \"False\")] | all(. == \"True\")"
+      },
+      {
+        "description": "Kubelet is active on the worker",
+        "points": 2,
+        "expression": ".kubelet == true"
+      }
+    ],
+    "explanation": "The kubelet reads `/var/lib/kubelet/config.yaml`; a malformed entry stops it and the node goes NotReady. Removing the bad line and restarting kubelet restores readiness while the node name and running workloads are preserved."
+  },
+  {
+    "id": "scheduler-repair",
+    "title": "Repair a broken scheduler static Pod",
+    "points": 5,
+    "instructions": "One control-plane node's kube-scheduler static Pod manifest uses an invalid image, so its scheduler cannot start. Identify the node, repair `/etc/kubernetes/manifests/kube-scheduler.yaml` there, and confirm every scheduler is running again without resetting the cluster.",
+    "steps": [
+      "Find the failing scheduler with `kubectl -n kube-system get pods -l component=kube-scheduler -o wide`.",
+      "SSH to the affected control-plane node and edit `/etc/kubernetes/manifests/kube-scheduler.yaml`.",
+      "Replace the invalid image with the correct `registry.k8s.io/kube-scheduler` tag matching the cluster version.",
+      "The kubelet restarts the static Pod automatically; confirm all scheduler Pods are Running."
+    ],
+    "solution": "bad=$(kubectl -n kube-system get pods -l component=kube-scheduler -o json | jq -r '.items[] | select(any(.spec.containers[]?; (.image | contains(\"9.9.9\")))) | .spec.nodeName')\nip=$(kubectl get node \"$bad\" -o jsonpath='{.status.addresses[?(@.type==\"InternalIP\")].address}')\nver=$(kubectl get nodes -o jsonpath='{.items[0].status.nodeInfo.kubeletVersion}')\nssh \"$ip\" \"sudo sed -i \\\"s#kube-scheduler:.*#kube-scheduler:${ver}#\\\" /etc/kubernetes/manifests/kube-scheduler.yaml\"",
+    "resource": "kubectl -n kube-system get pods -l component=kube-scheduler -o json",
+    "checks": [
+      {
+        "description": "Every scheduler Pod is running",
+        "points": 3,
+        "expression": "(.items | length) >= 2 and ([.items[] | select(.status.phase == \"Running\")] | length) == (.items | length)"
+      },
+      {
+        "description": "No scheduler uses a broken image",
+        "points": 2,
+        "expression": "([.items[] | select(any(.spec.containers[]?; ((.image // \"\") | contains(\"9.9.9\"))))] | length) == 0"
+      }
+    ],
+    "explanation": "Static Pods are declared by manifests in `/etc/kubernetes/manifests` and are managed by the kubelet, not the API server. Editing the manifest and letting the kubelet restart the Pod recovers the scheduler without a cluster reset."
+  },
+  {
+    "id": "coredns-repair",
+    "title": "Repair CoreDNS and configure Pod DNS",
+    "points": 5,
+    "instructions": "The CoreDNS Corefile forwards external lookups to an unreachable resolver (`1.2.3.4`). Repair the `coredns` ConfigMap in `kube-system` to forward through `/etc/resolv.conf`, reload CoreDNS, then create a Pod named `dns-app` in `exam-repair` with `dnsConfig` nameservers `1.1.1.1` and search domain `example.test`.",
+    "steps": [
+      "Inspect with `kubectl -n kube-system get cm coredns -o yaml` and locate the broken `forward . 1.2.3.4` line.",
+      "Edit the ConfigMap to use `forward . /etc/resolv.conf`.",
+      "Reload with `kubectl -n kube-system rollout restart deployment/coredns`.",
+      "Create the Pod `dns-app` with the required `dnsConfig` (nameservers and searches)."
+    ],
+    "solution": "kubectl -n kube-system get cm coredns -o json | jq '.data.Corefile = (.data.Corefile | split(\"forward . 1.2.3.4\") | join(\"forward . /etc/resolv.conf\"))' | kubectl apply -f -\nkubectl -n kube-system rollout restart deployment/coredns\nkubectl apply -f - <<'YAML'\napiVersion: v1\nkind: Pod\nmetadata:\n  name: dns-app\n  namespace: exam-repair\nspec:\n  containers:\n    - name: app\n      image: busybox:1.36\n      command: [\"sh\", \"-c\", \"sleep 3600\"]\n  dnsConfig:\n    nameservers:\n      - 1.1.1.1\n    searches:\n      - example.test\nYAML",
+    "resource": "jq -n --argjson cm \"$(kubectl -n kube-system get cm coredns -o json 2>/dev/null || echo null)\" --argjson pod \"$(kubectl -n exam-repair get pod dns-app -o json 2>/dev/null || echo null)\" '{configmap:$cm,pod:$pod}'",
+    "checks": [
+      {
+        "description": "CoreDNS forwarding is repaired",
+        "points": 2,
+        "expression": "(.configmap != null) and ((.configmap.data.Corefile // \"\") | contains(\"forward . /etc/resolv.conf\")) and (((.configmap.data.Corefile // \"\") | contains(\"1.2.3.4\")) | not)"
+      },
+      {
+        "description": "Application Pod has custom DNS settings",
+        "points": 2,
+        "expression": "(.pod != null) and any(.pod.spec.dnsConfig.nameservers[]?; . == \"1.1.1.1\") and any(.pod.spec.dnsConfig.searches[]?; . == \"example.test\")"
+      },
+      {
+        "description": "Application Pod is running",
+        "points": 1,
+        "expression": "(.pod != null) and .pod.status.phase == \"Running\""
+      }
+    ],
+    "explanation": "CoreDNS resolves cluster names and forwards the rest. A bad `forward` line breaks external resolution until the Corefile is corrected and CoreDNS reloaded. A Pod's `dnsConfig` overrides nameservers and search domains for that Pod."
+  },
+  {
+    "id": "service-repair",
+    "title": "Repair a Service selector and targetPort",
+    "points": 5,
+    "instructions": "The Service `backend-svc` in `exam-repair` has no endpoints because its selector and targetPort are wrong. The backing Pods are labeled `app=backend` and listen on port 8080. Repair the Service so it has at least one ready endpoint.",
+    "steps": [
+      "Compare `kubectl -n exam-repair get svc backend-svc -o yaml` with `kubectl -n exam-repair get pods --show-labels`.",
+      "Fix the selector to `app: backend`.",
+      "Fix the port's `targetPort` to 8080 (the container port).",
+      "Verify with `kubectl -n exam-repair get endpointslices -l kubernetes.io/service-name=backend-svc`."
+    ],
+    "solution": "kubectl -n exam-repair patch service backend-svc --type=json -p '[{\"op\":\"replace\",\"path\":\"/spec/selector\",\"value\":{\"app\":\"backend\"}},{\"op\":\"replace\",\"path\":\"/spec/ports/0/targetPort\",\"value\":8080}]'",
+    "resource": "jq -n --argjson svc \"$(kubectl -n exam-repair get svc backend-svc -o json 2>/dev/null || echo null)\" --argjson eps \"$(kubectl -n exam-repair get endpointslice -l kubernetes.io/service-name=backend-svc -o json 2>/dev/null || echo null)\" '{service:$svc,endpoints:$eps}'",
+    "checks": [
+      {
+        "description": "Service selector matches the backend",
+        "points": 2,
+        "expression": "(.service != null) and .service.spec.selector.app == \"backend\""
+      },
+      {
+        "description": "Service targets the container port",
+        "points": 1,
+        "expression": "(.service != null) and any(.service.spec.ports[]?; .targetPort == 8080)"
+      },
+      {
+        "description": "Service has ready endpoints",
+        "points": 2,
+        "expression": "(.endpoints != null) and any(.endpoints.items[]?; any(.endpoints[]?; (.conditions.ready != false) and (.addresses | length) > 0))"
+      }
+    ],
+    "explanation": "Endpoints are derived from the Service selector; a mismatch leaves the Service without backends. `targetPort` must name the port the container actually listens on, or traffic is dropped."
+  },
+  {
+    "id": "oom-repair",
+    "title": "Diagnose and fix an OOM-killed workload",
+    "points": 5,
+    "instructions": "The Deployment `oom-app` in `exam-repair` is OOM-killed because its memory limit (50Mi) is below its allocation. Use `kubectl describe` and `kubectl get events` to diagnose it, raise the memory limit to at least 128Mi, save your evidence to `/tmp/oom-evidence.txt`, and confirm the Pod becomes available.",
+    "steps": [
+      "Diagnose with `kubectl -n exam-repair describe pod -l app=oom-app` and `kubectl -n exam-repair get events --sort-by=.lastTimestamp`.",
+      "Save the evidence with `kubectl -n exam-repair describe pod -l app=oom-app > /tmp/oom-evidence.txt`.",
+      "Raise the container memory limit to at least 128Mi with `kubectl -n exam-repair edit deployment oom-app`.",
+      "Wait with `kubectl -n exam-repair rollout status deployment/oom-app`."
+    ],
+    "solution": "kubectl -n exam-repair describe pod -l app=oom-app > /tmp/oom-evidence.txt\nkubectl -n exam-repair patch deployment oom-app --type=json -p '[{\"op\":\"replace\",\"path\":\"/spec/template/spec/containers/0/resources/limits/memory\",\"value\":\"256Mi\"}]'\nkubectl -n exam-repair rollout status deployment/oom-app --timeout=180s",
+    "resource": "jq -n --argjson dep \"$(kubectl -n exam-repair get deployment oom-app -o json 2>/dev/null || echo null)\" --argjson evidence \"$(test -s /tmp/oom-evidence.txt && echo true || echo false)\" '{deployment:$dep,evidence:$evidence}'",
+    "checks": [
+      {
+        "description": "The application is available again",
+        "points": 2,
+        "expression": "(.deployment.status.availableReplicas // 0) == 1"
+      },
+      {
+        "description": "The memory limit was raised",
+        "points": 2,
+        "expression": "(.deployment != null) and any(.deployment.spec.template.spec.containers[]?; (.resources.limits.memory // \"50Mi\") != \"50Mi\")"
+      },
+      {
+        "description": "Diagnostic evidence was saved",
+        "points": 1,
+        "expression": ".evidence == true"
+      }
+    ],
+    "explanation": "A container that exceeds its memory limit is OOM-killed and restarted in a loop. `kubectl describe` and events surface the kill; raising the limit and saving the diagnostic output documents the fix."
+  },
+  {
+    "id": "crash-repair",
+    "title": "Recover a multi-container crash",
+    "points": 5,
+    "instructions": "Both containers in the Deployment `crash-app` in `exam-repair` exit immediately. Use current and previous logs (`kubectl logs -p`) to diagnose, save the previous logs to `/tmp/crash-logs.txt`, repair the container commands so they keep running, and confirm the Pod is available.",
+    "steps": [
+      "Diagnose with `kubectl -n exam-repair logs -l app=crash-app --all-containers --previous`.",
+      "Save evidence with `kubectl -n exam-repair logs -l app=crash-app --all-containers --previous > /tmp/crash-logs.txt`.",
+      "Patch both container commands to `[\"sh\",\"-c\",\"sleep 3600\"]`.",
+      "Wait with `kubectl -n exam-repair rollout status deployment/crash-app`."
+    ],
+    "solution": "kubectl -n exam-repair logs -l app=crash-app --all-containers --previous > /tmp/crash-logs.txt 2>/dev/null || true\nkubectl -n exam-repair patch deployment crash-app --type=json -p '[{\"op\":\"replace\",\"path\":\"/spec/template/spec/containers/0/command\",\"value\":[\"sh\",\"-c\",\"sleep 3600\"]},{\"op\":\"replace\",\"path\":\"/spec/template/spec/containers/1/command\",\"value\":[\"sh\",\"-c\",\"sleep 3600\"]}]'\nkubectl -n exam-repair rollout status deployment/crash-app --timeout=180s",
+    "resource": "jq -n --argjson dep \"$(kubectl -n exam-repair get deployment crash-app -o json 2>/dev/null || echo null)\" --argjson evidence \"$(test -s /tmp/crash-logs.txt && echo true || echo false)\" '{deployment:$dep,evidence:$evidence}'",
+    "checks": [
+      {
+        "description": "The Pod is available",
+        "points": 2,
+        "expression": "(.deployment.status.availableReplicas // 0) == 1"
+      },
+      {
+        "description": "Container commands were repaired",
+        "points": 2,
+        "expression": "(.deployment != null) and ([.deployment.spec.template.spec.containers[] | ((.command // []) | map(tostring) | join(\" \"))] | map(select(contains(\"exit 1\"))) | length) == 0"
+      },
+      {
+        "description": "Crash evidence was captured",
+        "points": 1,
+        "expression": ".evidence == true"
+      }
+    ],
+    "explanation": "`kubectl logs --previous` shows the output of a container's prior (crashed) invocation. Replacing the immediate-exit command with a long-running one stops the CrashLoopBackOff and restores availability."
+  }
+]

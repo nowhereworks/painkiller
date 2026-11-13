@@ -1,0 +1,70 @@
+# Purpose-built Widget operator for CKA-002 (task 5). A single Deployment runs
+# a kubectl reconcile loop: every Widget in the exam-ops namespace is turned
+# into a ConfigMap named "<widget>-reconciled" carrying the widget's message.
+# This is a deterministic teaching operator, not an upstream-managed project.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: widget-operator
+  namespace: exam-ops
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: widget-operator
+  namespace: exam-ops
+rules:
+  - apiGroups: ["example.painkiller.io"]
+    resources: ["widgets"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    verbs: ["get", "list", "watch", "create", "update", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: widget-operator
+  namespace: exam-ops
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: widget-operator
+subjects:
+  - kind: ServiceAccount
+    name: widget-operator
+    namespace: exam-ops
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: widget-operator
+  namespace: exam-ops
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: widget-operator
+  template:
+    metadata:
+      labels:
+        app: widget-operator
+    spec:
+      serviceAccountName: widget-operator
+      containers:
+        - name: operator
+          image: docker.io/bitnami/kubectl:1.36.1
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              set -eu
+              ns=exam-ops
+              while true; do
+                for name in $(kubectl -n "$ns" get widgets.example.painkiller.io -o jsonpath='{.items[*].metadata.name}' 2>/dev/null); do
+                  msg=$(kubectl -n "$ns" get widget "$name" -o jsonpath='{.spec.message}' 2>/dev/null || true)
+                  kubectl -n "$ns" create configmap "${name}-reconciled" --from-literal=message="$msg" \
+                    --dry-run=client -o yaml 2>/dev/null | kubectl apply -f - >/dev/null 2>&1 || true
+                  kubectl -n "$ns" label configmap "${name}-reconciled" painkiller.io/reconciled-by=widget-operator --overwrite >/dev/null 2>&1 || true
+                done
+                sleep 5
+              done

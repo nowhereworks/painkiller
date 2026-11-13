@@ -1,14 +1,19 @@
 # About Project
 
-This is the repository for Painkiller Shell: A Killer.sh clone that aims to mimic killer.sh functionality *as simple as possible*
+This is the repository for Painkiller Shell: A Killer.sh clone that aims to mimic killer.sh functionality *as simple as possible* while providing tests on par with CNCF (or any other vendor) certification requirements.
 
 # Directives
 
-- Ignore files in ./docs unless instructed otherwise
-- Always commit and push after work
 - Keep things as simple as possible
+- Always commit and push after work
 - When making modifications, change as little as possible in order to achieve goals
 - Always persist any useful data for future sessions 
+- Ignore files in ./docs unless instructed otherwise
+- Scripts don't need to map 1:1 to `exams` and and in fact might be used to provision environments for more than one exam. When deciding about this topic, do the simplest thing: If a given `exam` asks too much of a given script and changing it might cause cascade changes and tests, create a custom copy for the `exam` in question.
+- Exams need to be stand alone. Don't let a change introduced to one exam break others.
+
+# Important Information
+
 - Display lab operation output in a read-only, auto-scrolling xterm.js box with ANSI colors that fills the remaining viewport height dynamically. The log endpoint returns a rolling 32 KB snapshot; append unchanged-prefix updates and reset on replacement.
 - On Proxmox, never alter or delete VMs outside IDs 3000–3999 and 9100–9200. 
 - On Proxmox, never alter or delete VMs templates outside IDs 9100–9200. 

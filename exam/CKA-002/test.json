@@ -1,0 +1,16 @@
+{
+  "id": "CKA-002",
+  "title": "CKA practice exam — HA cluster",
+  "description": "20 scenario-based tasks covering a highly available three-controller cluster: architecture, workloads and scheduling, services and networking, storage, and troubleshooting.",
+  "minutes": 120,
+  "lab": {
+    "controllers": 3,
+    "workers": 2,
+    "initial_controllers": 2,
+    "provision_mode": "legacy",
+    "cni": "calico",
+    "endpoint": "192.168.254.80:8443",
+    "memory_mb": 4096,
+    "prepare": "prepare.sh"
+  }
+}

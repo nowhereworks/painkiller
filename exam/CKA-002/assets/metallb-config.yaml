@@ -1,0 +1,17 @@
+apiVersion: metallb.io/v1beta1
+kind: IPAddressPool
+metadata:
+  name: exam-pool
+  namespace: metallb-system
+spec:
+  addresses:
+    - 192.168.254.81-192.168.254.89
+---
+apiVersion: metallb.io/v1beta1
+kind: L2Advertisement
+metadata:
+  name: exam-l2
+  namespace: metallb-system
+spec:
+  ipAddressPools:
+    - exam-pool

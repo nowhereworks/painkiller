@@ -1,0 +1,17 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kustom-app
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: kustom-app
+  template:
+    metadata:
+      labels:
+        app: kustom-app
+    spec:
+      containers:
+        - name: web
+          image: nginx:1.27
