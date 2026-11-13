@@ -26,14 +26,14 @@ Preparation also creates a new, lab-only SSH key on the controller and installs 
 
 ### Prebaked image (default)
 
-To avoid repeating Kubernetes package installation and image downloads on every lab, build a shared controller/worker template from `9010`:
+To avoid repeating Kubernetes package installation and image downloads on every lab, build a shared controller/worker template from `9199`:
 
 ```sh
 scripts/build-template.sh
 go run ./cmd/painkiller
 ```
 
-The builder full-clones `9010` to the unused template ID `9100`, prepares packages and cached images, then shuts down and converts the VM into a template. If a compatible template already exists, skip the build. It uses this repository's `playbooks/` and requires network access during the build. It takes the lab-operation lock, refuses an occupied destination, and never modifies the base. A failed build leaves its marked VM for inspection; after investigating, `scripts/build-template.sh --resume` can resume an unfinished VM with the exact builder marker. It refuses templates and unmarked VMs. Do not blindly delete an unverified VM. Only IDs `9100–9200` are accepted as builder destinations.
+The builder full-clones `9199` to the unused template ID `9100`, prepares packages and cached images, then shuts down and converts the VM into a template. If a compatible template already exists, skip the build. It uses this repository's `playbooks/` and requires network access during the build. It takes the lab-operation lock, refuses an occupied destination, and never modifies the base. A failed build leaves its marked VM for inspection; after investigating, `scripts/build-template.sh --resume` can resume an unfinished VM with the exact builder marker. It refuses templates and unmarked VMs. Do not blindly delete an unverified VM. Only IDs `9100–9200` are accepted as builder destinations.
 
 Prebaked mode verifies the template marker before cloning and checks package versions, guest build metadata, and cached images on the clones before bootstrapping a new cluster without the playbook's package-preparation phase. It currently supports one controller, Flannel, and the default control-plane endpoint only. Incompatible images or settings fail rather than silently falling back. The original provisioning remains available with explicit `LAB_PROVISION_MODE=legacy`. Build updated images under a new free ID; do not replace a template that has dependent linked clones. Cached images do not make the entire lab offline: for example, first-boot services may still use the network. See [playbook maintenance](playbooks/README.md) for checksum and image identity updates. The old `LAB_PLAYBOOKS_DIR` and `LAB_PLAYBOOKS_REV` overrides are no longer used.
 
@@ -69,7 +69,7 @@ ShellCheck, and original/generated Ansible playbook syntax checks passed.
 | `LAB_PROVISION_MODE` | `prebaked` | `prebaked` or explicit `legacy` |
 | `LAB_TEMPLATE_ID` | `9010` (legacy), `9100` (prebaked) | Proxmox VM template |
 | `LAB_IMAGE_TEMPLATE_ID` | `9100` | Destination for `scripts/build-template.sh` (9100–9200) |
-| `LAB_BASE_TEMPLATE_ID` | `9010` | Builder source; currently must be 9010 |
+| `LAB_BASE_TEMPLATE_ID` | `9199` | Builder source; currently must be 9199 |
 | `LAB_VM_MEMORY` | `3072` | Memory per clone in MiB; preflight requires an additional 4 GiB of available host memory |
 | `LAB_VM_START`, `LAB_VM_END` | `3000`, `3002` | Inclusive VM range, restricted to 3000–3999 |
 | `LAB_CONTROLLERS` | `1` | Number of first VMs assigned control-plane role |

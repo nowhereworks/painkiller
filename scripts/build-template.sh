@@ -3,7 +3,7 @@
 set -Eeuo pipefail
 host=${LAB_PROXMOX_HOST:-root@prox-k12}
 id=${LAB_IMAGE_TEMPLATE_ID:-9100}
-base=${LAB_BASE_TEMPLATE_ID:-9010}
+base=${LAB_BASE_TEMPLATE_ID:-9199}
 version=${LAB_KUBERNETES_VERSION:-1.36.1}
 # shellcheck source=scripts/playbooks.sh
 source "$(dirname -- "${BASH_SOURCE[0]}")/playbooks.sh"
@@ -14,7 +14,7 @@ lockdir=${PAINKILLER_LAB_LOCK_DIR:-data}
 marker=painkiller-image-v1
 action=${1:-build}
 [[ $# -le 1 && ( $action == build || $action == --resume ) ]] || { echo 'Usage: build-template.sh [--resume]' >&2; exit 1; }
-[[ $id =~ ^[0-9]+$ && $base == 9010 && $id -ge 9100 && $id -le 9200 && $version =~ ^[0-9]+\.[0-9]+\.[0-9]+$ && $user =~ ^[a-zA-Z0-9_-]+$ && $prefix =~ ^[0-9.]+$ && $timeout =~ ^[0-9]+$ && $timeout -gt 0 ]] || { echo 'Invalid image build configuration' >&2; exit 1; }
+[[ $id =~ ^[0-9]+$ && $base == 9199 && $id -ge 9100 && $id -le 9200 && $version =~ ^[0-9]+\.[0-9]+\.[0-9]+$ && $user =~ ^[a-zA-Z0-9_-]+$ && $prefix =~ ^[0-9.]+$ && $timeout =~ ^[0-9]+$ && $timeout -gt 0 ]] || { echo 'Invalid image build configuration' >&2; exit 1; }
 mkdir -p "$lockdir"
 exec 9>"$lockdir/lab-operation.lock"
 flock -n 9 || { echo 'Another lab operation is running' >&2; exit 1; }
