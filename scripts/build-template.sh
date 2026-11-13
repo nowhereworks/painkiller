@@ -88,9 +88,9 @@ node 'if command -v cloud-init >/dev/null; then sudo -n cloud-init status --wait
 ansible-playbook -i 'localhost,' -c local "$work/prepare.yml" -e "controller_ips=$ip ansible_ssh_user=$user kubernetes_version=$version" --ssh-common-args "$ssh_args"
 # Install the requested patch explicitly; the upstream preparation play installs
 # the repository's current version, which may be newer than the requested image.
-node bash -s -- "$version" "$revision" <<'GUEST'
+node bash -s -- "$version" <<'GUEST'
 set -euo pipefail
-version=$1 revision=$2
+version=$1
 available_versions=$(apt-cache madison kubeadm)
 pkg=$(awk -v version="$version" 'index($3, version "-") == 1 {print $3; exit}' <<<"$available_versions")
 test -n "$pkg"
@@ -118,10 +118,9 @@ sudo -n test ! -d /var/lib/etcd
 dpkg-query -W -f='${Package}=${Version}\n' kubelet kubeadm kubectl containerd cri-tools jq etcd-client | sudo -n tee /opt/painkiller/packages >/dev/null
 sudo -n crictl images -o json | sudo -n tee /opt/painkiller/images.json >/dev/null
 sudo -n sha256sum /opt/painkiller/flannel.yml | sudo -n tee /opt/painkiller/flannel.sha256 >/dev/null
-printf '%s\n' "painkiller-image-v1 $version $revision flannel-0.28.4" | sudo -n tee /opt/painkiller/image-version >/dev/null
 GUEST
 remote "qm shutdown $id --timeout 120"
 remote "qm status $id" | grep -Fxq 'status: stopped' || { echo 'Image VM is not stopped; inspect manually' >&2; exit 1; }
-remote "qm set $id --description ${marker}-${version}-${revision}"
+remote "qm set $id --description ${marker}"
 remote "qm template $id"
 echo "Built template $id; validate clones before use."

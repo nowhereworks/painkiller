@@ -517,10 +517,10 @@ func TestLabAcceptsUpperAuthorizedBoundary(t *testing.T) {
 	}
 }
 
-func TestPrebakedCreateRejectsUnmarkedTemplate(t *testing.T) {
+func TestPrebakedCreateRejectsNonTemplate(t *testing.T) {
 	dir := t.TempDir()
 	calls := filepath.Join(dir, "calls")
-	ssh := "#!/bin/sh\necho \"$*\" >> \"$CALLS\"\ncase \"$*\" in *'qm config 9100'*) printf 'template: 1\\ndescription: unrelated\\n';; *) exit 99;; esac\n"
+	ssh := "#!/bin/sh\necho \"$*\" >> \"$CALLS\"\ncase \"$*\" in *'qm config 9100'*) printf 'description: unrelated\\n';; *) exit 99;; esac\n"
 	git := "#!/bin/sh\ncase \"$*\" in *'rev-parse HEAD'*) echo 8ec676e93017ce3e110c27485e25d1f32d541056;; esac\n"
 	for name, body := range map[string]string{"ssh": ssh, "git": git} {
 		if err := os.WriteFile(filepath.Join(dir, name), []byte(body), 0700); err != nil {
@@ -529,12 +529,25 @@ func TestPrebakedCreateRejectsUnmarkedTemplate(t *testing.T) {
 	}
 	cmd := exec.Command("bash", "../../scripts/create-lab.sh", "create")
 	cmd.Env = append(os.Environ(), "PATH="+dir+string(os.PathListSeparator)+os.Getenv("PATH"), "CALLS="+calls, "LAB_PROVISION_MODE=prebaked", "LAB_TEMPLATE_ID=9100", "LAB_CONTROLLERS=1", "LAB_CNI_PLUGIN=flannel", "LAB_CONTROL_PLANE_ENDPOINT=")
-	if out, err := cmd.CombinedOutput(); err == nil || !strings.Contains(string(out), "incompatible") {
-		t.Fatalf("unmarked template accepted: %v %s", err, out)
+	if out, err := cmd.CombinedOutput(); err == nil || !strings.Contains(string(out), "not a template") {
+		t.Fatalf("non-template accepted: %v %s", err, out)
 	}
 	b, err := os.ReadFile(calls)
 	if err != nil || strings.Contains(string(b), "qm clone") {
 		t.Fatalf("unexpected clone: %s %v", b, err)
+	}
+}
+
+func TestPrebakedCreateSelectsTemplateByID(t *testing.T) {
+	dir := t.TempDir()
+	ssh := "#!/bin/sh\ncase \"$*\" in *'qm config 9100'*) printf 'template: 1\\ndescription: unrelated\\n';; *'qm list'*) exit 1;; *) exit 99;; esac\n"
+	if err := os.WriteFile(filepath.Join(dir, "ssh"), []byte(ssh), 0700); err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.Command("bash", "../../scripts/create-lab.sh", "create")
+	cmd.Env = append(os.Environ(), "PATH="+dir+string(os.PathListSeparator)+os.Getenv("PATH"), "LAB_PROVISION_MODE=prebaked", "LAB_TEMPLATE_ID=9100", "LAB_CONTROLLERS=1", "LAB_CNI_PLUGIN=flannel", "LAB_CONTROL_PLANE_ENDPOINT=")
+	if out, err := cmd.CombinedOutput(); err == nil || !strings.Contains(string(out), "Could not list VMs") {
+		t.Fatalf("template ID not accepted: %v %s", err, out)
 	}
 }
 
@@ -549,7 +562,7 @@ func TestImageBuilderRejectsOccupiedDestination(t *testing.T) {
 		}
 	}
 	cmd := exec.Command("bash", "../../scripts/build-template.sh")
-	cmd.Env = append(os.Environ(), "PATH="+dir+string(os.PathListSeparator)+os.Getenv("PATH"), "CALLS="+calls, "PAINKILLER_LAB_LOCK_DIR="+dir, "LAB_IMAGE_TEMPLATE_ID=9100", "LAB_BASE_TEMPLATE_ID=9010")
+	cmd.Env = append(os.Environ(), "PATH="+dir+string(os.PathListSeparator)+os.Getenv("PATH"), "CALLS="+calls, "PAINKILLER_LAB_LOCK_DIR="+dir, "LAB_IMAGE_TEMPLATE_ID=9100", "LAB_BASE_TEMPLATE_ID=9199")
 	if out, err := cmd.CombinedOutput(); err == nil || !strings.Contains(string(out), "already exists") {
 		t.Fatalf("occupied builder ID accepted: %v %s", err, out)
 	}
@@ -571,7 +584,7 @@ func TestImageBuilderResumeRefusesUnownedOrPublishedVM(t *testing.T) {
 			}
 		}
 		cmd := exec.Command("bash", "../../scripts/build-template.sh", "--resume")
-		cmd.Env = append(os.Environ(), "PATH="+dir+string(os.PathListSeparator)+os.Getenv("PATH"), "CALLS="+calls, "CONFIG="+description, "PAINKILLER_LAB_LOCK_DIR="+dir, "LAB_IMAGE_TEMPLATE_ID=9100", "LAB_BASE_TEMPLATE_ID=9010")
+		cmd.Env = append(os.Environ(), "PATH="+dir+string(os.PathListSeparator)+os.Getenv("PATH"), "CALLS="+calls, "CONFIG="+description, "PAINKILLER_LAB_LOCK_DIR="+dir, "LAB_IMAGE_TEMPLATE_ID=9100", "LAB_BASE_TEMPLATE_ID=9199")
 		if out, err := cmd.CombinedOutput(); err == nil || !strings.Contains(string(out), "not an unfinished owned builder") {
 			t.Fatalf("unsafe builder resume accepted: %v %s", err, out)
 		}
@@ -603,7 +616,7 @@ func TestImageBuilderSharesLabOperationLock(t *testing.T) {
 		t.Fatal(err)
 	}
 	cmd := exec.Command("bash", "../../scripts/build-template.sh")
-	cmd.Env = append(os.Environ(), "PAINKILLER_LAB_LOCK_DIR="+dir, "LAB_IMAGE_TEMPLATE_ID=9100", "LAB_BASE_TEMPLATE_ID=9010")
+	cmd.Env = append(os.Environ(), "PAINKILLER_LAB_LOCK_DIR="+dir, "LAB_IMAGE_TEMPLATE_ID=9100", "LAB_BASE_TEMPLATE_ID=9199")
 	if out, err := cmd.CombinedOutput(); err == nil || !strings.Contains(string(out), "Another lab operation") {
 		t.Fatalf("builder ignored lab lock: %v %s", err, out)
 	}
@@ -623,7 +636,7 @@ func TestPrebakedRejectsUnsupportedConfiguration(t *testing.T) {
 func isolatedLabScripts(t *testing.T) string {
 	t.Helper()
 	root := t.TempDir()
-	for _, name := range []string{"scripts/create-lab.sh", "scripts/build-template.sh", "scripts/validate-image.sh", "scripts/playbooks.sh", "playbooks/image-revision", "playbooks/SHA256SUMS", "playbooks/kubeadm-cluster/kubeadm-cluster.yml"} {
+	for _, name := range []string{"scripts/create-lab.sh", "scripts/build-template.sh", "scripts/validate-image.sh", "scripts/playbooks.sh", "playbooks/SHA256SUMS", "playbooks/kubeadm-cluster/kubeadm-cluster.yml"} {
 		b, err := os.ReadFile(filepath.Join("../..", name))
 		if err != nil {
 			t.Fatal(err)
@@ -641,13 +654,11 @@ func isolatedLabScripts(t *testing.T) string {
 
 func TestLocalPlaybooksFailBeforeRemoteOperations(t *testing.T) {
 	for _, action := range []string{"create", "provision", "build"} {
-		for _, damage := range []string{"missing", "modified", "revision", "missing-revision", "missing-manifest"} {
+		for _, damage := range []string{"missing", "modified", "missing-manifest"} {
 			t.Run(action+"/"+damage, func(t *testing.T) {
 				root := isolatedLabScripts(t)
 				file := filepath.Join(root, "playbooks/kubeadm-cluster/kubeadm-cluster.yml")
-				if damage == "missing-revision" {
-					file = filepath.Join(root, "playbooks/image-revision")
-				} else if damage == "missing-manifest" {
+				if damage == "missing-manifest" {
 					file = filepath.Join(root, "playbooks/SHA256SUMS")
 				}
 				if strings.HasPrefix(damage, "missing") {
@@ -655,9 +666,6 @@ func TestLocalPlaybooksFailBeforeRemoteOperations(t *testing.T) {
 						t.Fatal(err)
 					}
 				} else {
-					if damage == "revision" {
-						file = filepath.Join(root, "playbooks/image-revision")
-					}
 					if err := os.WriteFile(file, []byte("invalid\n"), 0600); err != nil {
 						t.Fatal(err)
 					}
@@ -711,7 +719,7 @@ func TestImageBuilderFullClonesWithoutChangingBaseOrIdentity(t *testing.T) {
 echo "$*" >> "$CALLS"
 case "$*" in
  *"qm list"*) echo 'VMID NAME STATUS' ;;
- *"qm config 9010"*) printf 'template: 1\nmemory: 8192\nscsi0: test:base-9010-disk-0,size=1G\n' ;;
+ *"qm config 9199"*) printf 'template: 1\nmemory: 8192\nscsi0: test:base-9199-disk-0,size=1G\n' ;;
  *"qm config 9100"*) echo 'description: painkiller-image-v1' ;;
  *"pvesm status"*) echo 'test lvmthin active 9999999 0 9999999' ;;
  *"MemAvailable:"*) echo 65536 ;;
@@ -731,7 +739,7 @@ esac
 	calls := filepath.Join(dir, "calls")
 	cmd := exec.Command("bash", filepath.Join(root, "scripts/build-template.sh"))
 	cmd.Dir = dir
-	cmd.Env = append(os.Environ(), "PATH="+dir+string(os.PathListSeparator)+os.Getenv("PATH"), "CALLS="+calls, "TMPDIR="+dir, "PAINKILLER_LAB_LOCK_DIR="+dir, "LAB_IMAGE_TEMPLATE_ID=9100", "LAB_BASE_TEMPLATE_ID=9010", "LAB_SSH_USER=milkman")
+	cmd.Env = append(os.Environ(), "PATH="+dir+string(os.PathListSeparator)+os.Getenv("PATH"), "CALLS="+calls, "TMPDIR="+dir, "PAINKILLER_LAB_LOCK_DIR="+dir, "LAB_IMAGE_TEMPLATE_ID=9100", "LAB_BASE_TEMPLATE_ID=9199", "LAB_SSH_USER=milkman")
 	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("image build failed: %v %s", err, out)
 	}
@@ -739,12 +747,12 @@ esac
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, required := range []string{"qm clone 9010 9100 --name painkiller-image-9100 --full 1", "qm shutdown 9100", "qm template 9100", "crictl pull", "image-version"} {
+	for _, required := range []string{"qm clone 9199 9100 --name painkiller-image-9100 --full 1", "qm shutdown 9100", "qm template 9100", "crictl pull"} {
 		if !strings.Contains(string(b), required) {
 			t.Fatalf("missing build step %q: %s", required, b)
 		}
 	}
-	for _, forbidden := range []string{"unexpected git dependency", "qm set 9010", "qm start 9010", "--net0", "cloud-init clean", "machine-id", "ssh-keygen", "qm destroy"} {
+	for _, forbidden := range []string{"unexpected git dependency", "qm set 9199", "qm start 9199", "--net0", "cloud-init clean", "machine-id", "ssh-keygen", "qm destroy"} {
 		if strings.Contains(string(b), forbidden) {
 			t.Fatalf("unsafe build step %q: %s", forbidden, b)
 		}

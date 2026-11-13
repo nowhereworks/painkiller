@@ -88,7 +88,7 @@ case "$command" in
     check_playbooks
     if [[ $mode == prebaked ]]; then
       config=$(remote "qm config $template") || { echo 'Cannot inspect image template' >&2; exit 1; }
-      if ! grep -Fxq 'template: 1' <<<"$config" || ! grep -Fxq "description: painkiller-image-v1-$version-$revision" <<<"$config"; then echo 'Image template missing or incompatible' >&2; exit 1; fi
+      grep -Fxq 'template: 1' <<<"$config" || { echo 'Selected image is not a template' >&2; exit 1; }
     fi
     # Preflight every ID before cloning anything; an SSH failure must not mean 'free'.
     list_vms
@@ -161,7 +161,7 @@ case "$command" in
     if [[ $mode == prebaked ]]; then
       IFS=, read -r -a node_ips <<<"$control_ips${worker_ips:+,$worker_ips}"
       for ip in "${node_ips[@]}"; do
-        node_ssh "$ssh_user@$ip" bash -s -- "$version" "$revision" < "$(dirname "$0")/validate-image.sh" || { echo "Incompatible image or missing cached images on $ip" >&2; exit 1; }
+        node_ssh "$ssh_user@$ip" bash -s -- "$version" < "$(dirname "$0")/validate-image.sh" || { echo "Incompatible image or missing cached images on $ip" >&2; exit 1; }
       done
       first=${control_ips%%,*}
       node_ssh "$ssh_user@$first" bash -s -- "$first" <<'HEALTH' || exit 1

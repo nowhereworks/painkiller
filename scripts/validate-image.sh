@@ -1,8 +1,7 @@
 #!/usr/bin/env bash
 # Run on a lab guest through pinned SSH; this never installs or pulls anything.
 set -Eeuo pipefail
-version=$1 revision=$2
-[[ $(cat /opt/painkiller/image-version) == "painkiller-image-v1 $version $revision flannel-0.28.4" ]]
+version=$1
 for p in kubelet kubeadm kubectl; do
   installed=$(dpkg-query -W -f='${Version}' "$p")
   [[ $installed == "$version"-* ]]

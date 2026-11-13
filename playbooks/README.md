@@ -15,16 +15,12 @@ are referenced by this playbook. Downloads and Ansible collections still
 require their normal external sources; this is not an offline installation.
 
 `SHA256SUMS` guards the playbook layout used by the scripts' phase extraction.
-`image-revision` is a 40-character lowercase hex image compatibility identity,
-not the current repository's Git revision. Its initial value preserves existing
-template 9100 and guest metadata compatibility.
-
-When changing the playbook, update its checksum and assign a new image revision
-(for example the new playbook's SHA-1 digest) together. Build a new template at
-a free ID in 9100–9200 and select it with `LAB_TEMPLATE_ID`; never overwrite a
-template with dependent linked clones. Both builder and provisioner validate
-the local checksum before modifying VMs. Missing or incompatible images fail
-without a legacy fallback.
+When changing the playbook, update its checksum. Templates are selected by VM ID;
+when image contents need to change, build a new template at a free ID in
+9100–9200 and select it with `LAB_TEMPLATE_ID`. Never overwrite a template
+with dependent linked clones. Both builder and provisioner validate the local
+checksum before modifying VMs. Missing or incompatible images fail without a
+legacy fallback.
 
 During provisioning, every lab node receives a managed `/etc/hosts` block and
 a dedicated SSH identity. Each node's public key is authorized on every node;
