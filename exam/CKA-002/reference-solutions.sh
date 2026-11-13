@@ -23,19 +23,20 @@ third_controller_ip() {
 }
 
 # 1. Join the third control-plane node (generate a fresh certificate key).
-key=$(sudo -n kubeadm init phase upload-certs --upload-certs 2>/dev/null | tail -1)
-join=$(sudo -n kubeadm token create --print-join-command)
 third=$(third_controller_ip)
-[[ -n $third ]] || { echo 'Could not locate the unjoined controller' >&2; exit 1; }
-ssh -o ConnectTimeout=10 "$third" "sudo -n $join --control-plane --certificate-key $key"
-kubectl wait --for=condition=Ready nodes --all --timeout=300s || true
+if [[ -n $third ]]; then
+  key=$(sudo -n kubeadm init phase upload-certs --upload-certs 2>/dev/null | tail -1)
+  join=$(sudo -n kubeadm token create --print-join-command)
+  ssh -o ConnectTimeout=10 "$third" "sudo -n $join --control-plane --certificate-key $key"
+  kubectl wait --for=condition=Ready nodes --all --timeout=300s || true
+fi
 
 # Repair node-level faults first so downstream tasks that require both workers
 # (scheduling, drain) run against a healthy cluster.
 
 # 15. Repair the worker kubelet (makes the second worker Ready again).
-bad_worker=$(kubectl get nodes -o json | jq -r '[.items[] | select(.metadata.labels["node-role.kubernetes.io/control-plane"] == null and ([.status.conditions[]? | select(.type=="Ready")][0].status != "True"))][0].metadata.name' 2>/dev/null || true)
-if [[ -n $bad_worker ]]; then
+bad_worker=$(kubectl get nodes -o json | jq -r '[.items[] | select(.metadata.labels["node-role.kubernetes.io/control-plane"] == null and ([.status.conditions[]? | select(.type=="Ready")][0].status != "True"))][0].metadata.name // empty' 2>/dev/null || true)
+if [[ -n $bad_worker && $bad_worker != null ]]; then
   bad_ip=$(kubectl get node "$bad_worker" -o jsonpath='{.status.addresses[?(@.type=="InternalIP")].address}')
   ssh -o ConnectTimeout=10 "$bad_ip" 'sudo -n sed -i "/painkiller-fault/d" /var/lib/kubelet/config.yaml && sudo -n systemctl restart kubelet'
   kubectl wait --for=condition=Ready node "$bad_worker" --timeout=180s || true
@@ -78,11 +79,38 @@ kubectl cordon "$w"
 kubectl drain "$w" --ignore-daemonsets --delete-emptydir-data --timeout=180s 2>&1 | tee /tmp/drain-evidence.txt || true
 kubectl uncordon "$w"
 sudo -n mkdir -p /opt/backup
-sudo -n env ETCDCTL_API=3 etcdctl snapshot save /opt/backup/etcd.db >/dev/null
+sudo -n env ETCDCTL_API=3 etcdctl --endpoints=https://127.0.0.1:2379 \
+  --cacert=/etc/kubernetes/pki/etcd/ca.crt \
+  --cert=/etc/kubernetes/pki/etcd/server.crt \
+  --key=/etc/kubernetes/pki/etcd/server.key \
+  snapshot save /opt/backup/etcd.db >/dev/null
 
 # 3. Least-privilege RBAC.
-kubectl -n exam-rbac create role pod-log-reader --verb=get,list --resource=pods,pods/log
-kubectl -n exam-rbac create rolebinding read-pod-logs --role=pod-log-reader --serviceaccount=exam-rbac:auditor
+kubectl -n exam-rbac apply -f - <<'YAML'
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: pod-log-reader
+  namespace: exam-rbac
+rules:
+  - apiGroups: [""]
+    resources: ["pods", "pods/log"]
+    verbs: ["get", "list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: read-pod-logs
+  namespace: exam-rbac
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: pod-log-reader
+subjects:
+  - kind: ServiceAccount
+    name: auditor
+    namespace: exam-rbac
+YAML
 
 # 4. Repair the Helm release and deploy the Kustomize overlay.
 helm upgrade demo /opt/painkiller/cka002/chart -n exam-helm --set image.tag=1.27
@@ -111,10 +139,10 @@ kubectl -n exam-workloads rollout status deployment/app --timeout=180s
 # 7. Configure the HPA application.
 kubectl -n exam-workloads patch deployment hpa-web --type=strategic -p '{"spec":{"template":{"spec":{"containers":[{"name":"web","resources":{"requests":{"cpu":"100m"}},"volumeMounts":[{"name":"config","mountPath":"/etc/config"},{"name":"secret","mountPath":"/etc/secret"}]}],"volumes":[{"name":"config","configMap":{"name":"app-config"}},{"name":"secret","secret":{"secretName":"app-secret"}}]}}}}'
 kubectl -n exam-workloads rollout status deployment/hpa-web --timeout=180s
-kubectl -n exam-workloads autoscale deployment hpa-web --min=1 --max=5 --cpu-percent=50
+kubectl -n exam-workloads autoscale deployment hpa-web --min=1 --max=5 --cpu=50% --dry-run=client -o yaml | kubectl apply -f -
 
 # 8. Pinned scheduling with toleration, affinity, spread, and a quota.
-kubectl -n exam-workloads create quota exam-quota --hard=pods=10
+kubectl -n exam-workloads create quota exam-quota --hard=pods=10 --dry-run=client -o yaml | kubectl apply -f -
 kubectl apply -f - <<'YAML'
 apiVersion: apps/v1
 kind: Deployment
@@ -314,9 +342,45 @@ spec:
 YAML
 
 # 14. Recover the static local volume binding.
-kubectl -n exam-storage patch pvc exam-local-pvc -p '{"spec":{"storageClassName":"exam-local"}}'
+# The PVC's storageClassName and the PV's nodeAffinity are immutable, so recreate
+# both. The data lives on the node's host path and is retained by the PV's
+# ReclaimPolicy=Retain, so deleting the PV object does not lose it.
 local_worker=$(worker)
-kubectl patch pv exam-local-pv --type=json -p "[{\"op\":\"replace\",\"path\":\"/spec/nodeAffinity/required/nodeSelectorTerms/0/matchExpressions/0/values/0\",\"value\":\"$local_worker\"}]"
+kubectl -n exam-storage delete pvc exam-local-pvc --ignore-not-found
+kubectl delete pv exam-local-pv --ignore-not-found
+kubectl apply -f - <<YAML
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: exam-local-pv
+spec:
+  capacity:
+    storage: 1Gi
+  accessModes: [ReadWriteOnce]
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: exam-local
+  local:
+    path: /opt/painkiller/local-data
+  nodeAffinity:
+    required:
+      nodeSelectorTerms:
+        - matchExpressions:
+            - key: kubernetes.io/hostname
+              operator: In
+              values: [$local_worker]
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: exam-local-pvc
+  namespace: exam-storage
+spec:
+  accessModes: [ReadWriteOnce]
+  storageClassName: exam-local
+  resources:
+    requests:
+      storage: 1Gi
+YAML
 kubectl apply -f - <<'YAML'
 apiVersion: v1
 kind: Pod

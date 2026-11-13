@@ -3,8 +3,8 @@
   "mutations": [
     {
       "task": "rbac",
-      "remove": "kubectl -n exam-rbac delete role pod-log-reader rolebinding read-pod-logs --ignore-not-found",
-      "restore": "kubectl -n exam-rbac create role pod-log-reader --verb=get,list --resource=pods,pods/log && kubectl -n exam-rbac create rolebinding read-pod-logs --role=pod-log-reader --serviceaccount=exam-rbac:auditor"
+      "remove": "kubectl -n exam-rbac delete role pod-log-reader --ignore-not-found; kubectl -n exam-rbac delete rolebinding read-pod-logs --ignore-not-found",
+      "restore": "printf '%s\\n' 'apiVersion: rbac.authorization.k8s.io/v1' 'kind: Role' 'metadata:' '  name: pod-log-reader' '  namespace: exam-rbac' 'rules:' '  - apiGroups: [\"\"]' '    resources: [\"pods\", \"pods/log\"]' '    verbs: [\"get\", \"list\"]' '---' 'apiVersion: rbac.authorization.k8s.io/v1' 'kind: RoleBinding' 'metadata:' '  name: read-pod-logs' '  namespace: exam-rbac' 'roleRef:' '  apiGroup: rbac.authorization.k8s.io' '  kind: Role' '  name: pod-log-reader' 'subjects:' '  - kind: ServiceAccount' '    name: auditor' '    namespace: exam-rbac' | kubectl apply -f -"
     },
     {
       "task": "netpol",

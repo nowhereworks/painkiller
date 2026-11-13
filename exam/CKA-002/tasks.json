@@ -39,7 +39,7 @@
       "On a control-plane node run `sudo -n mkdir -p /opt/backup` and `sudo -n env ETCDCTL_API=3 etcdctl snapshot save /opt/backup/etcd.db`.",
       "Validate with `sudo -n env ETCDCTL_API=3 etcdctl snapshot status /opt/backup/etcd.db -w json` and confirm `totalKey` is greater than zero."
     ],
-    "solution": "worker=$(kubectl get nodes -o json | jq -r '[.items[] | select(.metadata.labels[\"node-role.kubernetes.io/control-plane\"] == null)][0].metadata.name')\nkubectl cordon \"$worker\"\nkubectl drain \"$worker\" --ignore-daemonsets --delete-emptydir-data --timeout=180s 2>&1 | tee /tmp/drain-evidence.txt\nkubectl uncordon \"$worker\"\nsudo -n mkdir -p /opt/backup\nsudo -n env ETCDCTL_API=3 etcdctl snapshot save /opt/backup/etcd.db",
+    "solution": "worker=$(kubectl get nodes -o json | jq -r '[.items[] | select(.metadata.labels[\"node-role.kubernetes.io/control-plane\"] == null)][0].metadata.name')\nkubectl cordon \"$worker\"\nkubectl drain \"$worker\" --ignore-daemonsets --delete-emptydir-data --timeout=180s 2>&1 | tee /tmp/drain-evidence.txt\nkubectl uncordon \"$worker\"\nsudo -n mkdir -p /opt/backup\nsudo -n env ETCDCTL_API=3 etcdctl --endpoints=https://127.0.0.1:2379 --cacert=/etc/kubernetes/pki/etcd/ca.crt --cert=/etc/kubernetes/pki/etcd/server.crt --key=/etc/kubernetes/pki/etcd/server.key snapshot save /opt/backup/etcd.db",
     "resource": "jq -n --argjson snap \"$(sudo -n env ETCDCTL_API=3 etcdctl snapshot status /opt/backup/etcd.db -w json 2>/dev/null || echo null)\" --argjson evidence \"$(test -s /tmp/drain-evidence.txt && grep -Eq 'cordoned|evicting|drained|evicted' /tmp/drain-evidence.txt && echo true || echo false)\" '{snapshot:$snap,evidence:$evidence}'",
     "checks": [
       {
@@ -209,10 +209,10 @@
       "Edit the Deployment with `kubectl -n exam-workloads edit deployment hpa-web` and add the two volumes and volume mounts.",
       "Add `resources.requests.cpu: 100m` to the container.",
       "Wait with `kubectl -n exam-workloads rollout status deployment/hpa-web`.",
-      "Create the HPA with `kubectl -n exam-workloads autoscale deployment hpa-web --min=1 --max=5 --cpu-percent=50`.",
+      "Create the HPA with `kubectl -n exam-workloads autoscale deployment hpa-web --min=1 --max=5 --cpu=50%`.",
       "Verify with `kubectl -n exam-workloads get hpa hpa-web` (metrics require the metrics server, which is installed)."
     ],
-    "solution": "kubectl -n exam-workloads patch deployment hpa-web --type=strategic -p '{\"spec\":{\"template\":{\"spec\":{\"containers\":[{\"name\":\"web\",\"resources\":{\"requests\":{\"cpu\":\"100m\"}},\"volumeMounts\":[{\"name\":\"config\",\"mountPath\":\"/etc/config\"},{\"name\":\"secret\",\"mountPath\":\"/etc/secret\"}]}],\"volumes\":[{\"name\":\"config\",\"configMap\":{\"name\":\"app-config\"}},{\"name\":\"secret\",\"secret\":{\"secretName\":\"app-secret\"}}]}}}}'\nkubectl -n exam-workloads rollout status deployment/hpa-web --timeout=180s\nkubectl -n exam-workloads autoscale deployment hpa-web --min=1 --max=5 --cpu-percent=50",
+    "solution": "kubectl -n exam-workloads patch deployment hpa-web --type=strategic -p '{\"spec\":{\"template\":{\"spec\":{\"containers\":[{\"name\":\"web\",\"resources\":{\"requests\":{\"cpu\":\"100m\"}},\"volumeMounts\":[{\"name\":\"config\",\"mountPath\":\"/etc/config\"},{\"name\":\"secret\",\"mountPath\":\"/etc/secret\"}]}],\"volumes\":[{\"name\":\"config\",\"configMap\":{\"name\":\"app-config\"}},{\"name\":\"secret\",\"secret\":{\"secretName\":\"app-secret\"}}]}}}}'\nkubectl -n exam-workloads rollout status deployment/hpa-web --timeout=180s\nkubectl -n exam-workloads autoscale deployment hpa-web --min=1 --max=5 --cpu=50%",
     "resource": "jq -n --argjson dep \"$(kubectl -n exam-workloads get deployment hpa-web -o json 2>/dev/null || echo null)\" --argjson hpa \"$(kubectl -n exam-workloads get hpa hpa-web -o json 2>/dev/null || echo null)\" '{deployment:$dep,hpa:$hpa}'",
     "checks": [
       {
@@ -349,7 +349,7 @@
       {
         "description": "The HTTPRoute is accepted",
         "points": 1,
-        "expression": "(.httproutes != null) and any(.httproutes.items[]?; any(.status.routeParents[]?; all(.conditions[]?; .status == \"True\" and (.reason == \"Accepted\" or .reason == \"ResolvedRefs\"))))"
+        "expression": "(.httproutes != null) and any(.httproutes.items[]?; any(.status.parents[]?; all(.conditions[]?; .status == \"True\" and (.reason == \"Accepted\" or .reason == \"ResolvedRefs\"))))"
       }
     ],
     "explanation": "The Gateway API separates routing (HTTPRoute) from infrastructure (Gateway). A cross-namespace backendRef must be authorized by a ReferenceGrant in the backend's namespace, or the route fails resolution."
@@ -398,7 +398,7 @@
       "Probe it with `wget -q -T 3 -O /dev/null http://<external-ip>`."
     ],
     "solution": "kubectl -n exam-lb annotate service lb-app metallb.universe.tf/loadBalancerIPs-\nkubectl -n exam-lb wait --for=jsonpath='{.status.loadBalancer.ingress}' service/lb-app --timeout=120s",
-    "resource": "jq -n --argjson lb \"$(kubectl -n exam-lb get svc lb-app -o json 2>/dev/null || echo null)\" --argjson reach \"$(ip=$(kubectl -n exam-lb get svc lb-app -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null); [ -n \\\"$ip\\\" ] && wget -q -T 3 -O /dev/null http://$ip 2>/dev/null && echo true || echo false)\" '{lb:$lb,reachable:$reach}'",
+    "resource": "jq -n --argjson lb \"$(kubectl -n exam-lb get svc lb-app -o json 2>/dev/null || echo null)\" --argjson reach \"$(ip=$(kubectl -n exam-lb get svc lb-app -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null); [ -n \"$ip\" ] && wget -q -T 3 -O /dev/null http://$ip 2>/dev/null && echo true || echo false)\" '{lb:$lb,reachable:$reach}'",
     "checks": [
       {
         "description": "LoadBalancer received a reserved-pool address",
@@ -467,7 +467,7 @@
       "Create the Pod `local-app` mounting the PVC at `/mnt`.",
       "Verify `kubectl -n exam-storage exec local-app -- cat /mnt/data.txt` prints `painkiller-data`."
     ],
-    "solution": "worker=$(kubectl get nodes -o json | jq -r '[.items[] | select(.metadata.labels[\"node-role.kubernetes.io/control-plane\"] == null)][0].metadata.name')\nkubectl -n exam-storage patch pvc exam-local-pvc -p '{\"spec\":{\"storageClassName\":\"exam-local\"}}'\nkubectl patch pv exam-local-pv --type=json -p \"[{\\\"op\\\":\\\"replace\\\",\\\"path\\\":\\\"/spec/nodeAffinity/required/nodeSelectorTerms/0/matchExpressions/0/values/0\\\",\\\"value\\\":\\\"$worker\\\"}]\"\nkubectl apply -f - <<'YAML'\napiVersion: v1\nkind: Pod\nmetadata:\n  name: local-app\n  namespace: exam-storage\nspec:\n  containers:\n    - name: web\n      image: busybox:1.36\n      command: [\"sh\", \"-c\", \"sleep 3600\"]\n      volumeMounts:\n        - name: data\n          mountPath: /mnt\n  volumes:\n    - name: data\n      persistentVolumeClaim:\n        claimName: exam-local-pvc\nYAML",
+    "solution": "worker=$(kubectl get nodes -o json | jq -r '[.items[] | select(.metadata.labels[\"node-role.kubernetes.io/control-plane\"] == null)][0].metadata.name')\nkubectl -n exam-storage delete pvc exam-local-pvc --ignore-not-found\nkubectl -n exam-storage apply -f - <<'YAML'\napiVersion: v1\nkind: PersistentVolumeClaim\nmetadata:\n  name: exam-local-pvc\n  namespace: exam-storage\nspec:\n  accessModes: [ReadWriteOnce]\n  storageClassName: exam-local\n  resources:\n    requests:\n      storage: 1Gi\nYAML\nkubectl patch pv exam-local-pv --type=json -p \"[{\"op\":\"replace\",\"path\":\"/spec/nodeAffinity/required/nodeSelectorTerms/0/matchExpressions/0/values/0\",\"value\":\"$worker\"}]\"\nkubectl apply -f - <<'YAML'\napiVersion: v1\nkind: Pod\nmetadata:\n  name: local-app\n  namespace: exam-storage\nspec:\n  containers:\n    - name: web\n      image: busybox:1.36\n      command: [\"sh\", \"-c\", \"sleep 3600\"]\n      volumeMounts:\n        - name: data\n          mountPath: /mnt\n  volumes:\n    - name: data\n      persistentVolumeClaim:\n        claimName: exam-local-pvc\nYAML",
     "resource": "jq -n --argjson nodes \"$(kubectl get nodes -o json)\" --argjson pvc \"$(kubectl -n exam-storage get pvc exam-local-pvc -o json 2>/dev/null || echo null)\" --argjson pv \"$(kubectl get pv exam-local-pv -o json 2>/dev/null || echo null)\" --argjson pod \"$(kubectl -n exam-storage get pod local-app -o json 2>/dev/null || echo null)\" --arg data \"$(kubectl -n exam-storage exec local-app -- cat /mnt/data.txt 2>/dev/null || echo '')\" '{nodes:$nodes,pvc:$pvc,pv:$pv,pod:$pod,data:$data}'",
     "checks": [
       {
@@ -478,7 +478,7 @@
       {
         "description": "Local volume targets a real worker",
         "points": 1,
-        "expression": "(.pv != null) and .pv.spec.local.path == \"/opt/painkiller/local-data\" and .pv.spec.capacity.storage == \"1Gi\" and any(.pv.spec.nodeAffinity.required.nodeSelectorTerms[].matchExpressions[]?; .key == \"kubernetes.io/hostname\" and any(.values[]?; . as $v | any(.nodes.items[]?; select(.metadata.labels[\"node-role.kubernetes.io/control-plane\"] == null) | .metadata.name == $v)))"
+        "expression": ". as $root | (.pv != null) and .pv.spec.local.path == \"/opt/painkiller/local-data\" and .pv.spec.capacity.storage == \"1Gi\" and any(.pv.spec.nodeAffinity.required.nodeSelectorTerms[].matchExpressions[]?; .key == \"kubernetes.io/hostname\" and any(.values[]?; . as $v | any($root.nodes.items[]?; select(.metadata.labels[\"node-role.kubernetes.io/control-plane\"] == null) | .metadata.name == $v)))"
       },
       {
         "description": "Application Pod runs on the volume",
@@ -505,12 +505,12 @@
       "Verify `kubectl get nodes` shows all workers Ready."
     ],
     "solution": "worker=$(kubectl get nodes -o json | jq -r '[.items[] | select(.metadata.labels[\"node-role.kubernetes.io/control-plane\"] == null and ([.status.conditions[]? | select(.type==\"Ready\")][0].status != \"True\"))][0].metadata.name')\nip=$(kubectl get node \"$worker\" -o jsonpath='{.status.addresses[?(@.type==\"InternalIP\")].address}')\nssh \"$ip\" 'sudo sed -i \"/painkiller-fault/d\" /var/lib/kubelet/config.yaml && sudo systemctl restart kubelet'",
-    "resource": "jq -n --argjson nodes \"$(kubectl get nodes -o json)\" --argjson kubelet \"$(w=$(kubectl get nodes -o json | jq -r '[.items[] | select(.metadata.labels[\\\"node-role.kubernetes.io/control-plane\\\"] == null)][0].metadata.name'); ip=$(kubectl get node \\\"$w\\\" -o jsonpath='{.status.addresses[?(@.type==\\\"InternalIP\\\")].address}'); ssh -o ConnectTimeout=5 \\\"$ip\\\" 'sudo systemctl is-active kubelet' 2>/dev/null | grep -qx active && echo true || echo false)\" '{nodes:$nodes,kubelet:$kubelet}'",
+    "resource": "jq -n --argjson nodes \"$(kubectl get nodes -o json)\" --argjson kubelet \"$(w=$(kubectl get nodes -o json | jq -r '[.items[] | select(.metadata.labels[\"node-role.kubernetes.io/control-plane\"] == null)][0].metadata.name'); ip=$(kubectl get node \"$w\" -o jsonpath='{.status.addresses[?(@.type==\"InternalIP\")].address}'); ssh -o ConnectTimeout=5 \"$ip\" 'sudo systemctl is-active kubelet' 2>/dev/null | grep -qx active && echo true || echo false)\" '{nodes:$nodes,kubelet:$kubelet}'",
     "checks": [
       {
         "description": "Every worker node is Ready",
         "points": 3,
-        "expression": "([.nodes.items[] | select(.metadata.labels[\"node-role.kubernetes.io/control-plane\"] == null)] | length) >= 2 and [.nodes.items[] | select(.metadata.labels[\"node-role.kubernetes.io/control-plane\"] == null) | ([.status.conditions[]? | select(.type==\"Ready\")][0].status // \"False\")] | all(. == \"True\")"
+        "expression": "([.nodes.items[] | select(.metadata.labels[\"node-role.kubernetes.io/control-plane\"] == null)] | length) >= 2 and all(.nodes.items[] | select(.metadata.labels[\"node-role.kubernetes.io/control-plane\"] == null); ([.status.conditions[]? | select(.type==\"Ready\")][0].status // \"False\") == \"True\")"
       },
       {
         "description": "Kubelet is active on the worker",
@@ -531,7 +531,7 @@
       "Replace the invalid image with the correct `registry.k8s.io/kube-scheduler` tag matching the cluster version.",
       "The kubelet restarts the static Pod automatically; confirm all scheduler Pods are Running."
     ],
-    "solution": "bad=$(kubectl -n kube-system get pods -l component=kube-scheduler -o json | jq -r '.items[] | select(any(.spec.containers[]?; (.image | contains(\"9.9.9\")))) | .spec.nodeName')\nip=$(kubectl get node \"$bad\" -o jsonpath='{.status.addresses[?(@.type==\"InternalIP\")].address}')\nver=$(kubectl get nodes -o jsonpath='{.items[0].status.nodeInfo.kubeletVersion}')\nssh \"$ip\" \"sudo sed -i \\\"s#kube-scheduler:.*#kube-scheduler:${ver}#\\\" /etc/kubernetes/manifests/kube-scheduler.yaml\"",
+    "solution": "bad=$(kubectl -n kube-system get pods -l component=kube-scheduler -o json | jq -r '.items[] | select(any(.spec.containers[]?; (.image | contains(\"9.9.9\")))) | .spec.nodeName')\nip=$(kubectl get node \"$bad\" -o jsonpath='{.status.addresses[?(@.type==\"InternalIP\")].address}')\nver=$(kubectl get nodes -o jsonpath='{.items[0].status.nodeInfo.kubeletVersion}')\nssh \"$ip\" \"sudo sed -i \"s#kube-scheduler:.*#kube-scheduler:${ver}#\" /etc/kubernetes/manifests/kube-scheduler.yaml\"",
     "resource": "kubectl -n kube-system get pods -l component=kube-scheduler -o json",
     "checks": [
       {
