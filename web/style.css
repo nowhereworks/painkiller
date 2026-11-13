@@ -21,6 +21,13 @@ article h2{font-size:20px;margin:0 0 18px}
 #instructions :not(pre)>code{background:#f1f1f1;color:#222;font:0.9em ui-monospace,monospace;padding:2px 5px;border-radius:2px;white-space:break-spaces}
 #instructions pre{max-width:100%;overflow-x:auto;white-space:pre;overflow-wrap:normal;font-size:14px;border:1px solid #e2e5e8;border-radius:3px}
 #instructions pre code{white-space:pre}
+#solution{margin-top:16px;padding:16px;border:1px solid #cbd0d8;border-radius:4px;background:#f8f9fa;line-height:1.55;overflow-wrap:anywhere}
+#solution h3{margin-top:0}
+#solution ol{padding-left:24px}
+#solution li{margin:8px 0}
+#solution p{white-space:normal}
+#solution pre{max-width:100%;overflow-x:auto;white-space:pre;font-size:14px}
+#solution :not(pre)>code{background:#eef1f5;padding:2px 4px;white-space:break-spaces}
 @media(max-width:700px){#nav{gap:16px;padding:20px 16px}}
 #panel-divider{flex:0 0 8px;background:#cbd0d8;cursor:col-resize;touch-action:none}
 #panel-divider:hover,#panel-divider:focus-visible,#exam.resizing #panel-divider{background:#235c9c}

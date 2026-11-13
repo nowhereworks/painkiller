@@ -31,7 +31,7 @@ async function main() {
     });
     const instructions = 'Use context: `kubectl config use-context k8s-c2-AC`\n\nFind **important information**:\n\n- Server private key location\n- Server certificate expiration\n\nWrite to `/opt/course/p1/etcd-info.txt`.\n\n```bash\nkubectl get pods --all-namespaces\n```\n\n```yaml\napiVersion: v1\nkind: Pod\n```\n\n```json\n{"ready": true}\n```\n\n```unknown\n<plain>\n```\n\n<script>window.unsafe=true</script><img src=x onerror="window.unsafe=true"><a href="javascript:alert(1)">unsafe link</a>';
     const tasks = [
-      {ID:'one',Title:'Inspect the cluster',Points:3,Instructions:instructions.replace('kubectl get pods --all-namespaces', '# Inspect all namespaces\nkubectl get pods --all-namespaces')},
+      {ID:'one',Title:'Inspect the cluster',Points:3,Instructions:instructions.replace('kubectl get pods --all-namespaces', '# Inspect all namespaces\nkubectl get pods --all-namespaces'),Steps:['Run `kubectl get pods`. <img src=x onerror="window.unsafe=true"><script>window.unsafe=true</script>','Verify that the expected Pods exist.'],Solution:'kubectl get pods\n# <script>window.unsafe=true</script>',Explanation:'Inspect the running Pods.'},
       {ID:'two',Title:'Create a namespace',Points:2,Instructions:'Create namespace `exam-sandbox`.'},
       {ID:'three',Title:'Review configuration',Points:2,Instructions:'Check the configuration.'}
     ];
@@ -62,6 +62,23 @@ async function main() {
     assert.equal(await page.evaluate(() => window.unsafe), undefined);
     assert.notEqual(await page.locator('#instructions p code').first().evaluate(el => getComputedStyle(el).backgroundColor), 'rgba(0, 0, 0, 0)');
 
+    assert.equal(await page.locator('#solution').isHidden(), true);
+    assert.equal(await page.locator('#reveal').innerText(), 'Reveal Instructions');
+    await page.locator('#reveal').click();
+    assert.equal(await page.locator('#solution').isVisible(), true);
+    assert.equal(await page.locator('#reveal').getAttribute('aria-expanded'), 'true');
+    assert.equal(await page.locator('#solution ol > li').count(), 2);
+    assert.equal(await page.locator('#solution pre code').innerText(), tasks[0].Solution);
+    assert.ok(await page.locator('#solution code.language-bash .token').count() > 0);
+    assert.equal(await page.locator('#solution script, #solution img').count(), 0);
+    assert.equal(await page.evaluate(() => window.unsafe), undefined);
+    await page.evaluate(() => refresh());
+    assert.equal(await page.locator('#solution').isVisible(), true, 'polling must not hide the walkthrough');
+    await page.locator('#reveal').click();
+    assert.equal(await page.locator('#solution').isHidden(), true);
+    assert.equal(await page.locator('#reveal').getAttribute('aria-expanded'), 'false');
+    await page.locator('#reveal').click();
+
     // Keep the option and rendered content DOM intact across polling.
     await page.evaluate(() => {
       window.originalOption = document.querySelector('#question-select option');
@@ -72,6 +89,9 @@ async function main() {
 
     await page.locator('#next').click();
     await page.waitForFunction(() => document.querySelector('#title').textContent.includes('Create a namespace'));
+    assert.equal(await page.locator('#solution').isHidden(), true, 'switching questions hides the walkthrough');
+    assert.equal(await page.locator('#solution').innerHTML(), '');
+    assert.equal(await page.locator('#reveal').getAttribute('aria-expanded'), 'false');
     await page.locator('#flag').check();
     await page.waitForFunction(() => document.querySelector('#question-select option[value="1"]').textContent.includes('⚑'));
     await page.locator('#done').check();
@@ -114,8 +134,20 @@ async function main() {
     // xterm's ResizeObserver fits its canvas after the viewport resize.
     await page.waitForFunction(() => document.documentElement.scrollWidth <= innerWidth);
     if (process.env.E2E_SCREENSHOT_DIR) await page.screenshot({path:path.join(process.env.E2E_SCREENSHOT_DIR,'question-mobile.png')});
+    // Every packaged question has its own steps and exact solution commands.
+    const packaged = JSON.parse(await fs.readFile(path.resolve(__dirname, '../../exam/tasks.json'), 'utf8'));
+    tasks.splice(0, tasks.length, ...packaged.map(t => ({ID:t.id,Title:t.title,Points:t.points,Instructions:t.instructions,Steps:t.steps,Solution:t.solution,Explanation:t.explanation})));
+    for (const task of tasks) {
+      state.selected = task.ID;
+      await page.evaluate(() => refresh());
+      assert.equal(await page.locator('#solution').isHidden(), true);
+      await page.locator('#reveal').click();
+      assert.equal(await page.locator('#solution ol > li').count(), task.Steps.length);
+      assert.equal(await page.locator('#solution pre code').innerText(), task.Solution);
+      assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
+    }
     assert.deepEqual(errors, []);
-    console.log('UI checks passed: navigation, polling, reload, timer boundaries, Markdown, syntax highlighting, sanitization, responsive layout.');
+    console.log('UI checks passed: navigation, polling, reload, timer boundaries, Markdown, syntax highlighting, sanitization, responsive layout, all 29 solution walkthroughs.');
   } finally {
     if (browser) await browser.close();
     await new Promise(resolve => server.close(resolve));

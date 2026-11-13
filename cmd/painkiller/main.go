@@ -30,6 +30,7 @@ type task struct {
 	Resource                                              string
 	Points                                                int
 	Checks                                                []check
+	Steps                                                 []string
 }
 type check struct {
 	Description string
@@ -803,29 +804,7 @@ func main() {
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 		_, _ = io.Copy(w, io.LimitReader(f, 32768))
 	})
-	http.HandleFunc("/api/tasks", func(w http.ResponseWriter, r *http.Request) {
-		a.mu.Lock()
-		defer a.mu.Unlock()
-		a.expire()
-		type publicTask struct {
-			ID, Title, Instructions string
-			Points                  int
-			Solution                string `json:",omitempty"`
-			Explanation             string `json:",omitempty"`
-		}
-		ts := []publicTask{}
-		if a.state.Phase == "running" || a.state.Phase == "completed" {
-			for _, t := range a.tasks {
-				p := publicTask{ID: t.ID, Title: t.Title, Instructions: t.Instructions, Points: t.Points}
-				if a.state.Phase == "completed" {
-					p.Solution = t.Solution
-					p.Explanation = t.Explanation
-				}
-				ts = append(ts, p)
-			}
-		}
-		json.NewEncoder(w).Encode(ts)
-	})
+	http.HandleFunc("/api/tasks", a.taskList)
 	http.HandleFunc("/api/terminal", a.terminal)
 	http.HandleFunc("/api/", func(w http.ResponseWriter, r *http.Request) {
 		if !sameOrigin(r) {
@@ -838,6 +817,27 @@ func main() {
 	addr := env("PAINKILLER_LISTEN", "127.0.0.1:8080")
 	log.Printf("listening on %s", addr)
 	log.Fatal(http.ListenAndServe(addr, nil))
+}
+
+func (a *app) taskList(w http.ResponseWriter, r *http.Request) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.expire()
+	type publicTask struct {
+		ID, Title, Instructions string
+		Points                  int
+		Solution                string   `json:",omitempty"`
+		Explanation             string   `json:",omitempty"`
+		Steps                   []string `json:",omitempty"`
+	}
+	ts := []publicTask{}
+	if a.state.Phase == "running" || a.state.Phase == "completed" {
+		for _, t := range a.tasks {
+			ts = append(ts, publicTask{ID: t.ID, Title: t.Title, Instructions: t.Instructions, Points: t.Points, Solution: t.Solution, Explanation: t.Explanation, Steps: t.Steps})
+		}
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(ts)
 }
 
 func normalizeLegacyScores(s *state, tasks []task) bool {

@@ -1,6 +1,10 @@
 [
   {
     "id": "namespace",
+    "steps": [
+      "Create the namespace with `kubectl create namespace exam-sandbox`.",
+      "Verify it exists and is Active with `kubectl get namespace exam-sandbox`."
+    ],
     "title": "Create a namespace",
     "points": 2,
     "instructions": "Create a namespace named `exam-sandbox`.",
@@ -17,6 +21,11 @@
   },
   {
     "id": "node-label",
+    "steps": [
+      "List nodes with `kubectl get nodes` and choose one. The solution commands select the first node automatically.",
+      "Apply the label with `kubectl label node <node-name> exam=ready --overwrite`.",
+      "Verify your node appears in `kubectl get nodes -l exam=ready --show-labels`."
+    ],
     "title": "Label a node",
     "points": 2,
     "instructions": "Add the label `exam=ready` to any node.",
@@ -33,6 +42,12 @@
   },
   {
     "id": "node-placement",
+    "steps": [
+      "Find a worker with `kubectl get nodes`. The solution commands select a node without the control-plane label.",
+      "Taint it with `kubectl taint node <worker-name> exam=reserved:NoSchedule --overwrite`.",
+      "Cordon it with `kubectl cordon <worker-name>`.",
+      "Run `kubectl describe node <worker-name>` and confirm the taint and `Unschedulable: true`."
+    ],
     "title": "Taint and cordon a node",
     "points": 4,
     "instructions": "Add the taint `exam=reserved:NoSchedule` to one node, and mark one node unschedulable (cordon). New Pods that do not tolerate the taint must no longer be placed on the tainted node.",
@@ -54,6 +69,11 @@
   },
   {
     "id": "static-pod",
+    "steps": [
+      "Choose a worker and find its InternalIP with `kubectl get nodes -o wide`.",
+      "SSH to the worker and write the Pod manifest shown below to `/etc/kubernetes/manifests/static-web.yaml` using sudo. The kubelet watches this directory; do not use kubectl apply for a static Pod.",
+      "On the controller, run `kubectl get pods -o wide`. Confirm a mirror Pod named `static-web-<node-name>` appears on the chosen worker."
+    ],
     "title": "Run a static Pod",
     "points": 4,
     "instructions": "On one of the worker nodes, create a static Pod manifest named `static-web` using image `nginx:1.27`. The kubelet must run a Pod named `static-web-<node-name>`. SSH access to the worker nodes is configured from the lab terminal; do not run it on the control-plane node.",
@@ -75,6 +95,11 @@
   },
   {
     "id": "etcd-snapshot",
+    "steps": [
+      "Run this task on the control-plane node. Create `/opt/backup` with sudo.",
+      "Use `ETCDCTL_API=3 etcdctl` against `https://127.0.0.1:2379` with the CA, server certificate, and key under `/etc/kubernetes/pki/etcd/`, as shown below.",
+      "Save the snapshot to `/opt/backup/etcd.db`, then confirm it is nonempty with `sudo ls -lh /opt/backup/etcd.db`."
+    ],
     "title": "Back up etcd",
     "points": 4,
     "instructions": "On the control-plane node, create an etcd snapshot and save it as `/opt/backup/etcd.db`. The `etcdctl` client is installed and the etcd certificates are in `/etc/kubernetes/pki/etcd/`. The snapshot must be a readable etcd backup.",
@@ -91,6 +116,10 @@
   },
   {
     "id": "pod",
+    "steps": [
+      "Create the Pod with `kubectl -n exam-workloads run web --image=nginx:1.27`.",
+      "Verify its image and status with `kubectl -n exam-workloads describe pod web`."
+    ],
     "title": "Create a pod",
     "points": 2,
     "instructions": "In namespace `exam-workloads`, create a pod named `web` using image `nginx:1.27`.",
@@ -107,6 +136,10 @@
   },
   {
     "id": "deployment",
+    "steps": [
+      "Create the Deployment with `kubectl -n exam-workloads create deployment api --image=nginx:1.27 --replicas=2`.",
+      "Wait with `kubectl -n exam-workloads rollout status deployment/api`, then check that `kubectl -n exam-workloads get deployment api` reports two available replicas."
+    ],
     "title": "Create a deployment",
     "points": 4,
     "instructions": "In namespace `exam-workloads`, create a deployment named `api` using image `nginx:1.27` with 2 replicas.",
@@ -128,6 +161,12 @@
   },
   {
     "id": "rollout",
+    "steps": [
+      "Update the `web` container with `kubectl -n exam-workloads set image deployment/rollout web=nginx:1.26`.",
+      "Wait for the update with `kubectl -n exam-workloads rollout status deployment/rollout`.",
+      "Undo it with `kubectl -n exam-workloads rollout undo deployment/rollout` and wait for rollout status again.",
+      "Verify `kubectl -n exam-workloads describe deployment rollout` shows `nginx:1.27` again."
+    ],
     "title": "Roll back a deployment",
     "points": 4,
     "instructions": "The Deployment `rollout` in namespace `exam-workloads` runs `nginx:1.27`. Update it to `nginx:1.26`, wait for the rollout, then roll back to the previous revision. When you are done it must run `nginx:1.27` again and report at least 3 revisions.",
@@ -149,6 +188,11 @@
   },
   {
     "id": "multicontainer",
+    "steps": [
+      "Define a Pod named `pipeline` in `exam-workloads` with an init container named `prepare`, using `busybox:1.36` and running `sh -c 'sleep 2'`.",
+      "Add regular containers named `app` using `nginx:1.27` and `log-sidecar` using `busybox:1.36`; keep the sidecar running with `sh -c 'tail -f /dev/null'`.",
+      "Apply the manifest below. Verify with `kubectl -n exam-workloads describe pod pipeline`: the init container should complete and both regular containers should run."
+    ],
     "title": "Build a multi-container Pod",
     "points": 5,
     "instructions": "Create a Pod named `pipeline` in `exam-workloads` with an init container `prepare` (image `busybox:1.36`, command `sh -c \"sleep 2\"`) and two containers: `app` (image `nginx:1.27`) and `log-sidecar` (image `busybox:1.36`, command `sh -c \"tail -f /dev/null\"`). The Pod must reach the Running phase.",
@@ -175,6 +219,11 @@
   },
   {
     "id": "resources",
+    "steps": [
+      "Define a one-replica Deployment named `resource-demo` in `exam-workloads`, using `nginx:1.27`.",
+      "Set the container requests to CPU `100m` and memory `128Mi`, and limits to CPU `500m` and memory `256Mi`.",
+      "Apply the manifest below. Verify requests and limits with `kubectl -n exam-workloads get deployment resource-demo -o yaml`."
+    ],
     "title": "Set resource requests and limits",
     "points": 4,
     "instructions": "Create a Deployment named `resource-demo` in `exam-workloads` with one replica, image `nginx:1.27`, and container resources requesting `100m` CPU and `128Mi` memory with limits of `500m` CPU and `256Mi` memory.",
@@ -196,6 +245,11 @@
   },
   {
     "id": "limits",
+    "steps": [
+      "Create the quota with `kubectl -n exam-workloads create quota limit-pods --hard=pods=20`.",
+      "Apply the LimitRange below, named `default-limits`, with container defaults of CPU `200m` and memory `256Mi`, and default requests of CPU `100m` and memory `128Mi`.",
+      "Verify both policies with `kubectl -n exam-workloads describe quota limit-pods` and `kubectl -n exam-workloads describe limitrange default-limits`."
+    ],
     "title": "Limit a namespace",
     "points": 4,
     "instructions": "In namespace `exam-workloads`, create a ResourceQuota named `limit-pods` limiting pods to 20, and a LimitRange named `default-limits` that applies a Container default limit of `200m` CPU and `256Mi` memory with a default request of `100m` CPU and `128Mi` memory.",
@@ -217,6 +271,10 @@
   },
   {
     "id": "priorityclass",
+    "steps": [
+      "Create the cluster-scoped class with `kubectl create priorityclass exam-critical --value=100000`. Do not make it a global default.",
+      "Verify the value and default flag with `kubectl get priorityclass exam-critical -o yaml`."
+    ],
     "title": "Create a PriorityClass",
     "points": 3,
     "instructions": "Create a PriorityClass named `exam-critical` with the value `100000`. It must not be the cluster default PriorityClass.",
@@ -233,6 +291,10 @@
   },
   {
     "id": "job",
+    "steps": [
+      "Create the Job with `kubectl -n exam-workloads create job hello --image=busybox:1.36 -- echo hello`.",
+      "Wait with `kubectl -n exam-workloads wait --for=condition=complete job/hello --timeout=120s`, then check `kubectl -n exam-workloads logs job/hello`."
+    ],
     "title": "Create a Job",
     "points": 2,
     "instructions": "Create a Job named `hello` in namespace `exam-workloads` using image `busybox:1.36` which runs `echo hello`.",
@@ -249,6 +311,10 @@
   },
   {
     "id": "cronjob",
+    "steps": [
+      "Create the CronJob using `busybox:1.36`, schedule `*/5 * * * *`, and command `echo hello`, as shown below. Quote the schedule so the shell does not expand its asterisks.",
+      "Verify the schedule, image, and command with `kubectl -n exam-workloads get cronjob periodic -o yaml`. You do not need to wait five minutes for a scheduled run."
+    ],
     "title": "Schedule a Job",
     "points": 3,
     "instructions": "Create a CronJob named `periodic` in `exam-workloads` using `busybox:1.36`, scheduled every five minutes, running `echo hello`.",
@@ -270,6 +336,10 @@
   },
   {
     "id": "configmap",
+    "steps": [
+      "Create the ConfigMap with `kubectl -n exam-workloads create configmap settings --from-literal=mode=production`.",
+      "Verify its data contains `mode: production` with `kubectl -n exam-workloads get configmap settings -o yaml`."
+    ],
     "title": "Create a ConfigMap",
     "points": 2,
     "instructions": "In namespace `exam-workloads`, create a ConfigMap named `settings` with key `mode` set to `production`.",
@@ -286,6 +356,10 @@
   },
   {
     "id": "secret",
+    "steps": [
+      "Create the Secret with `kubectl -n exam-workloads create secret generic credentials --from-literal=username=operator`.",
+      "Verify the stored value with `kubectl -n exam-workloads get secret credentials -o jsonpath='{.data.username}' | base64 -d`; it should print `operator`."
+    ],
     "title": "Create a Secret",
     "points": 3,
     "instructions": "In namespace `exam-workloads`, create a generic Secret named `credentials` with key `username` set to `operator`.",
@@ -302,6 +376,10 @@
   },
   {
     "id": "serviceaccount",
+    "steps": [
+      "Create the account with `kubectl -n exam-workloads create serviceaccount observer`.",
+      "Verify it exists in the correct namespace with `kubectl -n exam-workloads get serviceaccount observer`."
+    ],
     "title": "Create a ServiceAccount",
     "points": 2,
     "instructions": "Create a ServiceAccount named `observer` in namespace `exam-workloads`.",
@@ -318,6 +396,11 @@
   },
   {
     "id": "pvc-binding",
+    "steps": [
+      "Define the cluster-scoped PV `exam-pv` with capacity `1Gi`, access mode `ReadWriteOnce`, storage class `exam-local`, and hostPath `/tmp/exam-data`.",
+      "Define the PVC `exam-claim` in `exam-workloads`, requesting `1Gi` with matching access mode and storage class.",
+      "Apply the two-resource manifest below. Run `kubectl get pv exam-pv` and `kubectl -n exam-workloads get pvc exam-claim` and confirm both are Bound to each other."
+    ],
     "title": "Bind a persistent volume",
     "points": 6,
     "instructions": "Create a PersistentVolume named `exam-pv` with capacity `1Gi`, access mode `ReadWriteOnce`, storage class `exam-local` and hostPath `/tmp/exam-data`. Create a PersistentVolumeClaim named `exam-claim` in `exam-workloads` requesting `1Gi` with the same access mode and class, and make sure it binds to `exam-pv`.",
@@ -344,6 +427,11 @@
   },
   {
     "id": "mount-config",
+    "steps": [
+      "Check the existing ConfigMap with `kubectl -n exam-workloads get configmap exam-material`.",
+      "Define Pod `config-mount` using `nginx:1.27`. Add a volume referencing `exam-material` and mount that volume at `/etc/exam` in the container.",
+      "Apply the manifest below. Verify the mount with `kubectl -n exam-workloads describe pod config-mount` and inspect the files with `kubectl -n exam-workloads exec config-mount -- ls /etc/exam`."
+    ],
     "title": "Mount a ConfigMap",
     "points": 3,
     "instructions": "Create a Pod named `config-mount` in `exam-workloads` using image `nginx:1.27` that mounts the existing ConfigMap `exam-material` as a volume named `config` at `/etc/exam`. The Pod must be running.",
@@ -370,6 +458,10 @@
   },
   {
     "id": "service",
+    "steps": [
+      "Expose the Deployment with `kubectl -n exam-workloads expose deployment service-target --name=api --port=80 --target-port=80`. The default Service type is ClusterIP.",
+      "Verify the type, ports, and selector with `kubectl -n exam-workloads describe service api`."
+    ],
     "title": "Expose a deployment",
     "points": 3,
     "instructions": "Expose the existing deployment `service-target` in namespace `exam-workloads` as a ClusterIP service named `api` on port 80 targeting port 80.",
@@ -386,6 +478,10 @@
   },
   {
     "id": "nodeport",
+    "steps": [
+      "Expose the Deployment with `kubectl -n exam-workloads expose deployment service-target --name=web-nodeport --type=NodePort --port=80 --target-port=80`.",
+      "Verify the type and allocated node port with `kubectl -n exam-workloads describe service web-nodeport`. Kubernetes chooses an available node port automatically."
+    ],
     "title": "Create a NodePort service",
     "points": 3,
     "instructions": "Expose the deployment `service-target` in `exam-workloads` again, this time as a NodePort Service named `web-nodeport` on port 80 targeting container port 80.",
@@ -402,6 +498,11 @@
   },
   {
     "id": "ingress",
+    "steps": [
+      "Define Ingress `web` in `exam-workloads` with a rule for host `exam.local`.",
+      "Route path `/` with pathType `Prefix` to Service `exam-backend` on port `80`, as shown below.",
+      "Apply the manifest, then verify the routing rule with `kubectl -n exam-workloads describe ingress web`. An Ingress controller is needed for actual traffic routing; this task checks the resource configuration."
+    ],
     "title": "Route traffic with an Ingress",
     "points": 5,
     "instructions": "Create an Ingress named `web` in `exam-workloads` that routes requests for host `exam.local` to the existing Service `exam-backend` on port 80. Use the path `/` with pathType `Prefix`. This lab has no ingress controller, so only the resource configuration is checked.",
@@ -423,6 +524,11 @@
   },
   {
     "id": "networkpolicy",
+    "steps": [
+      "Define NetworkPolicy `deny-ingress` in `exam-workloads` with `podSelector: {}` to select every Pod.",
+      "Set `policyTypes` to `Ingress` and omit ingress allow rules. Apply the manifest below.",
+      "Verify with `kubectl -n exam-workloads describe networkpolicy deny-ingress`. The default Flannel CNI does not enforce NetworkPolicy; this task checks the policy configuration only."
+    ],
     "title": "Default deny ingress",
     "points": 3,
     "instructions": "Create a NetworkPolicy named `deny-ingress` in `exam-workloads` selecting all Pods and specifying default-deny ingress. The default Flannel lab CNI does not enforce policies; this task checks the resource configuration.",
@@ -439,6 +545,11 @@
   },
   {
     "id": "coredns",
+    "steps": [
+      "Scale the Deployment with `kubectl -n kube-system scale deployment/coredns --replicas=3`.",
+      "Wait with `kubectl -n kube-system rollout status deployment/coredns --timeout=180s`.",
+      "Verify `kubectl -n kube-system get deployment coredns` reports three ready and available replicas."
+    ],
     "title": "Scale CoreDNS",
     "points": 3,
     "instructions": "Scale the CoreDNS Deployment in `kube-system` to three replicas and wait until all three are available.",
@@ -460,6 +571,11 @@
   },
   {
     "id": "repair",
+    "steps": [
+      "Inspect `kubectl -n exam-repair describe deployment broken-web` and the associated Pod events to identify the incorrect image.",
+      "Fix the `web` container with `kubectl -n exam-repair set image deployment/broken-web web=nginx:1.27`.",
+      "Wait with `kubectl -n exam-repair rollout status deployment/broken-web --timeout=180s`, then verify its replicas are available."
+    ],
     "title": "Troubleshoot a deployment",
     "points": 4,
     "instructions": "The `broken-web` deployment in namespace `exam-repair` cannot start. Fix its image to `nginx:1.27` and ensure it has one available replica.",
@@ -481,6 +597,11 @@
   },
   {
     "id": "svc-selector",
+    "steps": [
+      "Compare `kubectl -n exam-repair get service broken-endpoints -o yaml` with `kubectl -n exam-repair get pods --show-labels` to find the selector mismatch.",
+      "Patch the Service selector to `app: endpoint-target` with the command below.",
+      "Verify the Service selects the intended Pods and has endpoint addresses with `kubectl -n exam-repair get endpointslice -l kubernetes.io/service-name=broken-endpoints`."
+    ],
     "title": "Repair a service",
     "points": 4,
     "instructions": "The Service `broken-endpoints` in `exam-repair` has no endpoints, so traffic never reaches the Pods of the `endpoint-target` Deployment. Repair the Service so that it has at least one ready endpoint.",
@@ -497,6 +618,11 @@
   },
   {
     "id": "crashloop",
+    "steps": [
+      "Inspect `kubectl -n exam-repair describe deployment crashing` and its Pod logs to identify the command that exits immediately.",
+      "Replace the first container command with `sh -c 'sleep 3600'` using the JSON patch below, so the container keeps running.",
+      "Wait with `kubectl -n exam-repair rollout status deployment/crashing --timeout=180s`, then confirm the replacement Pod is Ready."
+    ],
     "title": "Recover a crashing workload",
     "points": 4,
     "instructions": "The Deployment `crashing` in `exam-repair` never becomes ready because its container exits immediately. Fix the workload so that exactly one replica is available.",
@@ -513,6 +639,11 @@
   },
   {
     "id": "rbac",
+    "steps": [
+      "Create Role `pod-reader` in `exam-workloads`, granting only `get`, `list`, and `watch` on `pods`.",
+      "Create RoleBinding `read-pods` in the same namespace, binding that Role to ServiceAccount `exam-workloads:binding-observer`, as shown below.",
+      "Verify with `kubectl auth can-i list pods -n exam-workloads --as=system:serviceaccount:exam-workloads:binding-observer`. It should print yes; `kubectl auth can-i delete pods` with the same namespace and impersonation flags should print no."
+    ],
     "title": "Grant namespaced permissions",
     "points": 4,
     "instructions": "Create a Role named `pod-reader` in `exam-workloads` allowing get, list and watch on Pods, and bind it to ServiceAccount `binding-observer` in the same namespace with a RoleBinding named `read-pods`.",
@@ -534,6 +665,11 @@
   },
   {
     "id": "cluster-rbac",
+    "steps": [
+      "Create ClusterRole `node-reader`, granting only `get`, `list`, and `watch` on the cluster-scoped `nodes` resource.",
+      "Create ClusterRoleBinding `node-reader`, binding it to ServiceAccount `exam-workloads:cluster-observer`, as shown below.",
+      "Verify with `kubectl auth can-i list nodes --as=system:serviceaccount:exam-workloads:cluster-observer`. It should print yes; the same check for `delete nodes` should print no."
+    ],
     "title": "Grant cluster-wide permissions",
     "points": 4,
     "instructions": "Create a ClusterRole named `node-reader` allowing get, list and watch on nodes, and bind it to ServiceAccount `cluster-observer` in `exam-workloads` with a ClusterRoleBinding named `node-reader`.",
