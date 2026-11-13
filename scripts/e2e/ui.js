@@ -35,6 +35,7 @@ async function main() {
       {ID:'two',Title:'Create a namespace',Points:2,Instructions:'Create namespace `exam-sandbox`.'},
       {ID:'three',Title:'Review configuration',Points:2,Instructions:'Check the configuration.'}
     ];
+    tasks[0].Explanation = 'Inspect the running Pods with `kubectl get pods`. <script>window.unsafe=true</script><img src=x onerror="window.unsafe=true">';
     const state = {phase:'running',deadline:new Date(now.getTime()+90*60000).toISOString(),duration_seconds:7200,flags:{},done:{}};
     await page.route('**/api/**', async route => {
       const name = new URL(route.request().url()).pathname.split('/').pop();
@@ -68,6 +69,7 @@ async function main() {
     assert.equal(await page.locator('#solution').isVisible(), true);
     assert.equal(await page.locator('#reveal').getAttribute('aria-expanded'), 'true');
     assert.equal(await page.locator('#solution ol > li').count(), 2);
+    assert.equal(await page.locator('#solution > div p code').innerText(), 'kubectl get pods');
     assert.equal(await page.locator('#solution pre code').innerText(), tasks[0].Solution);
     assert.ok(await page.locator('#solution code.language-bash .token').count() > 0);
     assert.equal(await page.locator('#solution script, #solution img').count(), 0);
@@ -144,6 +146,10 @@ async function main() {
       await page.locator('#reveal').click();
       assert.equal(await page.locator('#solution ol > li').count(), task.Steps.length);
       assert.equal(await page.locator('#solution pre code').innerText(), task.Solution);
+      if (task.ID === 'etcd-snapshot') {
+        assert.deepEqual(await page.locator('#solution > div p code').allTextContents(), ['etcdctl snapshot save', 'etcdctl snapshot restore']);
+        assert.equal((await page.locator('#solution > div').innerText()).includes('`'), false);
+      }
       assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
     }
     assert.deepEqual(errors, []);

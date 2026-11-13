@@ -55,7 +55,7 @@ $('reveal').onclick=()=>{
   if(expanded){
     solution.replaceChildren();
     const heading=document.createElement('h3');heading.textContent='Step-by-step solution';solution.append(heading);
-    if(t.Explanation){const p=document.createElement('p');p.textContent=t.Explanation;solution.append(p)}
+    if(t.Explanation){const explanation=document.createElement('div');renderMarkdown(explanation,t.Explanation);solution.append(explanation)}
     const steps=document.createElement('ol');
     for(const step of t.Steps||['Run the solution commands below.','Check that the resulting resources satisfy the question.']){
       const li=document.createElement('li');renderMarkdown(li,step);steps.append(li);

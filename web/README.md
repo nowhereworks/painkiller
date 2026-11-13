@@ -17,7 +17,7 @@ the block. Switching questions hides and clears it; polling keeps it open.
 
 `exam/tasks.json` stores each question's `steps`, `solution`, and `explanation`.
 The tasks API includes these during running and completed attempts. Walkthrough
-steps use the same sanitized Markdown renderer as question text; command blocks
+steps and explanations use the same sanitized Markdown renderer as question text; command blocks
 use text content and Bash highlighting. Internal grading checks stay server-side.
 
 Run `node scripts/e2e/ui.js` for isolated browser checks, including all 29
