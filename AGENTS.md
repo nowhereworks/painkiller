@@ -8,6 +8,7 @@ This is the repository for Painkiller Shell: A Killer.sh clone that aims to mimi
 - Keep things as simple as possible
 - When making modifications, change as little as possible in order to achieve goals
 - Always persist any useful data for future sessions 
+- Display lab operation output in a read-only, auto-scrolling terminal-style box that fills the remaining viewport height dynamically.
 - On Proxmox, never alter or delete VMs outside IDs 3000–3999 and 9100–9200. 
 - On Proxmox, never alter or delete VMs templates outside IDs 9100–9200. 
 - Use only as many lab VMs as the CKA scenario requires; the default is one controller and two workers.
