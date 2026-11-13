@@ -1,51 +1,42 @@
-# CKA-002 execution checkpoint — 2026-11-13 (update 3)
+# CKA-002 execution checkpoint — 2026-11-13 (update 4)
 
-Source plan: `/home/milkman/.opencode/plan/` (CKA-002 finish plan, 3 phases).
+Source plan: `/home/milkman/.opencode/plan/` (CKA-002 finish plan).
 
-**CKA-002 is authored and the provisioning path is now split and prebaked.**
-The remaining work is operational: build the HA template `9200` and run the
-live 0→100 validation. Do not claim the exam is accepted until that runs.
+**CKA-002 is authored, provisioned from the prebaked HA image `9200`, and
+live-validated: baseline 0 → reference 100 → exact per-mutation deductions.**
+The full browser submit/reset flow is running via `scripts/e2e/live.js`.
 
-## Completed (this session)
+## Completed
 
-- Committed the earlier WIP (`prepare.sh` scp + taint-ordering,
-  `reference-solutions.sh` fault-repair ordering) and fixed the `join-controller`
-  walkthrough (it selected a worker IP; now uses `~/.ssh/painkiller_known_hosts`
-  to find the unjoined controller).
-- Removed the runtime `awk` surgery from `create-lab.sh`: prebaked provisioning
-  now skips package-prep and image-pull via `--skip-tags prerequisites,images`.
-- Dropped the unused `cilium` branch from `playbooks/kubeadm-cluster.yml`.
-- Relocated CKA-002-only HA balancing into the exam:
-  `exam/CKA-002/configure-api-load-balancer.sh` +
-  `exam/CKA-002/assets/api-load-balancer.yml`.
-- Added a prebaked HA image path: `scripts/build-template-ha.sh` (template
-  `9200`) and `scripts/validate-image-ha.sh`; `labSpec.template_id`
-  (9100–9200, required for prebaked multi-controller) and relaxed the prebaked
-  guard to accept three controllers + Calico + a stable endpoint.
-- Switched `exam/CKA-002/test.json` to `provision_mode: prebaked` +
-  `template_id: 9200`.
+- Exam authored and provisioned prebaked (3 controllers, 2 workers, Calico,
+  endpoint `.80:8443`, template `9200`); HA balancing relocated to the exam.
+- Template `9200` (`painkiller-image-ha-9200`) built and the exam switched to
+  `provision_mode: prebaked`.
+- Live validation on `prox-k12` (VMs 3000–3004, provisioned in ~120 s):
+  - baseline **0/100**;
+  - `reference-solutions.sh` applied → **100/100**;
+  - `e2e.json` mutations each remove exactly their task's points and restore:
+    `rbac` 95/100, `netpol` 94/100, `ingress-nodeport` 95/100.
 
-Static checks pass: `go test` (115), `go vet`, shellcheck, `bash -n`, JSON, and
-Ansible syntax for both playbooks.
+## Fixes applied during live validation
 
-## Still required (operational, needs Proxmox + network)
+- `reference-solutions.sh`: idempotent join; null-safe fault discovery; etcdctl
+  TLS flags for `snapshot save`; recreate immutable PVC/PV (storageClassName,
+  nodeAffinity) instead of patching; idempotent RBAC/quota/HPA; `--cpu=50%`.
+- `tasks.json`: jq operator-precedence fix (kubelet Ready), Gateway API
+  `parents` (not `routeParents`), `$root` binding for the local-PV node
+  cross-reference, and single-escape of nested jq in resource captures.
+- `operator.yaml`: `alpine/k8s:1.36.1` (bitnami/kubectl dropped version tags).
+- `prepare.sh`: taint the second worker before fixtures so setup Pods never
+  land on the worker whose kubelet fault later makes it NotReady; scp assets
+  instead of tar-over-ssh; wait for first boot; MetalLB webhook readiness;
+  Envoy Gateway server-side apply; literal CoreDNS split/join.
 
-1. Clear stale `k8s-*` DHCP leases in the LAN Technitium instance before
-   provisioning (AGENTS.md).
-2. `scripts/build-template-ha.sh` → build template `9200` (needs the 9199 base).
-3. Live validate CKA-002 against `9200`: fresh prepare, baseline 0, apply
-   `reference-solutions.sh` → 100, per-mutation deductions from `e2e.json`
-   (`rbac`, `netpol`, `ingress-nodeport`), browser submit, reset. Envoy
-   Gateway/Traefik/MetalLB/operator/HPA jq shapes remain unverified against live
-   objects; confirm the total wall time (target < ~120 s).
-4. Record measured timings + results in `exam/CKA-002/README.md`; commit/push.
+## Still required
 
-## Notes
-
-- The prebaked HA image bakes Calico + haproxy/keepalived + core/dependency
-  images. Envoy's data-plane image (`envoyproxy/envoy`) is not enumerated from
-  the install manifest and is pulled on first Gateway use (graceful, documented
-  in the builder).
-- A previously provisioned `ready` CKA-002 lab (legacy, template 9010) was in
-  `data/state.db`; it predates this split and is not valid for the new path —
-  reset before re-provisioning.
+1. Confirm the full `live.js` browser flow (marks survive reload, terminal +
+   reconnect, immutable submit 100/100, duplicate-submit 409, terminal 409,
+   reset to idle) — running now.
+2. Record the measured wall times and results in `exam/CKA-002/README.md`.
+3. Confirm `go test`/`vet`/shellcheck/ansible still pass after the fixes and
+   push.

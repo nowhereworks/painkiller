@@ -505,7 +505,7 @@
       "Verify `kubectl get nodes` shows all workers Ready."
     ],
     "solution": "worker=$(kubectl get nodes -o json | jq -r '[.items[] | select(.metadata.labels[\"node-role.kubernetes.io/control-plane\"] == null and ([.status.conditions[]? | select(.type==\"Ready\")][0].status != \"True\"))][0].metadata.name')\nip=$(kubectl get node \"$worker\" -o jsonpath='{.status.addresses[?(@.type==\"InternalIP\")].address}')\nssh \"$ip\" 'sudo sed -i \"/painkiller-fault/d\" /var/lib/kubelet/config.yaml && sudo systemctl restart kubelet'",
-    "resource": "jq -n --argjson nodes \"$(kubectl get nodes -o json)\" --argjson kubelet \"$(w=$(kubectl get nodes -o json | jq -r '[.items[] | select(.metadata.labels[\"node-role.kubernetes.io/control-plane\"] == null)][0].metadata.name'); ip=$(kubectl get node \"$w\" -o jsonpath='{.status.addresses[?(@.type==\"InternalIP\")].address}'); ssh -o ConnectTimeout=5 \"$ip\" 'sudo systemctl is-active kubelet' 2>/dev/null | grep -qx active && echo true || echo false)\" '{nodes:$nodes,kubelet:$kubelet}'",
+    "resource": "jq -n --argjson nodes \"$(kubectl get nodes -o json)\" --argjson kubelet \"$(w=$(kubectl get nodes -o json | jq -r '[.items[] | select(any(.spec.taints[]?; .key == \"exam\"))][0].metadata.name'); ip=$(kubectl get node \"$w\" -o jsonpath='{.status.addresses[?(@.type==\"InternalIP\")].address}'); ssh -o ConnectTimeout=5 \"$ip\" 'sudo systemctl is-active kubelet' 2>/dev/null | grep -qx active && echo true || echo false)\" '{nodes:$nodes,kubelet:$kubelet}'",
     "checks": [
       {
         "description": "Every worker node is Ready",
