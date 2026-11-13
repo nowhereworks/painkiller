@@ -1,5 +1,39 @@
 let state={},tasks=[],index=0,term,fit,ws;
 const $=id=>document.getElementById(id);
+const exam=$('exam'),divider=$('panel-divider'),questionPanel=$('question-panel');
+function setQuestionWidth(width){
+  const available=exam.clientWidth-divider.offsetWidth;
+  if(available<=0||window.matchMedia('(max-width:700px)').matches)return;
+  const clamped=Math.max(270,Math.min(available-150,width));
+  exam.style.setProperty('--question-ratio',clamped/available);
+}
+divider.onpointerdown=e=>{
+  if(e.button!==0)return;
+  e.preventDefault();divider.focus();divider.setPointerCapture(e.pointerId);
+  exam.classList.add('resizing');
+};
+divider.onpointermove=e=>{
+  if(divider.hasPointerCapture(e.pointerId))setQuestionWidth(e.clientX-exam.getBoundingClientRect().left-divider.offsetWidth/2);
+};
+divider.onpointerup=e=>{if(divider.hasPointerCapture(e.pointerId))divider.releasePointerCapture(e.pointerId)};
+divider.onlostpointercapture=()=>exam.classList.remove('resizing');
+divider.onkeydown=e=>{
+  const available=exam.clientWidth-divider.offsetWidth;
+  let width=questionPanel.getBoundingClientRect().width;
+  if(e.key==='ArrowLeft')width-=e.shiftKey?50:10;
+  else if(e.key==='ArrowRight')width+=e.shiftKey?50:10;
+  else if(e.key==='Home')width=270;
+  else if(e.key==='End')width=available-150;
+  else return;
+  e.preventDefault();setQuestionWidth(width);
+};
+new ResizeObserver(()=>{
+  const available=exam.clientWidth-divider.offsetWidth;
+  if(available<=0||window.matchMedia('(max-width:700px)').matches)return;
+  divider.setAttribute('aria-valuemin',Math.ceil(270/available*100));
+  divider.setAttribute('aria-valuemax',Math.floor((available-150)/available*100));
+  divider.setAttribute('aria-valuenow',Math.round(questionPanel.getBoundingClientRect().width/available*100));
+}).observe(questionPanel);
 async function action(name,body){const r=await fetch('/api/'+name,{method:'POST',headers:{'Content-Type':'application/json'},body:body?JSON.stringify(body):'{}',keepalive:true});if(!r.ok)alert(await r.text());await refresh()}
 $('prepare').onclick=()=>action('prepare');$('retry').onclick=()=>action('retry');$('start').onclick=()=>action('start');$('reset').onclick=()=>{if(confirm('Destroy all VMs belonging to this lab?'))action('reset')};$('submit').onclick=()=>{if(confirm('Submit the exam? This cannot be undone.'))action('submit')};
 $('flag').onchange=$('done').onchange=()=>{state.flags??={};state.done??={};state.flags[tasks[index].ID]=$('flag').checked;state.done[tasks[index].ID]=$('done').checked;action('mark',{id:tasks[index].ID,flag:state.flags[tasks[index].ID],done:state.done[tasks[index].ID]})};

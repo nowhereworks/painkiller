@@ -22,3 +22,9 @@ article h2{font-size:20px;margin:0 0 18px}
 #instructions pre{max-width:100%;overflow-x:auto;white-space:pre;overflow-wrap:normal;font-size:14px;border:1px solid #e2e5e8;border-radius:3px}
 #instructions pre code{white-space:pre}
 @media(max-width:700px){#nav{gap:16px;padding:20px 16px}}
+#panel-divider{flex:0 0 8px;background:#cbd0d8;cursor:col-resize;touch-action:none}
+#panel-divider:hover,#panel-divider:focus-visible,#exam.resizing #panel-divider{background:#235c9c}
+#panel-divider:focus-visible{outline:2px solid #235c9c;outline-offset:-2px}
+#exam.resizing{cursor:col-resize;user-select:none}
+@media(min-width:701px){#question-panel{flex:0 0 calc((100% - 8px) * var(--question-ratio,.4));max-width:calc(100% - 158px);resize:none;border-right:0}}
+@media(max-width:700px){#panel-divider{display:none}}
