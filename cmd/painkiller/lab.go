@@ -72,7 +72,7 @@ func validateLabSpec(exam examDefinition) error {
 	if s.Controllers < 1 || s.Workers < 0 || s.Controllers+s.Workers > 20 ||
 		s.InitialControllers < 1 || s.InitialControllers > s.Controllers || s.MemoryMB < 2048 ||
 		(s.Mode != "legacy" && s.Mode != "prebaked") ||
-		(s.CNI != "flannel" && s.CNI != "calico" && s.CNI != "cilium") {
+		(s.CNI != "flannel" && s.CNI != "calico") {
 		return fmt.Errorf("%s: invalid lab specification", exam.ID)
 	}
 	if s.Endpoint != "" {
