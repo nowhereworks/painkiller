@@ -12,7 +12,7 @@ header #submit{margin-left:auto}
 #nav button,#question-select{height:40px;border:1px solid #b9c7d8;border-radius:0;color:#333;font:inherit}
 #nav button{width:36px;padding:0;flex-shrink:0;background:#f8f9fa}
 #question-select{flex:1;min-width:0;width:100%;padding:0 8px;background:white}
-article{padding:0 5px 20px;font:16px Arial,sans-serif;color:#222}
+article{padding:0 24px 20px;font:16px Arial,sans-serif;color:#222}
 article h2{font-size:20px;margin:0 0 18px}
 #instructions{line-height:1.55;overflow-wrap:anywhere}
 #instructions p{white-space:normal;margin:0 0 16px}
