@@ -22,3 +22,15 @@ use text content and Bash highlighting. Internal grading checks stay server-side
 
 Run `node scripts/e2e/ui.js` for isolated browser checks, including all 29
 packaged walkthroughs (no lab VMs required).
+
+## Results
+
+Each question has a separate card with its score, per-check evaluations, formatted
+explanation, and highlighted solution commands. Correct answers are green, wrong
+or partially correct answers red, and grading errors amber; text labels accompany
+the colors. Grading messages preserve whitespace in plain code blocks. Captured
+answer snapshots remain private and are not exposed by the status API.
+
+**Destroy Lab / Reset** appears above and below the cards; both buttons use the
+same confirmation and reset action. Grading errors retain **Retry grading**.
+The isolated UI checks also cover these controls and the responsive results layout.

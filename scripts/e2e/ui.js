@@ -37,11 +37,13 @@ async function main() {
     ];
     tasks[0].Explanation = 'Inspect the running Pods with `kubectl get pods`. <script>window.unsafe=true</script><img src=x onerror="window.unsafe=true">';
     const state = {phase:'running',deadline:new Date(now.getTime()+90*60000).toISOString(),duration_seconds:7200,flags:{},done:{}};
+    const actions = [];
     await page.route('**/api/**', async route => {
       const name = new URL(route.request().url()).pathname.split('/').pop();
       if (name === 'status') return route.fulfill({json:state});
       if (name === 'tasks') return route.fulfill({json:tasks});
       const body = route.request().postDataJSON();
+      actions.push(name);
       if (name === 'select') state.selected = body.id;
       if (name === 'mark') { state.flags[body.id] = body.flag; state.done[body.id] = body.done; }
       await route.fulfill({status:204});
@@ -152,8 +154,66 @@ async function main() {
       }
       assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
     }
+    // Results: separate cards, partial scores, errors, safe formatting and reset controls.
+    tasks.splice(0, tasks.length,
+      {ID:'pass',Title:'Correct answer',Points:3,Explanation:instructions,Solution:'echo "<script>window.unsafe=true</script>"\n  kubectl get pods'},
+      {ID:'partial',Title:'Partial answer',Points:2,Solution:'kubectl get nodes'},
+      {ID:'fail',Title:'Wrong answer',Points:2},
+      {ID:'error',Title:'Grading failure',Points:1},
+      {ID:'missing',Title:'Missing evaluation',Points:1}
+    );
+    state.phase = 'completed';
+    state.results = [
+      {id:'pass',passed:true,earned:3,checks:[{description:'Pods exist',earned:3,points:3}]},
+      {id:'partial',passed:false,earned:1,checks:[{description:'Created',earned:1,points:1},{description:'Configured',earned:0,points:1}]},
+      {id:'fail',passed:false,earned:0},
+      {id:'error',passed:false,earned:0,error:'command failed:\n  <script>window.unsafe=true</script>',checks:[{description:'Read resource',earned:0,points:1,error:'connection refused\n  retry later'}]}
+    ];
+    await page.evaluate(() => refresh());
+    assert.equal(await page.locator('#results').isVisible(), true);
+    assert.equal(await page.locator('#results h1').innerText(), 'Provisional results (grading errors): 4 / 9');
+    assert.equal(await page.locator('.result-card').count(), 5);
+    assert.equal(await page.locator('.result-card.correct').count(), 1);
+    assert.equal(await page.locator('.result-card.wrong').count(), 2);
+    assert.equal(await page.locator('.result-card.error').count(), 2);
+    assert.match(await page.locator('.result-card').nth(1).innerText(), /Partially correct — 1 \/ 2/);
+    assert.equal(await page.locator('.result-checks>.correct').count(), 2);
+    assert.equal(await page.locator('.result-checks>.wrong').count(), 1);
+    const card = page.locator('.result-card').first();
+    assert.equal(await card.locator(':scope > pre code').innerText(), tasks[0].Solution);
+    for (const language of ['bash','yaml','json']) assert.ok(await card.locator(`code.language-${language} .token`).count() > 0);
+    assert.equal(await page.locator('.result-card.error > pre code').first().innerText(), state.results[3].error);
+    assert.equal(await card.locator('pre').first().evaluate(el => getComputedStyle(el).whiteSpace), 'pre');
+    assert.notEqual(await card.evaluate(el => getComputedStyle(el).borderLeftColor), await page.locator('.result-card.wrong').first().evaluate(el => getComputedStyle(el).borderLeftColor));
+    assert.equal(await page.locator('#results script, #results img, #results a').count(), 0);
+    assert.equal(await page.evaluate(() => window.unsafe), undefined);
+    assert.equal(await page.locator('.results-reset').count(), 2);
+    assert.equal(await page.locator('#results > :nth-child(2)').getAttribute('class'), 'results-reset');
+    assert.equal(await page.locator('#results > :last-child').getAttribute('class'), 'results-reset');
+    await page.getByRole('button', {name:'Retry grading',exact:true}).click();
+    assert.ok(actions.includes('regrade'));
+    for (const position of [0,1]) {
+      const before = actions.filter(name => name === 'reset').length;
+      page.once('dialog', dialog => dialog.dismiss());
+      await page.locator('.results-reset').nth(position).click();
+      assert.equal(actions.filter(name => name === 'reset').length, before);
+      page.once('dialog', dialog => dialog.accept());
+      await Promise.all([
+        page.waitForResponse(response => response.url().endsWith('/api/status')),
+        page.locator('.results-reset').nth(position).click()
+      ]);
+      assert.equal(actions.filter(name => name === 'reset').length, before+1);
+    }
+    for (const width of [1280,375]) {
+      await page.setViewportSize({width,height:900});
+      assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
+      if (process.env.E2E_SCREENSHOT_DIR) await page.screenshot({path:path.join(process.env.E2E_SCREENSHOT_DIR,`results-${width}.png`),fullPage:true});
+    }
+    state.results = state.results.filter(r => r.id !== 'error');
+    await page.evaluate(() => refresh());
+    assert.equal(await page.getByRole('button', {name:'Retry grading',exact:true}).count(), 0);
     assert.deepEqual(errors, []);
-    console.log('UI checks passed: navigation, polling, reload, timer boundaries, Markdown, syntax highlighting, sanitization, responsive layout, all 29 solution walkthroughs.');
+    console.log('UI checks passed: navigation, polling, reload, timer boundaries, Markdown, syntax highlighting, sanitization, responsive layout, all 29 solution walkthroughs, results cards and reset controls.');
   } finally {
     if (browser) await browser.close();
     await new Promise(resolve => server.close(resolve));

@@ -112,7 +112,54 @@ async function terminalClipboard(key){
 }
 function connect(){if(ws)ws.close();if(!window.Terminal){$('terminal').textContent='Terminal library could not load. Check network access and reconnect.';return}if(!term){term=new Terminal({cursorBlink:true,convertEol:false});fit=new FitAddon.FitAddon();term.loadAddon(fit);term.open($('terminal'));term.attachCustomKeyEventHandler(terminalKey);term.onData(s=>{if(ws?.readyState===1)ws.send(new TextEncoder().encode(s))});window.addEventListener('resize',resize);new ResizeObserver(resize).observe($('terminal'))}ws=new WebSocket((location.protocol==='https:'?'wss://':'ws://')+location.host+'/api/terminal');ws.binaryType='arraybuffer';ws.onopen=()=>{term.writeln('\r\nConnected.');resize();term.focus()};ws.onmessage=e=>term.write(new Uint8Array(e.data));ws.onclose=()=>{term.writeln('\r\nDisconnected. Use Reconnect to open a new shell.')};}
 function resize(){if(!fit||!$('terminal').clientWidth||!$('terminal').clientHeight)return;fit.fit();if(ws?.readyState===1)ws.send(JSON.stringify({cols:term.cols,rows:term.rows}))}$('reconnect').onclick=connect;
-async function refresh(){try{let old=state.phase;state=await(await fetch('/api/status',{cache:'no-store'})).json();$('phase').textContent=state.phase;$('message').textContent=state.message||'';$('prepare').hidden=state.phase!=='idle';$('start').hidden=state.phase!=='ready';$('retry').hidden=state.phase!=='error'||!['prepare','reset'].includes(state.failed_operation);$('reset').hidden=['running','preparing','grading','resetting'].includes(state.phase);$('submit').hidden=state.phase!=='running';$('home').hidden=['running','completed'].includes(state.phase);$('exam').hidden=state.phase!=='running';$('results').hidden=state.phase!=='completed';if(state.phase==='running'||state.phase==='completed'){tasks=await(await fetch('/api/tasks',{cache:'no-store'})).json();if(state.selected){let selected=tasks.findIndex(t=>t.ID===state.selected);if(selected>=0)index=selected}draw()}if(['preparing','resetting','error'].includes(state.phase)){let log=await(await fetch('/api/log',{cache:'no-store'})).text();$('log').textContent=log}else $('log').textContent='';if(state.phase==='running'&&old!=='running')connect();if(old==='running'&&state.phase!=='running'&&ws)ws.close();if(state.phase==='completed'){let score=state.results.reduce((n,r)=>n+(r.earned??(r.passed?(tasks.find(t=>t.ID===r.id)?.Points||0):0)),0);$('results').replaceChildren();let h=document.createElement('h1');h.textContent=`${state.results.some(r=>r.error)?'Provisional results (grading errors)':'Results from captured answers'}: ${score} / ${tasks.reduce((n,t)=>n+t.Points,0)}`;$('results').append(h);let list=document.createElement('ol');for(const t of tasks){let r=state.results.find(x=>x.id===t.ID),li=document.createElement('li');li.textContent=`${t.Title}: ${r?.error?'GRADING ERROR: '+r.error:`${r?.earned??(r?.passed?t.Points:0)} / ${t.Points} points`} — ${t.Explanation||""} Solution: ${t.Solution}`;if(r?.checks?.length){let parts=document.createElement('ul');for(const c of r.checks){let part=document.createElement('li');part.textContent=`${c.description}: ${c.error?'GRADING ERROR: '+c.error:`${c.earned} / ${c.points}`}`;parts.append(part)}li.append(parts)}list.append(li)}$('results').append(list);if(state.results.some(r=>r.error)){let retry=document.createElement('button');retry.textContent='Retry grading';retry.onclick=()=>action('regrade');$('results').append(retry)}let b=document.createElement('button');b.textContent='Destroy lab / reset';b.onclick=$('reset').onclick;$('results').append(b)}tick()}catch(e){$('message').textContent='Cannot reach server: '+e}}
+async function refresh(){try{let old=state.phase;state=await(await fetch('/api/status',{cache:'no-store'})).json();$('phase').textContent=state.phase;$('message').textContent=state.message||'';$('prepare').hidden=state.phase!=='idle';$('start').hidden=state.phase!=='ready';$('retry').hidden=state.phase!=='error'||!['prepare','reset'].includes(state.failed_operation);$('reset').hidden=['running','preparing','grading','resetting'].includes(state.phase);$('submit').hidden=state.phase!=='running';$('home').hidden=['running','completed'].includes(state.phase);$('exam').hidden=state.phase!=='running';$('results').hidden=state.phase!=='completed';if(state.phase==='running'||state.phase==='completed'){tasks=await(await fetch('/api/tasks',{cache:'no-store'})).json();if(state.selected){let selected=tasks.findIndex(t=>t.ID===state.selected);if(selected>=0)index=selected}draw()}if(['preparing','resetting','error'].includes(state.phase)){let log=await(await fetch('/api/log',{cache:'no-store'})).text();$('log').textContent=log}else $('log').textContent='';if(state.phase==='running'&&old!=='running')connect();if(old==='running'&&state.phase!=='running'&&ws)ws.close();if(state.phase==='completed')renderResults();tick()}catch(e){$('message').textContent='Cannot reach server: '+e}}
+function resultCode(parent,text,language='none'){
+  const pre=document.createElement('pre'),code=document.createElement('code');
+  code.className='language-'+language;code.textContent=text;
+  pre.append(code);parent.append(pre);Prism.highlightElement(code);
+}
+function renderResults(){
+  const results=state.results||[],container=$('results');
+  const score=results.reduce((n,r)=>n+(r.earned??(r.passed?(tasks.find(t=>t.ID===r.id)?.Points||0):0)),0);
+  const hasErrors=results.some(r=>r.error||r.checks?.some(c=>c.error));
+  container.replaceChildren();
+  const heading=document.createElement('h1');
+  heading.textContent=`${hasErrors?'Provisional results (grading errors)':'Results from captured answers'}: ${score} / ${tasks.reduce((n,t)=>n+t.Points,0)}`;
+  container.append(heading);
+  function resetButton(){
+    const button=document.createElement('button');button.textContent='Destroy Lab / Reset';
+    button.className='results-reset';button.onclick=$('reset').onclick;container.append(button);
+  }
+  resetButton();
+  const list=document.createElement('ol');list.className='result-list';
+  tasks.forEach((t,i)=>{
+    const r=results.find(x=>x.id===t.ID),earned=r?.earned??(r?.passed?t.Points:0);
+    const status=!r||r.error||r.checks?.some(c=>c.error)?'error':r.passed?'correct':'wrong';
+    const card=document.createElement('li');card.className='result-card '+status;
+    const title=document.createElement('h2');title.textContent=`Question ${i+1}: ${t.Title}`;card.append(title);
+    const summary=document.createElement('p');summary.className='result-status';
+    summary.textContent=`${status==='error'?'Grading error':status==='correct'?'Correct':earned>0?'Partially correct':'Wrong'} — ${earned} / ${t.Points} points`;card.append(summary);
+    if(!r)resultCode(card,'No evaluation is available.');
+    if(r?.error)resultCode(card,r.error);
+    if(r?.checks?.length){
+      const checks=document.createElement('ul');checks.className='result-checks';
+      for(const c of r.checks){
+        const item=document.createElement('li');item.className=c.error?'error':c.earned===c.points?'correct':'wrong';
+        const label=document.createElement('p');label.textContent=`${c.error?'Grading error':c.earned===c.points?'Correct':'Wrong'}: ${c.description} — ${c.earned} / ${c.points} points`;item.append(label);
+        if(c.error)resultCode(item,c.error);
+        checks.append(item);
+      }
+      card.append(checks);
+    }
+    if(t.Explanation){const explanation=document.createElement('div');renderMarkdown(explanation,t.Explanation);card.append(explanation)}
+    const solutionHeading=document.createElement('h3');solutionHeading.textContent='Solution commands';card.append(solutionHeading);
+    resultCode(card,t.Solution||'No solution is available for this question.','bash');
+    list.append(card);
+  });
+  container.append(list);
+  if(hasErrors){const retry=document.createElement('button');retry.textContent='Retry grading';retry.onclick=()=>action('regrade');container.append(retry)}
+  resetButton();
+}
 function tick(){
   if(state.phase!=='running'){$('timer').textContent='';return}
   const remaining=Math.max(0,(new Date(state.deadline)-Date.now())/1000);
