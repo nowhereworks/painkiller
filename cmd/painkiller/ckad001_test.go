@@ -160,6 +160,59 @@ func TestCKAD001QoSEvidence(t *testing.T) {
 	}
 }
 
+func TestCKAD001ThreeContainerEvidence(t *testing.T) {
+	stubCommand(t, "kubectl", "#!/bin/sh\nprintf '%s' \"$CKAD001_POD\"\n")
+	const pod = `{"metadata":{"name":"trio-runner"},"spec":{"containers":[
+		{"name":"alpha","image":"busybox:1.28","env":[{"name":"ORDER","value":"LEAD"}]},
+		{"name":"web","image":"nginx:1.27","ports":[{"containerPort":8081}]},
+		{"name":"omega","image":"busybox:1.31.1","env":[{"name":"ORDER","value":"TAIL"}]}
+	]},"status":{"phase":"Running","conditions":[{"type":"Ready","status":"True"}],
+	"containerStatuses":[{"ready":true,"state":{"running":{}}},{"ready":true,"state":{"running":{}}},{"ready":true,"state":{"running":{}}}]}}`
+	for _, tc := range []struct {
+		name, data, failure string
+	}{
+		{"correct", pod, ""},
+		{"wrong image", strings.Replace(pod, "busybox:1.28", "busybox:latest", 1), "Container alpha must use busybox:1.28"},
+		{"wrong environment", strings.Replace(pod, "TAIL", "LEAD", 1), "Container omega must set ORDER=TAIL"},
+		{"wrong port", strings.Replace(pod, "8081", "80", 1), "Container web must declare containerPort 8081"},
+		{"wrong name", strings.Replace(pod, `"web"`, `"other"`, 1), "Container web must use nginx:1.27"},
+		{"extra container", strings.Replace(pod, `"containers":[`, `"containers":[{"name":"extra"},`, 1), "Pod must contain exactly three containers"},
+		{"starting", strings.Replace(pod, `"Running"`, `"Pending"`, 1), "Pod must be Running and Ready"},
+		{"not ready", strings.ReplaceAll(pod, `"ready":true`, `"ready":false`), "All three containers must be running and ready"},
+		{"missing", "{}", "Pod container-lab/trio-runner must exist"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv("CKAD001_POD", tc.data)
+			out, err := exec.Command("bash", "../../exam/CKAD-001/assets/capture.sh", "q1").CombinedOutput()
+			if err != nil {
+				t.Fatalf("capture: %v\n%s", err, out)
+			}
+			var evidence struct {
+				OK       bool
+				Failures []string
+			}
+			if err := json.Unmarshal(out, &evidence); err != nil || evidence.OK != (tc.failure == "") {
+				t.Fatalf("unexpected evidence: %s (%v)", out, err)
+			}
+			if tc.failure != "" && !strings.Contains(string(out), tc.failure) {
+				t.Fatalf("missing failure %q: %s", tc.failure, out)
+			}
+			a := testApp(t)
+			task := task{ID: "q1", Resource: "capture", Points: 8, Checks: []check{{
+				Description: "Three correctly configured containers are running",
+				Points:      8, Expression: ".ok == true", Diagnostics: ".failures // []",
+			}}}
+			result := a.evaluateTask("", "", task, answerSnapshot{Data: out})
+			if result.Passed != evidence.OK || result.Error != "" {
+				t.Fatalf("unexpected grading: %+v", result)
+			}
+			if len(result.Checks[0].Details) != len(evidence.Failures) {
+				t.Fatalf("lost diagnostics: %+v", result)
+			}
+		})
+	}
+}
+
 func TestCKAD001CloudInitWait(t *testing.T) {
 	for _, tool := range []string{"bash", "python3", "timeout"} {
 		if _, err := exec.LookPath(tool); err != nil {

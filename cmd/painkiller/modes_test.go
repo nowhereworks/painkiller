@@ -35,11 +35,11 @@ func TestVerifyFreshAndDoesNotChangeAttempt(t *testing.T) {
 	t.Setenv("VERIFY_INPUT", file)
 	a := testApp(t)
 	a.state = state{Phase: "running", Mode: "learning", Host: "host", Deadline: time.Now().Add(-time.Minute), Selected: "other"}
-	a.tasks = []task{{ID: "one", Resource: "read-only", Points: 1, Checks: []check{{Description: "Exists", Points: 1, Expression: ".exists"}}}}
+	a.tasks = []task{{ID: "one", Resource: "read-only", Points: 1, Checks: []check{{Description: "Exists", Points: 1, Expression: ".exists", Diagnostics: ".failures // []"}}}}
 	for _, tc := range []struct {
 		data string
 		want int
-	}{{`{"exists":false}`, 0}, {`{"exists":true}`, 1}} {
+	}{{`{"exists":false,"failures":["Resource is missing"]}`, 0}, {`{"exists":true}`, 1}} {
 		if err := os.WriteFile(file, []byte(tc.data), 0600); err != nil {
 			t.Fatal(err)
 		}
@@ -48,6 +48,9 @@ func TestVerifyFreshAndDoesNotChangeAttempt(t *testing.T) {
 		var got result
 		if w.Code != 200 || json.Unmarshal(w.Body.Bytes(), &got) != nil || got.Earned != tc.want {
 			t.Fatalf("verify: %d %s", w.Code, w.Body.String())
+		}
+		if tc.want == 0 && (len(got.Checks) != 1 || len(got.Checks[0].Details) != 1 || got.Checks[0].Details[0] != "Resource is missing") {
+			t.Fatalf("verification lost diagnostics: %s", w.Body.String())
 		}
 	}
 	if a.state.Answers != nil || a.state.Results != nil || a.state.Selected != "other" || a.state.Phase != "running" {

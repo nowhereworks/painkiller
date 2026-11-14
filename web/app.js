@@ -98,6 +98,19 @@ $('next').onclick=()=>selectQuestion(index+1);
 $('question-select').onchange=e=>selectQuestion(Number(e.target.value));
 let renderedInstructions,renderedQuestion;
 let verificationSequence=0;
+function verificationBlock(section,status,requirement,details=[]){
+  const block=document.createElement('div');block.className='verification-check verification-'+status;
+  const heading=document.createElement('strong');
+  heading.textContent={passed:'Passed',failed:'Failed',error:'Could not verify'}[status];
+  block.append(heading);
+  if(requirement){
+    const description=document.createElement('p');description.textContent='Requirement: '+requirement;block.append(description);
+  }
+  for(const detail of details){
+    const line=document.createElement('p');line.textContent=detail;block.append(line);
+  }
+  section.append(block);
+}
 $('verify').onclick=async()=>{
   const id=tasks[index]?.ID, sequence=++verificationSequence;
   if(!id)return;
@@ -113,17 +126,18 @@ $('verify').onclick=async()=>{
     summary.textContent=`Checked at ${new Date().toLocaleTimeString()}`;
     section.append(summary);
     if(result.error&&!result.checks?.length){
-      const error=document.createElement('p');error.textContent='Could not verify: '+result.error;section.append(error);
+      verificationBlock(section,'error',null,[result.error]);
     }
-    const list=document.createElement('ul');
     for(const check of result.checks||[]){
-      const item=document.createElement('li');
-      item.textContent=`${check.error?'Could not verify':check.earned===check.points?'Done':'Fail'}: ${check.description}`;
-      list.append(item);
+      const status=check.error?'error':check.earned===check.points?'passed':'failed';
+      verificationBlock(section,status,check.description,check.error?[check.error]:
+        status==='failed'&& !check.details?.length?['The current answer does not meet this requirement.']:check.details||[]);
     }
-    section.append(list);
   }catch(error){
-    if(sequence===verificationSequence)$('verification').textContent='Could not verify: '+error.message;
+    if(sequence===verificationSequence){
+      const section=$('verification');section.replaceChildren();
+      verificationBlock(section,'error',null,[error.message]);
+    }
   }finally{
     if(sequence===verificationSequence)$('verify').disabled=false;
   }

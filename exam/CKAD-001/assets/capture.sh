@@ -33,12 +33,24 @@ probe() {
 }
 case "${1:-}" in
 q1)
-  expression='($p | running) and ($p.spec.containers | length == 3) and
-    ($p | container("alpha") | .image == "busybox:1.28" and any(.env[]?; .name == "ORDER" and .value == "LEAD")) and
-    ($p | container("web") | .image == "nginx:1.27" and any(.ports[]?; .containerPort == 8081)) and
-    ($p | container("omega") | .image == "busybox:1.31.1" and any(.env[]?; .name == "ORDER" and .value == "TAIL")) and
-    ($p.status.containerStatuses | length == 3 and all(.[]; .state.running != null and .ready))'
-  evaluate --argjson p "$(get pod trio-runner -n container-lab)"
+  jq -n --argjson p "$(get pod trio-runner -n container-lab)" '
+    def container($name): first($p.spec.containers[]? | select(.name == $name)) // {};
+    def requirement($message; $condition):
+      {message: $message, passed: (try ($condition // false) catch false)};
+    [
+      requirement("Pod container-lab/trio-runner must exist"; $p.metadata.name == "trio-runner"),
+      requirement("Pod must be Running and Ready";
+        $p.status.phase == "Running" and any($p.status.conditions[]?; .type == "Ready" and .status == "True")),
+      requirement("Pod must contain exactly three containers"; ($p.spec.containers | length) == 3),
+      requirement("Container alpha must use busybox:1.28"; container("alpha").image == "busybox:1.28"),
+      requirement("Container alpha must set ORDER=LEAD"; any(container("alpha").env[]?; .name == "ORDER" and .value == "LEAD")),
+      requirement("Container web must use nginx:1.27"; container("web").image == "nginx:1.27"),
+      requirement("Container web must declare containerPort 8081"; any(container("web").ports[]?; .containerPort == 8081)),
+      requirement("Container omega must use busybox:1.31.1"; container("omega").image == "busybox:1.31.1"),
+      requirement("Container omega must set ORDER=TAIL"; any(container("omega").env[]?; .name == "ORDER" and .value == "TAIL")),
+      requirement("All three containers must be running and ready";
+        ($p.status.containerStatuses | length) == 3 and all($p.status.containerStatuses[]?; .state.running != null and .ready))
+    ] | {ok: all(.[]; .passed), failures: [.[] | select(.passed | not) | .message]}'
   ;;
 q2)
   expression='$s.provisioner == "kubernetes.io/no-provisioner" and $s.volumeBindingMode == "WaitForFirstConsumer" and $s.allowVolumeExpansion == true'

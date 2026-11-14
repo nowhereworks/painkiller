@@ -9,7 +9,7 @@
     "steps": ["Write a v1 Pod manifest with three containers.", "Set each image, name, environment value, and the web containerPort.", "Use sleep commands to keep BusyBox running, apply the manifest, and wait for Ready."],
     "solution": "kubectl apply -f - <<'YAML'\napiVersion: v1\nkind: Pod\nmetadata:\n  name: trio-runner\n  namespace: container-lab\nspec:\n  containers:\n  - name: alpha\n    image: busybox:1.28\n    command: [sh, -c, 'sleep 7200']\n    env: [{name: ORDER, value: LEAD}]\n  - name: web\n    image: nginx:1.27\n    ports: [{containerPort: 8081}]\n  - name: omega\n    image: busybox:1.31.1\n    command: [sh, -c, 'sleep 7200']\n    env: [{name: ORDER, value: TAIL}]\nYAML",
     "resource": "bash /opt/painkiller/ckad001/capture.sh q1",
-    "checks": [{"description": "Three correctly configured containers are running", "points": 8, "expression": ".ok == true"}],
+    "checks": [{"description": "Three correctly configured containers are running", "points": 8, "expression": ".ok == true", "diagnostics": ".failures // []"}],
     "explanation": "Containers share a Pod network namespace. Declaring containerPort does not reconfigure the application listener."
   },
   {

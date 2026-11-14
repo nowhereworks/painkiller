@@ -107,3 +107,7 @@ verification, navigation, submission, and terminal reconnect in a browser.
 For exam layout changes, run `node scripts/e2e/layout.js` (Playwright and Chrome
 required; no server or lab). It checks panel resizing, terminal fitting and
 bottom spacing, no exam page overflow, and preserved results-page scrolling.
+For Learning verification rendering, run `node scripts/e2e/verification.js`
+(same prerequisites; mocked HTTP, no server or lab). It checks separate
+green/red/amber result blocks, explicit requirement labels, plain-text
+diagnostics, capture errors, and discarded responses after question navigation.

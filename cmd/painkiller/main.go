@@ -40,16 +40,18 @@ type check struct {
 	Points      int
 	Command     string
 	Expression  string
+	Diagnostics string
 }
 type answerSnapshot struct {
 	Data  json.RawMessage `json:"data,omitempty"`
 	Error string          `json:"error,omitempty"`
 }
 type checkResult struct {
-	Description string `json:"description"`
-	Points      int    `json:"points"`
-	Earned      int    `json:"earned"`
-	Error       string `json:"error,omitempty"`
+	Description string   `json:"description"`
+	Points      int      `json:"points"`
+	Earned      int      `json:"earned"`
+	Error       string   `json:"error,omitempty"`
+	Details     []string `json:"details,omitempty"`
 }
 type result struct {
 	ID     string        `json:"id"`
@@ -501,6 +503,14 @@ func (a *app) evaluateTask(user, host string, t task, answer answerSnapshot) res
 		} else if checkUnavailable(err, out) {
 			cr.Error = fmt.Sprintf("check failed: %v %s", err, strings.TrimSpace(out))
 			res.Error = "One or more checks could not be graded"
+		}
+		if cr.Error == "" && cr.Earned != cr.Points && t.Resource != "" && c.Diagnostics != "" {
+			cmd := exec.Command("timeout", "30s", "jq", "-c", c.Diagnostics)
+			cmd.Stdin = bytes.NewReader(answer.Data)
+			if details, err := cmd.Output(); err == nil {
+				// Diagnostics explain a mismatch; they never change the score.
+				_ = json.Unmarshal(details, &cr.Details)
+			}
 		}
 		res.Checks = append(res.Checks, cr)
 	}
