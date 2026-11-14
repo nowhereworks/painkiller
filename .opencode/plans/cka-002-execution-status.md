@@ -1,42 +1,36 @@
-# CKA-002 execution checkpoint — 2026-11-13 (update 4)
+# CKA-002 execution checkpoint — 2026-11-13 (update 5 — complete)
 
 Source plan: `/home/milkman/.opencode/plan/` (CKA-002 finish plan).
 
-**CKA-002 is authored, provisioned from the prebaked HA image `9200`, and
-live-validated: baseline 0 → reference 100 → exact per-mutation deductions.**
-The full browser submit/reset flow is running via `scripts/e2e/live.js`.
+**CKA-002 is authored, provisioned from the prebaked HA image `9200`, and fully
+accepted: baseline 0 → reference 100 → exact mutations → browser submit 100 →
+submission finality → reset.**
 
-## Completed
+## Acceptance (all green)
 
-- Exam authored and provisioned prebaked (3 controllers, 2 workers, Calico,
-  endpoint `.80:8443`, template `9200`); HA balancing relocated to the exam.
-- Template `9200` (`painkiller-image-ha-9200`) built and the exam switched to
-  `provision_mode: prebaked`.
-- Live validation on `prox-k12` (VMs 3000–3004, provisioned in ~120 s):
-  - baseline **0/100**;
-  - `reference-solutions.sh` applied → **100/100**;
-  - `e2e.json` mutations each remove exactly their task's points and restore:
-    `rbac` 95/100, `netpol` 94/100, `ingress-nodeport` 95/100.
+- Fresh prepare on `prox-k12` (VMs 3000–3004, prebaked `9200`, ~120 s).
+- Baseline **0/100**; reference `reference-solutions.sh` → **100/100**.
+- `e2e.json` mutations remove exactly their task's points and restore to 100:
+  `rbac` 95, `netpol` 94, `ingress-nodeport` 95.
+- Browser submit **100/100**; duplicate submit → 409; terminal after submit → 409.
+- Marks, terminal echo, and reconnect survive a reload; reset returns to idle.
+- Static checks pass: `go test` (115), `go vet`, shellcheck, `bash -n`, JSON,
+  Ansible syntax, and `assets/SHA256SUMS`.
 
-## Fixes applied during live validation
+## Final fixes applied (all committed)
 
-- `reference-solutions.sh`: idempotent join; null-safe fault discovery; etcdctl
-  TLS flags for `snapshot save`; recreate immutable PVC/PV (storageClassName,
-  nodeAffinity) instead of patching; idempotent RBAC/quota/HPA; `--cpu=50%`.
-- `tasks.json`: jq operator-precedence fix (kubelet Ready), Gateway API
-  `parents` (not `routeParents`), `$root` binding for the local-PV node
-  cross-reference, and single-escape of nested jq in resource captures.
+- `prepare.sh`: first-boot wait before HAProxy, MetalLB webhook retry, Envoy
+  Gateway server-side apply, scp (not tar-over-ssh) for assets, taint the second
+  worker before fixtures, literal CoreDNS split/join, preflight skip on retry.
+- `reference-solutions.sh`: idempotent join; `</dev/null` on nested ssh (the
+  nested ssh was swallowing the script's stdin); etcdctl TLS flags; recreate
+  immutable PVC/PV; `--cpu=50%`; apply-based RBAC/quota/HPA.
+- `tasks.json`: Gateway API `parents` field, jq precedence and `$root` binding,
+  single-escape of nested jq, kubelet-repair graded from node Ready (no nested
+  ssh in capture).
 - `operator.yaml`: `alpine/k8s:1.36.1` (bitnami/kubectl dropped version tags).
-- `prepare.sh`: taint the second worker before fixtures so setup Pods never
-  land on the worker whose kubelet fault later makes it NotReady; scp assets
-  instead of tar-over-ssh; wait for first boot; MetalLB webhook readiness;
-  Envoy Gateway server-side apply; literal CoreDNS split/join.
+- `scripts/create-lab.sh`: datastore free-space preflight.
 
-## Still required
+## Remaining
 
-1. Confirm the full `live.js` browser flow (marks survive reload, terminal +
-   reconnect, immutable submit 100/100, duplicate-submit 409, terminal 409,
-   reset to idle) — running now.
-2. Record the measured wall times and results in `exam/CKA-002/README.md`.
-3. Confirm `go test`/`vet`/shellcheck/ansible still pass after the fixes and
-   push.
+None for acceptance. The exam is committed; push is the final step.

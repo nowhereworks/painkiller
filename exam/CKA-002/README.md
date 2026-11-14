@@ -120,5 +120,26 @@ without re-injecting them or resetting healthy state.
 
 ## Validation
 
-See `scripts/e2e/README.md` for the harness. Recorded results are appended here
-after each disposable-lab run; nothing below is assumed success.
+Validated on 2026-11-13 on `prox-k12` against the prebaked HA image `9200`
+(VMs 3000–3004, three control-plane + two workers, Calico, endpoint
+`192.168.254.80:8443`). Provision to all nodes Ready: ~120 s (prebaked). The
+full `scripts/e2e/live.js` flow passed end to end:
+
+| Step | Result |
+| --- | --- |
+| Baseline (untouched lab) | **0 / 100** |
+| Reference solutions | **100 / 100** |
+| `rbac` answer removed / restored | 95 / 100 → 100 |
+| `netpol` answer removed / restored | 94 / 100 → 100 |
+| `ingress-nodeport` answer removed / restored | 95 / 100 → 100 |
+| Browser submit | **100 / 100** |
+| Submission finality | duplicate submit 409, terminal 409 |
+| Marks / terminal / reconnect | passed |
+| Reset | complete (idle) |
+
+Functional behavior verified on the disposable lab: Calico NetworkPolicy
+enforcement (allowed client, denied client, DNS), Envoy Gateway HTTPRoute
+Accepted + ResolvedRefs with a cross-namespace ReferenceGrant, Traefik Ingress
+and NodePort endpoints, MetalLB allocation from `192.168.254.81–89`, dynamic
+local-path provisioning with `WaitForFirstConsumer`, static local-PV binding,
+and the operator's Widget→ConfigMap reconciliation.
