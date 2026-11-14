@@ -25,6 +25,7 @@ func examFixture(t *testing.T) []examDefinition {
 				"checks":[{"description":"Namespace exists","points":100,"expression":".metadata.name == \"fixture\""}]}]`,
 			"setup.yaml":             "kind: List\nitems: []\n",
 			"reference-solutions.sh": "#!/bin/sh\ntrue\n",
+			"check-ready.sh":         "#!/bin/sh\ntrue\n",
 		}
 		for name, body := range files {
 			if err := os.WriteFile(filepath.Join(dir, name), []byte(body), 0600); err != nil {
@@ -138,7 +139,7 @@ func TestRestoreSelectedAndLegacyExams(t *testing.T) {
 }
 
 func TestExamDefinitionsFailClosed(t *testing.T) {
-	for _, name := range []string{"test.json", "tasks.json", "setup.yaml", "reference-solutions.sh"} {
+	for _, name := range []string{"test.json", "tasks.json", "setup.yaml", "reference-solutions.sh", "check-ready.sh"} {
 		t.Run(name, func(t *testing.T) {
 			exams := examFixture(t)
 			if err := os.Remove(filepath.Join(exams[0].dir, name)); err != nil {

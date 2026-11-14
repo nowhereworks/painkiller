@@ -3,16 +3,16 @@
     "id": "join-controller",
     "title": "Join the third control-plane node",
     "points": 6,
-    "instructions": "Two of the three control-plane nodes are already joined. The third has been prepared but never joined. Generate a fresh bootstrap token and a certificate key, join the third control-plane node with kubeadm, and confirm the API endpoint serves three etcd members.",
+    "instructions": "Two control-plane nodes are joined. On the unjoined third node, enable IPv4 forwarding immediately and persistently in /etc/sysctl.d/99-cka002.conf. Generate a fresh bootstrap token and certificate key, join that node with kubeadm, and verify three Ready controllers and three healthy etcd members. The shared API endpoint is cka002-api:8443; its single proxy is provided by the lab.",
     "steps": [
       "On the first control-plane node run `kubectl get nodes` and note there are two control-plane nodes and two workers.",
-      "Generate a certificate key with `sudo kubeadm init phase upload-certs --upload-certs` and note the 64-character key.",
+      "On the unjoined node, set net.ipv4.ip_forward=1 in /etc/sysctl.d/99-cka002.conf and apply it with sudo sysctl -p /etc/sysctl.d/99-cka002.conf. Generate a certificate key on the first controller with `sudo kubeadm init phase upload-certs --upload-certs`.",
       "Create a join command with `sudo kubeadm token create --print-join-command`.",
       "Find the unjoined controller's IP: it is the address in `~/.ssh/painkiller_known_hosts` that is not yet listed as a node. SSH there and run the join command, appending `--control-plane --certificate-key <key>`.",
       "Verify with `kubectl get nodes` (three control-plane Ready) and `kubectl get pods -n kube-system -l component=etcd` (three Running members)."
     ],
-    "solution": "joined=$(kubectl get nodes -o json | jq -r '[.items[].status.addresses[] | select(.type==\"InternalIP\") | .address] | unique | .[]')\nall=$(awk '!/^#/ {print $1}' \"$HOME/.ssh/painkiller_known_hosts\")\nthird=$(comm -23 <(printf '%s\\n' \"$all\" | sort -u) <(printf '%s\\n' \"$joined\" | sort -u) | head -1)\nkey=$(sudo -n kubeadm init phase upload-certs --upload-certs 2>/dev/null | tail -1)\njoin=$(sudo -n kubeadm token create --print-join-command)\nssh \"$third\" \"sudo -n $join --control-plane --certificate-key $key\"",
-    "resource": "jq -n --argjson nodes \"$(kubectl get nodes -o json)\" --argjson etcd \"$(kubectl -n kube-system get pods -l component=etcd -o json)\" '{nodes:$nodes,etcd:$etcd}'",
+    "solution": "joined=$(kubectl get nodes -o json | jq -r '[.items[].status.addresses[] | select(.type==\"InternalIP\") | .address] | unique | .[]')\nall=$(awk '!/^#/ {print $1}' \"$HOME/.ssh/painkiller_known_hosts\")\nthird=$(comm -23 <(printf '%s\\n' \"$all\" | sort -u) <(printf '%s\\n' \"$joined\" | sort -u) | head -1)\nssh \"$third\" 'echo net.ipv4.ip_forward=1 | sudo -n tee /etc/sysctl.d/99-cka002.conf; sudo -n sysctl -p /etc/sysctl.d/99-cka002.conf'\nkey=$(sudo -n kubeadm init phase upload-certs --upload-certs 2>/dev/null | tail -1)\njoin=$(sudo -n kubeadm token create --print-join-command)\nssh \"$third\" \"sudo -n $join --control-plane --certificate-key $key\"",
+    "resource": "jq -n --argjson nodes \"$(kubectl get nodes -o json)\" --argjson etcd \"$(sudo -n etcdctl --endpoints=https://127.0.0.1:2379 --cacert=/etc/kubernetes/pki/etcd/ca.crt --cert=/etc/kubernetes/pki/etcd/server.crt --key=/etc/kubernetes/pki/etcd/server.key endpoint health --cluster -w json 2>/dev/null || echo '[]')\" '{nodes:$nodes,etcd:$etcd}'",
     "checks": [
       {
         "description": "All three control-plane nodes are Ready",
@@ -20,9 +20,9 @@
         "expression": "([.nodes.items[] | select(.metadata.labels[\"node-role.kubernetes.io/control-plane\"] != null)] | length) == 3 and ([.nodes.items[] | select(.metadata.labels[\"node-role.kubernetes.io/control-plane\"] != null and ([.status.conditions[]? | select(.type==\"Ready\")][0].status == \"True\"))] | length) == 3"
       },
       {
-        "description": "Three etcd members are running",
+        "description": "Three etcd endpoints are healthy",
         "points": 3,
-        "expression": "([.etcd.items[] | select(.status.phase == \"Running\")] | length) == 3"
+        "expression": "(.etcd | length) == 3 and all(.etcd[]; .health == true)"
       }
     ],
     "explanation": "A stacked-etcd HA cluster joins additional control-plane nodes with `kubeadm join --control-plane --certificate-key`. The certificate key is uploaded on demand and expires after two hours, so it must be generated as part of the join rather than assumed from preparation."
@@ -31,15 +31,15 @@
     "id": "drain-snapshot",
     "title": "Drain a worker safely and back up etcd",
     "points": 5,
-    "instructions": "Cordon and drain one worker node while respecting the `web-pdb` PodDisruptionBudget in `exam-workloads`, saving the drain output to `/tmp/drain-evidence.txt`, then return (uncordon) the worker. Finally create an etcd snapshot at `/opt/backup/etcd.db` on the control-plane node and confirm it is readable.",
+    "instructions": "Complete the worker kubelet repair first. Cordon and drain the worker labeled topology.kubernetes.io/zone=east, respecting web-pdb in exam-workloads. Save successful drain output to /tmp/drain-evidence.txt, then uncordon it. Do not drain the west worker: it hosts shared fixtures and the API proxy. Create an etcd snapshot at /opt/backup/etcd.db on the first controller and confirm it is readable.",
     "steps": [
-      "Pick a worker with `kubectl get nodes` and cordon it with `kubectl cordon <worker>`.",
+      "After repairing the kubelet, select the east worker using `kubectl get nodes -l topology.kubernetes.io/zone=east` and cordon it.",
       "Drain it with `kubectl drain <worker> --ignore-daemonsets --delete-emptydir-data` so its Pods reschedule without violating the PDB, and record the output with `2>&1 | tee /tmp/drain-evidence.txt`.",
       "Confirm `kubectl get pods -n exam-workloads` still shows the `web` Pods running, then uncordon with `kubectl uncordon <worker>`.",
       "On a control-plane node run `sudo -n mkdir -p /opt/backup` and `sudo -n env ETCDCTL_API=3 etcdctl snapshot save /opt/backup/etcd.db`.",
       "Validate with `sudo -n env ETCDCTL_API=3 etcdctl snapshot status /opt/backup/etcd.db -w json` and confirm `totalKey` is greater than zero."
     ],
-    "solution": "worker=$(kubectl get nodes -o json | jq -r '[.items[] | select(.metadata.labels[\"node-role.kubernetes.io/control-plane\"] == null)][0].metadata.name')\nkubectl cordon \"$worker\"\nkubectl drain \"$worker\" --ignore-daemonsets --delete-emptydir-data --timeout=180s 2>&1 | tee /tmp/drain-evidence.txt\nkubectl uncordon \"$worker\"\nsudo -n mkdir -p /opt/backup\nsudo -n env ETCDCTL_API=3 etcdctl --endpoints=https://127.0.0.1:2379 --cacert=/etc/kubernetes/pki/etcd/ca.crt --cert=/etc/kubernetes/pki/etcd/server.crt --key=/etc/kubernetes/pki/etcd/server.key snapshot save /opt/backup/etcd.db",
+    "solution": "worker=$(kubectl get nodes -l topology.kubernetes.io/zone=east -o jsonpath='{.items[0].metadata.name}')\nkubectl cordon \"$worker\"\nkubectl drain \"$worker\" --ignore-daemonsets --delete-emptydir-data --timeout=180s 2>&1 | tee /tmp/drain-evidence.txt\nkubectl uncordon \"$worker\"\nsudo -n mkdir -p /opt/backup\nsudo -n env ETCDCTL_API=3 etcdctl --endpoints=https://127.0.0.1:2379 --cacert=/etc/kubernetes/pki/etcd/ca.crt --cert=/etc/kubernetes/pki/etcd/server.crt --key=/etc/kubernetes/pki/etcd/server.key snapshot save /opt/backup/etcd.db",
     "resource": "jq -n --argjson snap \"$(sudo -n env ETCDCTL_API=3 etcdctl snapshot status /opt/backup/etcd.db -w json 2>/dev/null || echo null)\" --argjson evidence \"$(test -s /tmp/drain-evidence.txt && grep -Eq 'cordoned|evicting|drained|evicted' /tmp/drain-evidence.txt && echo true || echo false)\" '{snapshot:$snap,evidence:$evidence}'",
     "checks": [
       {
@@ -166,16 +166,16 @@
     "id": "rollout",
     "title": "Recover a rollout with probes and rolling-update limits",
     "points": 5,
-    "instructions": "The Deployment `app` in `exam-workloads` cannot start because its image is invalid. Fix it to `nginx:1.27`, add a readiness and a liveness probe, and constrain rolling updates so no more than one Pod is replaced at a time (maxUnavailable 0).",
+    "instructions": "The latest rollout of app in exam-workloads uses an invalid image. Roll back to the previous nginx:1.27 revision and save the rollback command output to /tmp/rollback-evidence.txt. Add HTTP readiness and liveness probes on port 80 and set RollingUpdate maxUnavailable=0, maxSurge=1. Finish with two available replicas.",
     "steps": [
       "Inspect with `kubectl -n exam-workloads describe deployment app` to see the image pull failure.",
-      "Fix the image with `kubectl -n exam-workloads set image deployment/app app=nginx:1.27`.",
+      "Run `kubectl -n exam-workloads rollout undo deployment/app | tee /tmp/rollback-evidence.txt`.",
       "Edit the Deployment with `kubectl -n exam-workloads edit deployment app` and add `readinessProbe` and `livenessProbe` (httpGet on port 80).",
       "Set `spec.strategy.type: RollingUpdate` with `rollingUpdate.maxUnavailable: 0` and `maxSurge: 1`.",
       "Wait with `kubectl -n exam-workloads rollout status deployment/app` and confirm two available replicas."
     ],
-    "solution": "kubectl -n exam-workloads set image deployment/app app=nginx:1.27\nkubectl -n exam-workloads rollout status deployment/app --timeout=180s\nkubectl -n exam-workloads patch deployment app --type=strategic -p '{\"spec\":{\"strategy\":{\"type\":\"RollingUpdate\",\"rollingUpdate\":{\"maxUnavailable\":0,\"maxSurge\":1}},\"template\":{\"spec\":{\"containers\":[{\"name\":\"app\",\"readinessProbe\":{\"httpGet\":{\"path\":\"/\",\"port\":80}},\"livenessProbe\":{\"httpGet\":{\"path\":\"/\",\"port\":80}}}]}}}}'\nkubectl -n exam-workloads rollout status deployment/app --timeout=180s",
-    "resource": "kubectl -n exam-workloads get deployment app -o json 2>/dev/null || echo null",
+    "solution": "kubectl -n exam-workloads rollout undo deployment/app | tee /tmp/rollback-evidence.txt\nkubectl -n exam-workloads rollout status deployment/app --timeout=180s\nkubectl -n exam-workloads patch deployment app --type=strategic -p '{\"spec\":{\"strategy\":{\"type\":\"RollingUpdate\",\"rollingUpdate\":{\"maxUnavailable\":0,\"maxSurge\":1}},\"template\":{\"spec\":{\"containers\":[{\"name\":\"app\",\"readinessProbe\":{\"httpGet\":{\"path\":\"/\",\"port\":80}},\"livenessProbe\":{\"httpGet\":{\"path\":\"/\",\"port\":80}}}]}}}}'\nkubectl -n exam-workloads rollout status deployment/app --timeout=180s",
+    "resource": "kubectl -n exam-workloads get deployment app -o json 2>/dev/null | jq --argjson rollback \"$(grep -q 'rolled back' /tmp/rollback-evidence.txt 2>/dev/null && echo true || echo false)\" '. + {rollback:$rollback}'",
     "checks": [
       {
         "description": "Deployment runs the required image and is available",
@@ -183,19 +183,19 @@
         "expression": "any(.spec.template.spec.containers[]?; .name == \"app\" and .image == \"nginx:1.27\") and (.status.availableReplicas // 0) == 2"
       },
       {
-        "description": "Readiness probe is configured",
+        "description": "HTTP readiness and liveness probes are configured",
         "points": 1,
-        "expression": "any(.spec.template.spec.containers[]?; .readinessProbe != null)"
+        "expression": "any(.spec.template.spec.containers[]?; .name == \"app\" and .readinessProbe.httpGet.port == 80 and .livenessProbe.httpGet.port == 80)"
       },
       {
-        "description": "Liveness probe is configured",
+        "description": "Rollback evidence is recorded",
         "points": 1,
-        "expression": "any(.spec.template.spec.containers[]?; .livenessProbe != null)"
+        "expression": ".rollback == true"
       },
       {
         "description": "Rolling update never drops below the replica count",
         "points": 1,
-        "expression": "(.spec.strategy.type // \"\") == \"RollingUpdate\" and (.spec.strategy.rollingUpdate.maxUnavailable // 1) == 0"
+        "expression": "(.spec.strategy.type // \"\") == \"RollingUpdate\" and (.spec.strategy.rollingUpdate.maxUnavailable // 1) == 0 and .spec.strategy.rollingUpdate.maxSurge == 1"
       }
     ],
     "explanation": "An invalid image leaves a Deployment without available replicas. Readiness probes gate traffic, liveness probes restart stuck containers, and `maxUnavailable: 0` ensures the old replicas stay up until replacements are ready."
@@ -242,15 +242,15 @@
     "id": "scheduling",
     "title": "Pin scheduling with affinity, toleration, and spread",
     "points": 5,
-    "instructions": "One worker carries the taint `exam=reserved:NoSchedule`. Create a Deployment named `pinned` in `exam-workloads` (3 replicas, image `nginx:1.27`) that tolerates that taint, requires the `topology.kubernetes.io/zone` node affinity, spreads across zones with `maxSkew: 1`, and runs three available replicas. Also create a ResourceQuota named `exam-quota` in `exam-workloads` limiting Pods to 10.",
+    "instructions": "Complete the worker kubelet repair first. In exam-scheduling, create pinned (3 replicas, nginx:1.27) tolerating exam=reserved:NoSchedule, requiring node affinity to zone west or east, and spreading across topology.kubernetes.io/zone with maxSkew=1 and DoNotSchedule. Create exam-quota in that namespace limiting Pods to 10. Finish with three available replicas.",
     "steps": [
       "Inspect the taint with `kubectl get nodes -o json | jq '[.items[].spec.taints]'`.",
       "Create the Deployment with a toleration for `exam=reserved:NoSchedule`, required node affinity on `topology.kubernetes.io/zone`, and a topologySpreadConstraint on the same key with `maxSkew: 1`.",
       "Wait with `kubectl -n exam-workloads rollout status deployment/pinned` and confirm three replicas.",
-      "Create the quota with `kubectl -n exam-workloads create quota exam-quota --hard=pods=10`."
+      "Create the quota with `kubectl -n exam-scheduling create quota exam-quota --hard=pods=10`."
     ],
-    "solution": "kubectl -n exam-workloads create quota exam-quota --hard=pods=10\nkubectl apply -f - <<'YAML'\napiVersion: apps/v1\nkind: Deployment\nmetadata:\n  name: pinned\n  namespace: exam-workloads\nspec:\n  replicas: 3\n  selector:\n    matchLabels:\n      app: pinned\n  template:\n    metadata:\n      labels:\n        app: pinned\n    spec:\n      tolerations:\n        - key: exam\n          value: reserved\n          effect: NoSchedule\n      affinity:\n        nodeAffinity:\n          requiredDuringSchedulingIgnoredDuringExecution:\n            nodeSelectorTerms:\n              - matchExpressions:\n                  - key: topology.kubernetes.io/zone\n                    operator: In\n                    values: [west, east]\n      topologySpreadConstraints:\n        - maxSkew: 1\n          topologyKey: topology.kubernetes.io/zone\n          whenUnsatisfiable: DoNotSchedule\n          labelSelector:\n            matchLabels:\n              app: pinned\n      containers:\n        - name: web\n          image: nginx:1.27\nYAML\nkubectl -n exam-workloads rollout status deployment/pinned --timeout=180s",
-    "resource": "jq -n --argjson dep \"$(kubectl -n exam-workloads get deployment pinned -o json 2>/dev/null || echo null)\" --argjson quota \"$(kubectl -n exam-workloads get resourcequota -o json 2>/dev/null || echo null)\" '{deployment:$dep,quota:$quota}'",
+    "solution": "kubectl -n exam-scheduling create quota exam-quota --hard=pods=10\nkubectl apply -f - <<'YAML'\napiVersion: apps/v1\nkind: Deployment\nmetadata:\n  name: pinned\n  namespace: exam-scheduling\nspec:\n  replicas: 3\n  selector:\n    matchLabels:\n      app: pinned\n  template:\n    metadata:\n      labels:\n        app: pinned\n    spec:\n      tolerations:\n        - key: exam\n          value: reserved\n          effect: NoSchedule\n      affinity:\n        nodeAffinity:\n          requiredDuringSchedulingIgnoredDuringExecution:\n            nodeSelectorTerms:\n              - matchExpressions:\n                  - key: topology.kubernetes.io/zone\n                    operator: In\n                    values: [west, east]\n      topologySpreadConstraints:\n        - maxSkew: 1\n          topologyKey: topology.kubernetes.io/zone\n          whenUnsatisfiable: DoNotSchedule\n          labelSelector:\n            matchLabels:\n              app: pinned\n      containers:\n        - name: web\n          image: nginx:1.27\nYAML\nkubectl -n exam-scheduling rollout status deployment/pinned --timeout=180s",
+    "resource": "jq -n --argjson dep \"$(kubectl -n exam-scheduling get deployment pinned -o json 2>/dev/null || echo null)\" --argjson quota \"$(kubectl -n exam-scheduling get resourcequota -o json 2>/dev/null || echo null)\" '{deployment:$dep,quota:$quota}'",
     "checks": [
       {
         "description": "Required node affinity targets a zone",
@@ -265,7 +265,7 @@
       {
         "description": "Topology spread constraint is present",
         "points": 1,
-        "expression": "(.deployment != null) and any(.deployment.spec.template.spec.topologySpreadConstraints[]?; .topologyKey == \"topology.kubernetes.io/zone\" and .maxSkew == 1)"
+        "expression": "(.deployment != null) and any(.deployment.spec.template.spec.topologySpreadConstraints[]?; .topologyKey == \"topology.kubernetes.io/zone\" and .maxSkew == 1 and .whenUnsatisfiable == \"DoNotSchedule\" and .labelSelector.matchLabels.app == \"pinned\")"
       },
       {
         "description": "ResourceQuota bounds the namespace",
@@ -302,7 +302,7 @@
       {
         "description": "The unauthorized client is denied",
         "points": 2,
-        "expression": ".other_db == false"
+        "expression": ".np != null and .web_db == true and .other_db == false"
       },
       {
         "description": "The authorized client still reaches db",
@@ -319,40 +319,39 @@
   },
   {
     "id": "gateway",
-    "title": "Route across namespaces with the Gateway API",
+    "title": "Route an application with the Gateway API",
     "points": 5,
-    "instructions": "Using the installed Envoy Gateway, create a Gateway on port 80, an HTTPRoute that routes host `gw.example.com` path `/` to the Service `backend` in namespace `exam-gw-backend` (a cross-namespace backend), and a ReferenceGrant in `exam-gw-backend` that authorizes the route's namespace.",
+    "instructions": "In exam-gw, create Gateway exam using the installed traefik GatewayClass with an HTTP listener on port 80. Create HTTPRoute exam attached to it, routing gw.example.com path / to Service backend port 80 in the same namespace. Verify the route is accepted and HTTP requests through the Traefik Service succeed.",
     "steps": [
-      "Create a Gateway in `exam-gw` with a listener on port 80 using the `eg` GatewayClass.",
-      "Create a ReferenceGrant in `exam-gw-backend` permitting HTTPRoute from the `exam-gw` namespace to the `backend` Service.",
-      "Create an HTTPRoute in `exam-gw` with hostname `gw.example.com` and a backendRef to `backend` in `exam-gw-backend`.",
-      "Wait for the Envoy proxy and confirm `kubectl -n exam-gw get httproute` shows Accepted and ResolvedRefs conditions as True."
+      "Create Gateway exam in exam-gw using GatewayClass traefik and an HTTP listener on port 80.",
+      "Create HTTPRoute exam in exam-gw with parentRef exam, hostname gw.example.com, path prefix /, and backendRef backend port 80.",
+      "Verify Accepted and ResolvedRefs are True and request the Traefik Service with Host: gw.example.com."
     ],
-    "solution": "kubectl apply -f - <<'YAML'\napiVersion: gateway.networking.k8s.io/v1\nkind: GatewayClass\nmetadata:\n  name: eg\nspec:\n  controllerName: gateway.envoyproxy.io/gatewayclass-controller\n---\napiVersion: gateway.networking.k8s.io/v1\nkind: Gateway\nmetadata:\n  name: exam\n  namespace: exam-gw\nspec:\n  gatewayClassName: eg\n  listeners:\n    - name: http\n      protocol: HTTP\n      port: 80\n---\napiVersion: gateway.networking.k8s.io/v1\nkind: ReferenceGrant\nmetadata:\n  name: allow-exam-gw\n  namespace: exam-gw-backend\nspec:\n  from:\n    - group: gateway.networking.k8s.io\n      kind: HTTPRoute\n      namespace: exam-gw\n  to:\n    - group: \"\"\n      kind: Service\n      name: backend\n---\napiVersion: gateway.networking.k8s.io/v1\nkind: HTTPRoute\nmetadata:\n  name: exam\n  namespace: exam-gw\nspec:\n  parentRefs:\n    - name: exam\n      namespace: exam-gw\n  hostnames:\n    - gw.example.com\n  rules:\n    - matches:\n        - path:\n            type: PathPrefix\n            value: /\n      backendRefs:\n        - name: backend\n          namespace: exam-gw-backend\n          port: 80\nYAML",
-    "resource": "jq -n --argjson gw \"$(kubectl get gateway -A -o json 2>/dev/null || echo null)\" --argjson route \"$(kubectl get httproute -A -o json 2>/dev/null || echo null)\" --argjson grant \"$(kubectl get referencegrant -A -o json 2>/dev/null || echo null)\" '{gateways:$gw,httproutes:$route,referencegrants:$grant}'",
+    "solution": "kubectl apply -f - <<'YAML'\napiVersion: gateway.networking.k8s.io/v1\nkind: Gateway\nmetadata:\n  name: exam\n  namespace: exam-gw\nspec:\n  gatewayClassName: traefik\n  listeners:\n    - name: http\n      protocol: HTTP\n      port: 80\n---\napiVersion: gateway.networking.k8s.io/v1\nkind: HTTPRoute\nmetadata:\n  name: exam\n  namespace: exam-gw\nspec:\n  parentRefs:\n    - name: exam\n  hostnames: [gw.example.com]\n  rules:\n    - matches:\n        - path:\n            type: PathPrefix\n            value: /\n      backendRefs:\n        - name: backend\n          port: 80\nYAML",
+    "resource": "ip=$(kubectl -n traefik get service traefik -o jsonpath='{.spec.clusterIP}'); jq -n --argjson gw \"$(kubectl -n exam-gw get gateway exam -o json 2>/dev/null || echo null)\" --argjson route \"$(kubectl -n exam-gw get httproute exam -o json 2>/dev/null || echo null)\" --argjson reach \"$(wget -q -T 3 --header='Host: gw.example.com' -O /dev/null http://$ip && echo true || echo false)\" '{gateway:$gw,route:$route,reachable:$reach}'",
     "checks": [
       {
         "description": "A Gateway exposes port 80",
         "points": 1,
-        "expression": "(.gateways != null) and any(.gateways.items[]?; any(.spec.listeners[]?; .port == 80))"
+        "expression": ".gateway.spec.gatewayClassName == \"traefik\" and any(.gateway.spec.listeners[]?; .port == 80 and .protocol == \"HTTP\")"
       },
       {
-        "description": "HTTPRoute routes to a cross-namespace backend",
+        "description": "HTTPRoute matches the requested host, path and backend",
         "points": 2,
-        "expression": "(.httproutes != null) and any(.httproutes.items[]?; any(.spec.rules[]?; any(.matches[]?; .path.value == \"/\") and any(.backendRefs[]?; .name != null and .namespace != null and .namespace != \"\")))"
+        "expression": "any(.route.spec.parentRefs[]?; .name == \"exam\" and (.namespace // \"exam-gw\") == \"exam-gw\") and (.route.spec.hostnames | index(\"gw.example.com\") != null) and any(.route.spec.rules[]?; any(.matches[]?; .path.value == \"/\" and .path.type == \"PathPrefix\") and any(.backendRefs[]?; .name == \"backend\" and .port == 80 and (.namespace // \"exam-gw\") == \"exam-gw\"))"
       },
       {
-        "description": "ReferenceGrant authorizes the route",
+        "description": "HTTP traffic reaches the backend",
         "points": 1,
-        "expression": "(.referencegrants != null) and (.referencegrants.items | length) > 0"
+        "expression": ".route != null and .reachable == true"
       },
       {
         "description": "The HTTPRoute is accepted",
         "points": 1,
-        "expression": "(.httproutes != null) and any(.httproutes.items[]?; any(.status.parents[]?; all(.conditions[]?; .status == \"True\" and (.reason == \"Accepted\" or .reason == \"ResolvedRefs\"))))"
+        "expression": ".route as $r | any($r.status.parents[]?; .parentRef.name == \"exam\" and .controllerName == \"traefik.io/gateway-controller\" and any(.conditions[]?; .type == \"Accepted\" and .status == \"True\" and .observedGeneration == $r.metadata.generation) and any(.conditions[]?; .type == \"ResolvedRefs\" and .status == \"True\" and .observedGeneration == $r.metadata.generation))"
       }
     ],
-    "explanation": "The Gateway API separates routing (HTTPRoute) from infrastructure (Gateway). A cross-namespace backendRef must be authorized by a ReferenceGrant in the backend's namespace, or the route fails resolution."
+    "explanation": "Gateway API separates listener infrastructure from application routes. Traefik serves both this HTTPRoute and the separate Ingress task; no second routing controller is needed."
   },
   {
     "id": "ingress-nodeport",
@@ -366,12 +365,12 @@
       "Confirm endpoints with `kubectl -n exam-ingress get endpointslices -l kubernetes.io/service-name=web-np`."
     ],
     "solution": "kubectl apply -f - <<'YAML'\napiVersion: networking.k8s.io/v1\nkind: Ingress\nmetadata:\n  name: web\n  namespace: exam-ingress\nspec:\n  ingressClassName: traefik\n  rules:\n    - host: ing.example.com\n      http:\n        paths:\n          - path: /\n            pathType: Prefix\n            backend:\n              service:\n                name: web\n                port:\n                  number: 80\n---\napiVersion: v1\nkind: Service\nmetadata:\n  name: web-np\n  namespace: exam-ingress\nspec:\n  type: NodePort\n  selector:\n    app: web\n  ports:\n    - port: 80\n      targetPort: 80\nYAML",
-    "resource": "jq -n --argjson ingress \"$(kubectl -n exam-ingress get ingress web -o json 2>/dev/null || echo null)\" --argjson svc \"$(kubectl -n exam-ingress get svc web-np -o json 2>/dev/null || echo null)\" --argjson eps \"$(kubectl -n exam-ingress get endpointslice -l kubernetes.io/service-name=web-np -o json 2>/dev/null || echo null)\" '{ingress:$ingress,service:$svc,endpoints:$eps}'",
+    "resource": "ip=$(kubectl -n traefik get svc traefik -o jsonpath='{.spec.clusterIP}'); node=$(kubectl get nodes -l topology.kubernetes.io/zone=west -o jsonpath='{.items[0].status.addresses[?(@.type==\"InternalIP\")].address}'); port=$(kubectl -n exam-ingress get svc web-np -o jsonpath='{.spec.ports[0].nodePort}' 2>/dev/null); jq -n --argjson ingress \"$(kubectl -n exam-ingress get ingress web -o json 2>/dev/null || echo null)\" --argjson svc \"$(kubectl -n exam-ingress get svc web-np -o json 2>/dev/null || echo null)\" --argjson eps \"$(kubectl -n exam-ingress get endpointslice -l kubernetes.io/service-name=web-np -o json 2>/dev/null || echo null)\" --argjson http \"$(wget -q -T 3 --header='Host: ing.example.com' -O /dev/null http://$ip && echo true || echo false)\" --argjson np \"$(test -n \"$port\" && wget -q -T 3 -O /dev/null http://$node:$port && echo true || echo false)\" '{ingress:$ingress,service:$svc,endpoints:$eps,http:$http,nodeport:$np}'",
     "checks": [
       {
         "description": "Ingress routes the host to the backend service",
         "points": 2,
-        "expression": "(.ingress != null) and any(.ingress.spec.rules[]?; .host == \"ing.example.com\" and any(.http.paths[]?; .backend.service.name == \"web\" and .backend.service.port.number == 80)) and .ingress.spec.ingressClassName == \"traefik\""
+        "expression": ".http == true and (.ingress != null) and any(.ingress.spec.rules[]?; .host == \"ing.example.com\" and any(.http.paths[]?; .backend.service.name == \"web\" and .backend.service.port.number == 80)) and .ingress.spec.ingressClassName == \"traefik\""
       },
       {
         "description": "NodePort service exposes the deployment",
@@ -381,7 +380,7 @@
       {
         "description": "NodePort service has ready endpoints",
         "points": 1,
-        "expression": "(.endpoints != null) and any(.endpoints.items[]?; any(.endpoints[]?; (.conditions.ready != false) and (.addresses | length) > 0))"
+        "expression": ".nodeport == true and (.endpoints != null) and any(.endpoints.items[]?; any(.endpoints[]?; (.conditions.ready == true) and (.addresses | length) > 0))"
       }
     ],
     "explanation": "An Ingress is an API rule consumed by an Ingress controller (here Traefik). A NodePort Service allocates a port on every node and forwards to the selected Pods, whose readiness is reflected in endpoint slices."
@@ -390,11 +389,11 @@
     "id": "lb-repair",
     "title": "Repair a LoadBalancer allocation",
     "points": 4,
-    "instructions": "The Service `lb-app` in `exam-lb` requests a reserved address outside the MetalLB pool, so it never receives an external IP. Remove the invalid request so MetalLB allocates an address from `192.168.254.81–89`, and confirm the service is reachable on that address.",
+    "instructions": "The Service lb-app in exam-lb requests an address outside the MetalLB pool. Remove the invalid request so MetalLB allocates 192.168.254.81, and confirm the service is reachable on that address.",
     "steps": [
       "Inspect with `kubectl -n exam-lb describe service lb-app` and note the external IP is stuck pending.",
       "Remove the `metallb.universe.tf/loadBalancerIPs` annotation from the Service.",
-      "Wait a moment and confirm `kubectl -n exam-lb get svc lb-app` shows an external IP in the reserved pool.",
+      "Confirm `kubectl -n exam-lb get svc lb-app` shows 192.168.254.81.",
       "Probe it with `wget -q -T 3 -O /dev/null http://<external-ip>`."
     ],
     "solution": "kubectl -n exam-lb annotate service lb-app metallb.universe.tf/loadBalancerIPs-\nkubectl -n exam-lb wait --for=jsonpath='{.status.loadBalancer.ingress}' service/lb-app --timeout=120s",
@@ -403,7 +402,7 @@
       {
         "description": "LoadBalancer received a reserved-pool address",
         "points": 2,
-        "expression": "(.lb != null) and (((.lb.status.loadBalancer.ingress[0].ip // \"\") | test(\"^192\\\\.168\\\\.254\\\\.8[1-9]$\")))"
+        "expression": ".lb.status.loadBalancer.ingress[0].ip == \"192.168.254.81\""
       },
       {
         "description": "The invalid allocation request was removed",
@@ -422,15 +421,15 @@
     "id": "storage-dynamic",
     "title": "Provision dynamic storage with delayed binding",
     "points": 5,
-    "instructions": "In `exam-storage`, create a StorageClass named `exam-sc` (provisioner `rancher.io/local-path`, `WaitForFirstConsumer`, `Retain`), a PVC named `exam-pvc` requesting 1Gi from it, and a Pod named `data-app` that mounts the claim at `/data`. The claim must bind and the bound volume must use `Retain`.",
+    "instructions": "In exam-storage, create StorageClass exam-sc (rancher.io/local-path, WaitForFirstConsumer, Retain), PVC exam-pvc (1Gi, ReadWriteOnce), and Pod data-app mounting it at /data. Write cka-storage to /data/proof.txt and read it back. Inspect the installed networking, runtime and storage provisioner; save /tmp/interfaces.json with keys cni, runtime, storageProvisioner and boolean usesCSI. Distinguish this provisioner from a CSI driver.",
     "steps": [
       "Create the StorageClass with `volumeBindingMode: WaitForFirstConsumer` and `reclaimPolicy: Retain`.",
       "Create the PVC `exam-pvc` (1Gi, ReadWriteOnce, storageClassName `exam-sc`).",
       "Create the Pod `data-app` (nginx) mounting the PVC at `/data`; the claim binds only once the Pod is scheduled.",
-      "Verify with `kubectl -n exam-storage get pvc exam-pvc` (Bound) and `kubectl get pv` (a dynamically created PV with Retain)."
+      "Verify Bound status, Retain, and data access. Inspect /etc/cni/net.d, kubectl get nodes -o wide, and the StorageClass provisioner. Write /tmp/interfaces.json identifying calico, containerd, rancher.io/local-path, and usesCSI:false."
     ],
-    "solution": "kubectl apply -f - <<'YAML'\napiVersion: storage.k8s.io/v1\nkind: StorageClass\nmetadata:\n  name: exam-sc\nprovisioner: rancher.io/local-path\nvolumeBindingMode: WaitForFirstConsumer\nreclaimPolicy: Retain\n---\napiVersion: v1\nkind: PersistentVolumeClaim\nmetadata:\n  name: exam-pvc\n  namespace: exam-storage\nspec:\n  accessModes: [ReadWriteOnce]\n  storageClassName: exam-sc\n  resources:\n    requests:\n      storage: 1Gi\n---\napiVersion: v1\nkind: Pod\nmetadata:\n  name: data-app\n  namespace: exam-storage\nspec:\n  containers:\n    - name: web\n      image: nginx:1.27\n      volumeMounts:\n        - name: data\n          mountPath: /data\n  volumes:\n    - name: data\n      persistentVolumeClaim:\n        claimName: exam-pvc\nYAML",
-    "resource": "jq -n --argjson sc \"$(kubectl get storageclass exam-sc -o json 2>/dev/null || echo null)\" --argjson pvc \"$(kubectl -n exam-storage get pvc exam-pvc -o json 2>/dev/null || echo null)\" --argjson pod \"$(kubectl -n exam-storage get pod data-app -o json 2>/dev/null || echo null)\" --argjson pv \"$(kubectl get pv -o json 2>/dev/null || echo null)\" '{storageclass:$sc,pvc:$pvc,pod:$pod,pvs:$pv}'",
+    "solution": "echo '{\"cni\":\"calico\",\"runtime\":\"containerd\",\"storageProvisioner\":\"rancher.io/local-path\",\"usesCSI\":false}' > /tmp/interfaces.json\nkubectl apply -f - <<'YAML'\napiVersion: storage.k8s.io/v1\nkind: StorageClass\nmetadata:\n  name: exam-sc\nprovisioner: rancher.io/local-path\nvolumeBindingMode: WaitForFirstConsumer\nreclaimPolicy: Retain\n---\napiVersion: v1\nkind: PersistentVolumeClaim\nmetadata:\n  name: exam-pvc\n  namespace: exam-storage\nspec:\n  accessModes: [ReadWriteOnce]\n  storageClassName: exam-sc\n  resources:\n    requests:\n      storage: 1Gi\n---\napiVersion: v1\nkind: Pod\nmetadata:\n  name: data-app\n  namespace: exam-storage\nspec:\n  containers:\n    - name: web\n      image: nginx:1.27\n      volumeMounts:\n        - name: data\n          mountPath: /data\n  volumes:\n    - name: data\n      persistentVolumeClaim:\n        claimName: exam-pvc\nYAML\nkubectl -n exam-storage wait --for=condition=Ready pod/data-app --timeout=120s\nkubectl -n exam-storage exec data-app -- sh -c 'echo cka-storage > /data/proof.txt; cat /data/proof.txt'",
+    "resource": "jq -n --argjson sc \"$(kubectl get storageclass exam-sc -o json 2>/dev/null || echo null)\" --argjson pvc \"$(kubectl -n exam-storage get pvc exam-pvc -o json 2>/dev/null || echo null)\" --argjson pod \"$(kubectl -n exam-storage get pod data-app -o json 2>/dev/null || echo null)\" --argjson pv \"$(kubectl get pv -o json 2>/dev/null || echo null)\" --argjson interfaces \"$(jq . /tmp/interfaces.json 2>/dev/null || echo null)\" --arg data \"$(kubectl -n exam-storage exec data-app -- cat /data/proof.txt 2>/dev/null || true)\" '{storageclass:$sc,pvc:$pvc,pod:$pod,pvs:$pv,interfaces:$interfaces,data:$data}'",
     "checks": [
       {
         "description": "StorageClass uses delayed binding and Retain",
@@ -439,18 +438,23 @@
       },
       {
         "description": "Claim is dynamically bound",
-        "points": 2,
-        "expression": "(.pvc != null) and .pvc.status.phase == \"Bound\""
+        "points": 1,
+        "expression": ".pvc.status.phase == \"Bound\" and .pvc.spec.storageClassName == \"exam-sc\" and .pvc.spec.resources.requests.storage == \"1Gi\" and (.pvc.spec.accessModes | index(\"ReadWriteOnce\") != null)"
+      },
+      {
+        "description": "CNI, CRI runtime and non-CSI provisioner are identified",
+        "points": 1,
+        "expression": ".interfaces == {cni:\"calico\",runtime:\"containerd\",storageProvisioner:\"rancher.io/local-path\",usesCSI:false}"
       },
       {
         "description": "Application Pod uses the volume",
         "points": 1,
-        "expression": "(.pod != null) and .pod.status.phase == \"Running\" and any(.pod.spec.containers[].volumeMounts[]?; .name == \"data\")"
+        "expression": ".data == \"cka-storage\" and .pod.status.phase == \"Running\" and any(.pod.spec.volumes[]?; .name == \"data\" and .persistentVolumeClaim.claimName == \"exam-pvc\") and any(.pod.spec.containers[].volumeMounts[]?; .name == \"data\" and .mountPath == \"/data\")"
       },
       {
         "description": "Bound volume retains data on release",
         "points": 1,
-        "expression": "(.pvs != null) and any(.pvs.items[]?; .spec.claimRef.name == \"exam-pvc\" and .spec.persistentVolumeReclaimPolicy == \"Retain\")"
+        "expression": ".pvc as $pvc | any(.pvs.items[]?; .metadata.name == $pvc.spec.volumeName and .spec.claimRef.name == \"exam-pvc\" and .spec.claimRef.namespace == \"exam-storage\" and .spec.persistentVolumeReclaimPolicy == \"Retain\")"
       }
     ],
     "explanation": "A StorageClass drives dynamic provisioning. `WaitForFirstConsumer` delays binding until a Pod is scheduled (so the volume lands on the right node), and `Retain` preserves the underlying data after the claim is released."
@@ -462,12 +466,12 @@
     "instructions": "A static local PV `exam-local-pv` and a PVC `exam-local-pvc` in `exam-storage` fail to bind: the PVC requests the wrong StorageClass and the PV's node affinity names a non-existent worker. Fix both so the claim binds, then run a Pod named `local-app` that mounts the claim at `/mnt` and can read the supplied file `data.txt`.",
     "steps": [
       "Inspect with `kubectl -n exam-storage get pvc exam-local-pvc` (Pending) and `kubectl get pv exam-local-pv -o yaml`.",
-      "Change the PVC's `storageClassName` to `exam-local`.",
-      "Fix the PV's node affinity so `kubernetes.io/hostname` names a real worker (`kubectl get nodes` lists them).",
+      "Recreate the unbound PVC with storageClassName exam-local.",
+      "Recreate the PV, preserving its path and Retain policy, with node affinity targeting the west worker. These fields cannot be patched in place.",
       "Create the Pod `local-app` mounting the PVC at `/mnt`.",
       "Verify `kubectl -n exam-storage exec local-app -- cat /mnt/data.txt` prints `painkiller-data`."
     ],
-    "solution": "worker=$(kubectl get nodes -o json | jq -r '[.items[] | select(.metadata.labels[\"node-role.kubernetes.io/control-plane\"] == null)][0].metadata.name')\nkubectl -n exam-storage delete pvc exam-local-pvc --ignore-not-found\nkubectl -n exam-storage apply -f - <<'YAML'\napiVersion: v1\nkind: PersistentVolumeClaim\nmetadata:\n  name: exam-local-pvc\n  namespace: exam-storage\nspec:\n  accessModes: [ReadWriteOnce]\n  storageClassName: exam-local\n  resources:\n    requests:\n      storage: 1Gi\nYAML\nkubectl patch pv exam-local-pv --type=json -p \"[{\"op\":\"replace\",\"path\":\"/spec/nodeAffinity/required/nodeSelectorTerms/0/matchExpressions/0/values/0\",\"value\":\"$worker\"}]\"\nkubectl apply -f - <<'YAML'\napiVersion: v1\nkind: Pod\nmetadata:\n  name: local-app\n  namespace: exam-storage\nspec:\n  containers:\n    - name: web\n      image: busybox:1.36\n      command: [\"sh\", \"-c\", \"sleep 3600\"]\n      volumeMounts:\n        - name: data\n          mountPath: /mnt\n  volumes:\n    - name: data\n      persistentVolumeClaim:\n        claimName: exam-local-pvc\nYAML",
+    "solution": "worker=$(kubectl get nodes -l topology.kubernetes.io/zone=west -o jsonpath='{.items[0].metadata.name}')\npv=$(kubectl get pv exam-local-pv -o json | jq --arg worker \"$worker\" 'del(.metadata.uid,.metadata.resourceVersion,.metadata.creationTimestamp,.metadata.managedFields,.metadata.finalizers,.spec.claimRef,.status) | .spec.nodeAffinity.required.nodeSelectorTerms[0].matchExpressions[0].values=[$worker]')\nkubectl -n exam-storage delete pvc exam-local-pvc\nkubectl delete pv exam-local-pv\nprintf '%s' \"$pv\" | kubectl apply -f -\nkubectl apply -f - <<'YAML'\napiVersion: v1\nkind: PersistentVolumeClaim\nmetadata:\n  name: exam-local-pvc\n  namespace: exam-storage\nspec:\n  accessModes: [ReadWriteOnce]\n  storageClassName: exam-local\n  resources:\n    requests:\n      storage: 1Gi\n---\napiVersion: v1\nkind: Pod\nmetadata:\n  name: local-app\n  namespace: exam-storage\nspec:\n  containers:\n    - name: web\n      image: busybox:1.36\n      command: [\"sh\", \"-c\", \"sleep 3600\"]\n      volumeMounts:\n        - name: data\n          mountPath: /mnt\n  volumes:\n    - name: data\n      persistentVolumeClaim:\n        claimName: exam-local-pvc\nYAML",
     "resource": "jq -n --argjson nodes \"$(kubectl get nodes -o json)\" --argjson pvc \"$(kubectl -n exam-storage get pvc exam-local-pvc -o json 2>/dev/null || echo null)\" --argjson pv \"$(kubectl get pv exam-local-pv -o json 2>/dev/null || echo null)\" --argjson pod \"$(kubectl -n exam-storage get pod local-app -o json 2>/dev/null || echo null)\" --arg data \"$(kubectl -n exam-storage exec local-app -- cat /mnt/data.txt 2>/dev/null || echo '')\" '{nodes:$nodes,pvc:$pvc,pv:$pv,pod:$pod,data:$data}'",
     "checks": [
       {
@@ -610,15 +614,15 @@
     "id": "oom-repair",
     "title": "Diagnose and fix an OOM-killed workload",
     "points": 5,
-    "instructions": "The Deployment `oom-app` in `exam-repair` is OOM-killed because its memory limit (50Mi) is below its allocation. Use `kubectl describe` and `kubectl get events` to diagnose it, raise the memory limit to at least 128Mi, save your evidence to `/tmp/oom-evidence.txt`, and confirm the Pod becomes available.",
+    "instructions": "Diagnose the failing oom-app Deployment in exam-repair using describe and events. Save the diagnosis output to /tmp/oom-evidence.txt, raise its memory limit to at least 128Mi, and restore availability. Capture current node and exam-repair Pod resource usage with kubectl top to /tmp/node-usage.txt and /tmp/pod-usage.txt.",
     "steps": [
       "Diagnose with `kubectl -n exam-repair describe pod -l app=oom-app` and `kubectl -n exam-repair get events --sort-by=.lastTimestamp`.",
       "Save the evidence with `kubectl -n exam-repair describe pod -l app=oom-app > /tmp/oom-evidence.txt`.",
       "Raise the container memory limit to at least 128Mi with `kubectl -n exam-repair edit deployment oom-app`.",
-      "Wait with `kubectl -n exam-repair rollout status deployment/oom-app`."
+      "Wait with `kubectl -n exam-repair rollout status deployment/oom-app`, then save `kubectl top nodes` to /tmp/node-usage.txt and `kubectl -n exam-repair top pods` to /tmp/pod-usage.txt."
     ],
-    "solution": "kubectl -n exam-repair describe pod -l app=oom-app > /tmp/oom-evidence.txt\nkubectl -n exam-repair patch deployment oom-app --type=json -p '[{\"op\":\"replace\",\"path\":\"/spec/template/spec/containers/0/resources/limits/memory\",\"value\":\"256Mi\"}]'\nkubectl -n exam-repair rollout status deployment/oom-app --timeout=180s",
-    "resource": "jq -n --argjson dep \"$(kubectl -n exam-repair get deployment oom-app -o json 2>/dev/null || echo null)\" --argjson evidence \"$(test -s /tmp/oom-evidence.txt && echo true || echo false)\" '{deployment:$dep,evidence:$evidence}'",
+    "solution": "kubectl -n exam-repair describe pod -l app=oom-app > /tmp/oom-evidence.txt\nkubectl -n exam-repair patch deployment oom-app --type=json -p '[{\"op\":\"replace\",\"path\":\"/spec/template/spec/containers/0/resources/limits/memory\",\"value\":\"256Mi\"}]'\nkubectl -n exam-repair rollout status deployment/oom-app --timeout=180s\nkubectl top nodes > /tmp/node-usage.txt\nkubectl -n exam-repair top pods > /tmp/pod-usage.txt",
+    "resource": "jq -n --argjson dep \"$(kubectl -n exam-repair get deployment oom-app -o json 2>/dev/null || echo null)\" --argjson evidence \"$(grep -q OOMKilled /tmp/oom-evidence.txt 2>/dev/null && grep -q 'CPU' /tmp/node-usage.txt 2>/dev/null && grep -q 'oom-app' /tmp/pod-usage.txt 2>/dev/null && echo true || echo false)\" '{deployment:$dep,evidence:$evidence}'",
     "checks": [
       {
         "description": "The application is available again",
@@ -628,7 +632,7 @@
       {
         "description": "The memory limit was raised",
         "points": 2,
-        "expression": "(.deployment != null) and any(.deployment.spec.template.spec.containers[]?; (.resources.limits.memory // \"50Mi\") != \"50Mi\")"
+        "expression": "def bytes: capture(\"^(?<n>[0-9.]+)(?<unit>Ki|Mi|Gi|Ti|K|M|G|T|k|m)?$\") | (.n | tonumber) * ({\"Ki\":1024,\"Mi\":1048576,\"Gi\":1073741824,\"Ti\":1099511627776,\"K\":1000,\"k\":1000,\"M\":1000000,\"G\":1000000000,\"T\":1000000000000,\"m\":0.001}[.unit] // 1); any(.deployment.spec.template.spec.containers[]?; ((.resources.limits.memory // \"0\") | bytes) >= 134217728)"
       },
       {
         "description": "Diagnostic evidence was saved",

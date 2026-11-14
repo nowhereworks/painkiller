@@ -268,6 +268,13 @@ func (a *app) prepareLab(create bool) {
 			out = string(b)
 		}
 	}
+	if err == nil {
+		var check string
+		check, err = a.readinessPath()
+		if err == nil {
+			out, err = a.run("timeout", "60s", "bash", check)
+		}
+	}
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	if err != nil {

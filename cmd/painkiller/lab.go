@@ -78,7 +78,7 @@ func validateLabSpec(exam examDefinition) error {
 	if s.Endpoint != "" {
 		host, port, err := net.SplitHostPort(s.Endpoint)
 		p, parseErr := strconv.Atoi(port)
-		if err != nil || parseErr != nil || net.ParseIP(host) == nil || p < 1 || p > 65535 {
+		if err != nil || parseErr != nil || !validEndpointHost(host) || p < 1 || p > 65535 {
 			return fmt.Errorf("%s: invalid lab endpoint", exam.ID)
 		}
 	}
@@ -105,6 +105,27 @@ func validateLabSpec(exam examDefinition) error {
 		return err
 	}
 	return nil
+}
+
+// kubeadm accepts either an IP address or a DNS name for controlPlaneEndpoint.
+func validEndpointHost(host string) bool {
+	if net.ParseIP(host) != nil {
+		return true
+	}
+	if len(host) == 0 || len(host) > 253 {
+		return false
+	}
+	for _, label := range strings.Split(host, ".") {
+		if len(label) == 0 || len(label) > 63 || label[0] == '-' || label[len(label)-1] == '-' {
+			return false
+		}
+		for _, c := range label {
+			if !(c >= 'a' && c <= 'z' || c >= '0' && c <= '9' || c == '-') {
+				return false
+			}
+		}
+	}
+	return true
 }
 
 func resolveLab(exam examDefinition) (*labConfig, error) {

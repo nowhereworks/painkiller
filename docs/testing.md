@@ -12,7 +12,7 @@ These do not create lab VMs:
 go test -race ./...
 go vet ./...
 node --check web/app.js
-shellcheck -x scripts/test-exam.sh scripts/create-lab.sh scripts/build-template.sh scripts/playbooks.sh scripts/validate-image.sh scripts/configure-exam-access.sh exam/*/reference-solutions.sh
+shellcheck -x scripts/test-exam.sh scripts/create-lab.sh scripts/build-template.sh scripts/playbooks.sh scripts/validate-image.sh scripts/configure-exam-access.sh exam/*/reference-solutions.sh exam/*/check-ready.sh
 ansible-playbook --syntax-check -i localhost, playbooks/kubeadm-cluster/kubeadm-cluster.yml -e controller_ips=192.0.2.1
 ```
 
@@ -51,7 +51,8 @@ Do not build or replace a template as part of this test.
    that topology, and conflicting explicit `LAB_*` settings fail. The script
    uses a unique marker and known-hosts file and the common
    `data/lab-operation.lock`. It does not reuse a running server's attempt.
-3. Check the output: the exam-owned `e2e.json` baseline must stabilize twice;
+3. Check the output: the exam-owned readiness check must pass before the lab is
+   ready; the exam-owned `e2e.json` baseline must stabilize twice;
    candidate reference commands must score 100/100; every listed mutation must
    remove exactly its task's points without changing other task scores, then
    restore 100/100. Scoring uses the production grader with fresh answer

@@ -25,6 +25,7 @@ third_controller_ip() {
 # 1. Join the third control-plane node (generate a fresh certificate key).
 third=$(third_controller_ip)
 if [[ -n $third ]]; then
+  ssh "$third" 'echo net.ipv4.ip_forward=1 | sudo -n tee /etc/sysctl.d/99-cka002.conf >/dev/null; sudo -n sysctl -p /etc/sysctl.d/99-cka002.conf' </dev/null
   key=$(sudo -n kubeadm init phase upload-certs --upload-certs 2>/dev/null | tail -1)
   join=$(sudo -n kubeadm token create --print-join-command)
   ssh -o ConnectTimeout=10 "$third" "sudo -n $join --control-plane --certificate-key $key" </dev/null
@@ -74,9 +75,9 @@ spec:
 YAML
 
 # 2. Safe drain (with evidence) and an etcd snapshot.
-w=$(worker)
+w=$(kubectl get nodes -l topology.kubernetes.io/zone=east -o jsonpath='{.items[0].metadata.name}')
 kubectl cordon "$w"
-kubectl drain "$w" --ignore-daemonsets --delete-emptydir-data --timeout=180s 2>&1 | tee /tmp/drain-evidence.txt || true
+kubectl drain "$w" --ignore-daemonsets --delete-emptydir-data --timeout=180s 2>&1 | tee /tmp/drain-evidence.txt
 kubectl uncordon "$w"
 sudo -n mkdir -p /opt/backup
 sudo -n env ETCDCTL_API=3 etcdctl --endpoints=https://127.0.0.1:2379 \
@@ -131,7 +132,7 @@ spec:
 YAML
 
 # 6. Recover the rollout with probes and rolling-update constraints.
-kubectl -n exam-workloads set image deployment/app app=nginx:1.27
+kubectl -n exam-workloads rollout undo deployment/app | tee /tmp/rollback-evidence.txt
 kubectl -n exam-workloads rollout status deployment/app --timeout=180s
 kubectl -n exam-workloads patch deployment app --type=strategic -p '{"spec":{"strategy":{"type":"RollingUpdate","rollingUpdate":{"maxUnavailable":0,"maxSurge":1}},"template":{"spec":{"containers":[{"name":"app","readinessProbe":{"httpGet":{"path":"/","port":80}},"livenessProbe":{"httpGet":{"path":"/","port":80}}}]}}}}'
 kubectl -n exam-workloads rollout status deployment/app --timeout=180s
@@ -142,13 +143,13 @@ kubectl -n exam-workloads rollout status deployment/hpa-web --timeout=180s
 kubectl -n exam-workloads autoscale deployment hpa-web --min=1 --max=5 --cpu=50% --dry-run=client -o yaml | kubectl apply -f -
 
 # 8. Pinned scheduling with toleration, affinity, spread, and a quota.
-kubectl -n exam-workloads create quota exam-quota --hard=pods=10 --dry-run=client -o yaml | kubectl apply -f -
+kubectl -n exam-scheduling create quota exam-quota --hard=pods=10 --dry-run=client -o yaml | kubectl apply -f -
 kubectl apply -f - <<'YAML'
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: pinned
-  namespace: exam-workloads
+  namespace: exam-scheduling
 spec:
   replicas: 3
   selector:
@@ -182,7 +183,7 @@ spec:
         - name: web
           image: nginx:1.27
 YAML
-kubectl -n exam-workloads rollout status deployment/pinned --timeout=180s
+kubectl -n exam-scheduling rollout status deployment/pinned --timeout=180s
 
 # 9. NetworkPolicy isolation.
 kubectl apply -f - <<'YAML'
@@ -205,41 +206,19 @@ spec:
         - port: 80
 YAML
 
-# 10. Gateway API with a cross-namespace backend and ReferenceGrant.
+# 10. Gateway API routing through the same controller as Ingress.
 kubectl apply -f - <<'YAML'
-apiVersion: gateway.networking.k8s.io/v1
-kind: GatewayClass
-metadata:
-  name: eg
-spec:
-  controllerName: gateway.envoyproxy.io/gatewayclass-controller
----
 apiVersion: gateway.networking.k8s.io/v1
 kind: Gateway
 metadata:
   name: exam
   namespace: exam-gw
 spec:
-  gatewayClassName: eg
+  gatewayClassName: traefik
   listeners:
     - name: http
       protocol: HTTP
       port: 80
----
-apiVersion: gateway.networking.k8s.io/v1
-kind: ReferenceGrant
-metadata:
-  name: allow-exam-gw
-  namespace: exam-gw-backend
-spec:
-  from:
-    - group: gateway.networking.k8s.io
-      kind: HTTPRoute
-      namespace: exam-gw
-  to:
-    - group: ""
-      kind: Service
-      name: backend
 ---
 apiVersion: gateway.networking.k8s.io/v1
 kind: HTTPRoute
@@ -259,7 +238,6 @@ spec:
             value: /
       backendRefs:
         - name: backend
-          namespace: exam-gw-backend
           port: 80
 YAML
 
@@ -302,6 +280,7 @@ YAML
 kubectl -n exam-lb annotate service lb-app metallb.universe.tf/loadBalancerIPs-
 
 # 13. Dynamic storage with delayed binding.
+echo '{"cni":"calico","runtime":"containerd","storageProvisioner":"rancher.io/local-path","usesCSI":false}' > /tmp/interfaces.json
 kubectl apply -f - <<'YAML'
 apiVersion: storage.k8s.io/v1
 kind: StorageClass
@@ -340,6 +319,9 @@ spec:
       persistentVolumeClaim:
         claimName: exam-pvc
 YAML
+
+kubectl -n exam-storage wait --for=condition=Ready pod/data-app --timeout=120s
+kubectl -n exam-storage exec data-app -- sh -c 'echo cka-storage > /data/proof.txt; cat /data/proof.txt'
 
 # 14. Recover the static local volume binding.
 # The PVC's storageClassName and the PV's nodeAffinity are immutable, so recreate
@@ -408,6 +390,8 @@ kubectl -n exam-repair patch service backend-svc --type=json -p '[{"op":"replace
 kubectl -n exam-repair describe pod -l app=oom-app > /tmp/oom-evidence.txt || true
 kubectl -n exam-repair patch deployment oom-app --type=json -p '[{"op":"replace","path":"/spec/template/spec/containers/0/resources/limits/memory","value":"256Mi"}]'
 kubectl -n exam-repair rollout status deployment/oom-app --timeout=180s
+kubectl top nodes > /tmp/node-usage.txt
+kubectl -n exam-repair top pods > /tmp/pod-usage.txt
 
 # 20. Recover the multi-container crash and save previous logs.
 kubectl -n exam-repair logs -l app=crash-app --all-containers --previous > /tmp/crash-logs.txt 2>/dev/null || true

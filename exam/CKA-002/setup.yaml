@@ -48,7 +48,7 @@ metadata:
 apiVersion: v1
 kind: Namespace
 metadata:
-  name: exam-gw-backend
+  name: exam-scheduling
   labels:
     painkiller-shell/exam: "true"
 ---
@@ -96,6 +96,10 @@ spec:
       labels:
         app: web
     spec:
+      tolerations:
+        - key: exam
+          value: reserved
+          effect: NoSchedule
       containers:
         - name: web
           image: nginx:1.27
@@ -138,7 +142,7 @@ metadata:
 stringData:
   username: operator
 ---
-# Task 6: failed rollout with an unpullable image and no probes.
+# Task 6: good revision; prepare.sh introduces the failed rollout afterwards.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -156,7 +160,7 @@ spec:
     spec:
       containers:
         - name: app
-          image: nginx:9.9.9
+          image: nginx:1.27
 ---
 # Task 7: HPA target plus ConfigMap/Secret to consume.
 apiVersion: v1
@@ -250,7 +254,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: backend
-  namespace: exam-gw-backend
+  namespace: exam-gw
 spec:
   replicas: 1
   selector:
@@ -269,7 +273,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: backend
-  namespace: exam-gw-backend
+  namespace: exam-gw
 spec:
   selector:
     app: backend

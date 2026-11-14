@@ -9,9 +9,9 @@
     "initial_controllers": 2,
     "provision_mode": "prebaked",
     "cni": "calico",
-    "endpoint": "192.168.254.80:8443",
+    "endpoint": "cka002-api:8443",
     "memory_mb": 4096,
-    "template_id": "9200",
+    "template_id": "9198",
     "prepare": "prepare.sh"
   }
 }

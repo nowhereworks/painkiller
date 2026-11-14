@@ -13,6 +13,7 @@ Required files:
 | `tasks.json` | Questions, points, walkthroughs, solutions, capture commands, and checks |
 | `setup.yaml` | Kubernetes resources applied after provisioning |
 | `reference-solutions.sh` | Reference answers for validation on a disposable lab |
+| `check-ready.sh` | Fast, read-only verification of the intended initial exam state |
 
 Use `CKA-001` as the starting example. The server discovers and validates
 folders at startup; adding a test requires no server or UI code changes.
@@ -48,9 +49,9 @@ An exam may declare requirements in `test.json`:
   "initial_controllers": 2,
   "provision_mode": "prebaked",
   "cni": "calico",
-  "endpoint": "192.168.254.80:8443",
+  "endpoint": "cka002-api:8443",
   "memory_mb": 4096,
-  "template_id": "9200",
+  "template_id": "9198",
   "prepare": "prepare.sh"
 }
 ```
@@ -65,6 +66,8 @@ operator-configurable; `template_id` (9100–9200) is the exam's default image a
 is required for a prebaked multi-controller topology. Legacy mode defaults to
 template 9010. Prebaked mode supports one controller with Flannel and no
 endpoint, or three controllers with Calico and a stable control-plane endpoint.
+Endpoints accept IP addresses or lowercase DNS hostnames. An exam using a
+lab-local hostname must make it resolve on every guest before bootstrap.
 The catalog publishes only controller/worker counts, not the trusted preparation
 path or endpoint.
 
@@ -84,6 +87,8 @@ invokes it using argument arrays, not shell interpolation, with these phases:
 2. `infrastructure` (1800 seconds): guest prerequisites and pre-bootstrap services.
 3. Shared cluster bootstrap and candidate SSH access to **all** machines.
 4. `fixtures` (2400 seconds): exam dependencies, assets, readiness, then faults.
+5. `check-ready.sh` (60 seconds): verify the selected exam's initial state before
+   allowing Start; a failure is logged and leaves preparation in error.
 
 Each invocation is logged through the existing operation log. Preparation scripts
 must use explicit readiness checks and exam-specific phase markers, reconcile on
@@ -91,8 +96,13 @@ retry, and never repeatedly inject faults or reset a healthy cluster. A trusted
 preparation script owns applying its `setup.yaml`; exams without `prepare` retain
 the original setup.yaml-only path. `scripts/create-lab.sh prerequisites` prepares
 all guests without joining any; `LAB_INITIAL_CONTROLLERS` reserves remaining
-controllers without treating them as workers. The API-balancing helper configures
-only ownership-checked workers and requires the explicit HA lab configuration.
+controllers without treating them as workers. CKA-002's API-proxy helper uses
+ownership-checked guest addresses and configures one worker plus guest-local name
+resolution; its fixture phase preserves completed candidate work.
 
 Every exam must own its dependencies, fixtures, faults, grading, and reference
 answers. Do not invoke another exam's setup, assets, or solutions.
+Each readiness check is exam-owned, read-only, uses the saved lab environment and
+student access, and checks essential infrastructure and intentional faults rather
+than grading answers. Keep it fast, with bounded retries for convergence. Update
+it whenever the expected starting state changes.

@@ -1,4 +1,4 @@
-# Traefik v3 Ingress controller for CKA-002 (self-contained static manifest).
+# Traefik v3 Ingress and Gateway API controller for CKA-002.
 # Serves the networking.k8s.io/v1 Ingress resource via the kubernetesIngress
 # provider and exposes an HTTP NodePort on every node for reachability probes.
 apiVersion: v1
@@ -18,7 +18,7 @@ metadata:
   name: traefik-ingress
 rules:
   - apiGroups: [""]
-    resources: ["services", "endpoints", "secrets", "nodes"]
+    resources: ["services", "endpoints", "secrets", "nodes", "namespaces", "configmaps"]
     verbs: ["get", "list", "watch"]
   - apiGroups: ["networking.k8s.io"]
     resources: ["ingresses", "ingressclasses"]
@@ -28,6 +28,12 @@ rules:
     verbs: ["get", "list", "watch"]
   - apiGroups: ["networking.k8s.io"]
     resources: ["ingresses/status"]
+    verbs: ["update"]
+  - apiGroups: ["gateway.networking.k8s.io"]
+    resources: ["gatewayclasses", "gateways", "httproutes", "grpcroutes", "tlsroutes", "referencegrants", "backendtlspolicies"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["gateway.networking.k8s.io"]
+    resources: ["gatewayclasses/status", "gateways/status", "httproutes/status", "grpcroutes/status", "tlsroutes/status", "referencegrants/status", "backendtlspolicies/status"]
     verbs: ["update"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
@@ -67,6 +73,7 @@ spec:
             - --entrypoints.web.address=:80
             - --providers.kubernetesingress
             - --providers.kubernetesingress.ingressclass=traefik
+            - --providers.kubernetesgateway
             - --log.level=INFO
           ports:
             - name: web
@@ -99,3 +106,10 @@ metadata:
   name: traefik
 spec:
   controller: traefik.io/ingress-controller
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: GatewayClass
+metadata:
+  name: traefik
+spec:
+  controllerName: traefik.io/gateway-controller

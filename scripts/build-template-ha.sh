@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 # Build an uninitialized three-controller Calico HA image from the immutable
-# base template (for CKA-002). Preinstalls Kubernetes packages, haproxy,
-# keepalived, and caches calico plus exam/dependency images so fixtures do not
-# pull at apply time. Never configured here: HAProxy/Keepalived config is
+# base template (for CKA-002). Preinstalls Kubernetes packages and haproxy,
+# and caches calico plus exam/dependency images so fixtures do not
+# pull at apply time. Never configured here: HAProxy config is
 # node-specific and applied at provisioning by the exam's api-balancer helper.
 set -Eeuo pipefail
 host=${LAB_PROXMOX_HOST:-root@prox-k12}
-id=${LAB_IMAGE_HA_TEMPLATE_ID:-9200}
+id=${LAB_IMAGE_HA_TEMPLATE_ID:-9198}
 base=${LAB_BASE_TEMPLATE_ID:-9199}
 version=${LAB_KUBERNETES_VERSION:-1.36.1}
 calico_version=${LAB_CALICO_VERSION:-3.32.0}
@@ -93,7 +93,7 @@ node 'if command -v cloud-init >/dev/null; then sudo -n cloud-init status --wait
 ansible-playbook -i 'localhost,' -c local "$work/prepare.yml" -e "controller_ips=$ip ansible_ssh_user=$user kubernetes_version=$version" --ssh-common-args "$ssh_args"
 # Install the requested patch explicitly; the upstream preparation play installs
 # the repository's current version, which may be newer than the requested image.
-# haproxy/keepalived are installed but not configured here (node-specific at
+# haproxy is installed but not configured here (node-specific at
 # provisioning time).
 node bash -s -- "$version" "$calico_version" <<'GUEST'
 set -euo pipefail
@@ -107,8 +107,12 @@ sudo -n apt-get install -y --allow-downgrades "kubeadm=$pkg" "kubelet=$pkg" "kub
 sudo -n apt-mark hold kubeadm kubelet kubectl
 for p in kubelet kubeadm kubectl; do test "$(dpkg-query -W -f='${Version}' "$p")" = "$pkg"; done
 sudo -n apt-get update
-sudo -n apt-get install -y jq etcd-client haproxy keepalived
+sudo -n apt-get install -y jq etcd-client haproxy
+curl -fsSL https://get.helm.sh/helm-v3.19.0-linux-amd64.tar.gz \
+  | sudo -n tar -xz -C /usr/local/bin --strip-components=1 linux-amd64/helm
 sudo -n mkdir -p /opt/painkiller
+sudo -n mkdir -p /opt/painkiller/cka002
+sudo -n chown "$(id -u):$(id -g)" /opt/painkiller/cka002
 sudo -n curl -fsSL "https://raw.githubusercontent.com/projectcalico/calico/v${calico_version}/manifests/calico.yaml" -o /opt/painkiller/calico.yml
 sudo -n kubeadm config images pull --kubernetes-version="$version"
 # The CRI sandbox default can differ from kubeadm's pause version. Cache both
@@ -118,7 +122,7 @@ sandbox_image=$(sed -nE "/^[[:space:]]*(sandbox|sandbox_image)[[:space:]]*=/ s/.
 [[ $sandbox_image == registry.k8s.io/pause:* && $sandbox_image != *$'\n'* ]]
 sudo -n crictl pull "$sandbox_image"
 printf '%s\n' "$sandbox_image" | sudo -n tee /opt/painkiller/sandbox-image >/dev/null
-# Core images are required; the rest are a best-effort fixture cache.
+# Every required image must be cached before publishing the template.
 for image in $(grep -E '^[[:space:]]*image:' /opt/painkiller/calico.yml | awk '{print $2}' | sort -u) docker.io/library/nginx:1.27 docker.io/library/busybox:1.36 docker.io/library/busybox:latest; do
   sudo -n crictl pull "$image"
 done
@@ -127,16 +131,14 @@ for image in docker.io/traefik:v3.7.19 \
              docker.io/rancher/local-path-provisioner:v0.0.37 \
              quay.io/metallb/controller:v0.16.2 \
              quay.io/metallb/speaker:v0.16.2 \
-             docker.io/alpine/kubectl:1.36.1 \
-             docker.io/envoyproxy/gateway:v1.10.0 \
-             docker.io/envoyproxy/ratelimit:5ae0682e; do
-  sudo -n crictl pull "$image" || echo "best-effort cache miss: $image"
+              docker.io/alpine/kubectl:1.36.1; do
+   sudo -n crictl pull "$image"
 done
 sudo -n test ! -e /etc/kubernetes/admin.conf
 sudo -n test ! -e /etc/kubernetes/kubelet.conf
 sudo -n test ! -d /etc/kubernetes/pki
 sudo -n test ! -d /var/lib/etcd
-dpkg-query -W -f='${Package}=${Version}\n' kubelet kubeadm kubectl containerd cri-tools jq etcd-client haproxy keepalived | sudo -n tee /opt/painkiller/packages >/dev/null
+dpkg-query -W -f='${Package}=${Version}\n' kubelet kubeadm kubectl containerd cri-tools jq etcd-client haproxy | sudo -n tee /opt/painkiller/packages >/dev/null
 sudo -n crictl images -o json | sudo -n tee /opt/painkiller/images.json >/dev/null
 sudo -n sha256sum /opt/painkiller/calico.yml | sudo -n tee /opt/painkiller/calico.sha256 >/dev/null
 GUEST

@@ -19,9 +19,11 @@ const fixture = JSON.parse(fs.readFileSync(`exam/${examID}/e2e.json`, 'utf8'));
 
   let phase = await waitPhase(page, process.env.E2E_RESUME === '1' ? ['idle', 'ready', 'running', 'error'] : ['idle', 'ready', 'error']);
   if (phase === 'idle') {
+    const started = Date.now();
     await page.locator('#test-select').selectOption(examID);
     await page.getByRole('button', {name: 'Prepare lab'}).click();
     phase = await waitPhase(page, ['ready', 'error']);
+    console.log('PREPARE SECONDS', (Date.now() - started) / 1000);
   }
   if (phase === 'error') throw Error('lab preparation failed: ' + await page.locator('#message').innerText());
   if (phase === 'idle') throw Error('lab did not become ready');
@@ -101,10 +103,12 @@ const fixture = JSON.parse(fs.readFileSync(`exam/${examID}/e2e.json`, 'utf8'));
   console.log('SUBMISSION IS FINAL: passed');
 
   if (!process.env.E2E_SKIP_RESET) {
+    const started = Date.now();
     await page.getByRole('button', {name: 'Destroy lab / reset'}).last().click();
     const final = await waitPhase(page, ['idle', 'error'], 600000);
     if (final !== 'idle') throw Error('reset failed: ' + await page.locator('#message').innerText());
     console.log('RESET COMPLETE');
+    console.log('RESET SECONDS', (Date.now() - started) / 1000);
   }
   await browser.close();
 })().catch((e) => {

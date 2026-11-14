@@ -10,6 +10,19 @@ import (
 	"testing"
 )
 
+func TestLabEndpointHosts(t *testing.T) {
+	for _, host := range []string{"192.168.254.80", "::1", "cka002-api", "api.lab.example"} {
+		if !validEndpointHost(host) {
+			t.Errorf("rejected valid endpoint host %q", host)
+		}
+	}
+	for _, host := range []string{"", "-api", "api-", "api..lab", "api;true", "$(id)", "api/path", strings.Repeat("a", 64)} {
+		if validEndpointHost(host) {
+			t.Errorf("accepted invalid endpoint host %q", host)
+		}
+	}
+}
+
 func cleanLabEnv(t *testing.T) {
 	t.Helper()
 	for _, key := range labEnvKeys {
@@ -169,7 +182,7 @@ func TestCatalogOmitsTrustedLabInternals(t *testing.T) {
 }
 
 func TestStagedPreparationAndFailures(t *testing.T) {
-	for _, fail := range []string{"", "preflight", "infrastructure", "provision", "access", "fixtures"} {
+	for _, fail := range []string{"", "preflight", "infrastructure", "provision", "access", "fixtures", "readiness", "readiness-timeout"} {
 		t.Run(fail, func(t *testing.T) {
 			cleanLabEnv(t)
 			a := testApp(t)
@@ -196,6 +209,7 @@ echo "$1 $LAB_VM_END" >> "$CALLS"
 echo "PHASE: $1"
 [ "$1" != "$FAIL_PHASE" ]
 `,
+				filepath.Join(exam.dir, "check-ready.sh"): "#!/bin/sh\necho readiness >> \"$CALLS\"\n[ \"$FAIL_PHASE\" != readiness ]\n",
 			}
 			for path, body := range files {
 				if err := os.WriteFile(path, []byte(body), 0700); err != nil {
@@ -203,6 +217,7 @@ echo "PHASE: $1"
 				}
 			}
 			stubCommand(t, "ssh", "#!/bin/sh\necho unexpected-setup >> \"$CALLS\"\nexit 1\n")
+			stubCommand(t, "timeout", "#!/bin/sh\nif [ \"$1\" = 60s ] && [ \"$FAIL_PHASE\" = readiness-timeout ]; then echo readiness-timeout >> \"$CALLS\"; exit 124; fi\nexec /usr/bin/timeout \"$@\"\n")
 			config, err := resolveLab(*exam)
 			if err != nil {
 				t.Fatal(err)
@@ -221,7 +236,7 @@ echo "PHASE: $1"
 					t.Fatalf("failed phase became ready: %+v", a.state)
 				}
 				// No later phase is allowed to run after the failing stage.
-				stages := []string{"preflight", "create", "infrastructure", "provision", "access", "status", "fixtures"}
+				stages := []string{"preflight", "create", "infrastructure", "provision", "access", "status", "fixtures", "readiness"}
 				failed := false
 				for _, stage := range stages {
 					if failed && strings.Contains(string(calls), stage) {
@@ -234,7 +249,10 @@ echo "PHASE: $1"
 			if a.state.Phase != "ready" || a.state.Host != "192.0.2.1" {
 				t.Fatalf("preparation failed: %+v", a.state)
 			}
-			for _, want := range []string{"preflight 3004", "create 3000 3004 2", "infrastructure 3004", "provision 3000 3004 2", "fixtures 3004"} {
+			if strings.Index(string(calls), "fixtures") > strings.Index(string(calls), "readiness") {
+				t.Fatalf("readiness ran before fixtures: %s", calls)
+			}
+			for _, want := range []string{"preflight 3004", "create 3000 3004 2", "infrastructure 3004", "provision 3000 3004 2", "fixtures 3004", "readiness"} {
 				if !strings.Contains(string(calls), want) {
 					t.Fatalf("missing %s: %s", want, calls)
 				}

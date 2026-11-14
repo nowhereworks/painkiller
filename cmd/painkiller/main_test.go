@@ -248,6 +248,7 @@ func TestRetryPreparationReusesLabAndPreservesLog(t *testing.T) {
 		"scripts/configure-exam-access.sh": "#!/bin/sh\necho configured\n",
 		"bin/ssh":                          "#!/bin/sh\ncat >/dev/null\n",
 		"exam/CKA-001/setup.yaml":          "kind: List\nitems: []\n",
+		"exam/CKA-001/check-ready.sh":      "#!/bin/sh\ntrue\n",
 		"operation.log":                    "earlier failure\n",
 	}
 	for name, body := range files {
@@ -284,6 +285,7 @@ func TestFreshPreparationCreatesAndProvisions(t *testing.T) {
 		"scripts/configure-exam-access.sh": "#!/bin/sh\necho access >> calls\n",
 		"bin/ssh":                          "#!/bin/sh\ncat >/dev/null\n",
 		"exam/CKA-001/setup.yaml":          "kind: List\nitems: []\n",
+		"exam/CKA-001/check-ready.sh":      "#!/bin/sh\ntrue\n",
 	}
 	for name, body := range files {
 		if err := os.WriteFile(name, []byte(body), 0700); err != nil {

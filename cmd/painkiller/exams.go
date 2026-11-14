@@ -65,6 +65,9 @@ func loadExams(root string) ([]examDefinition, error) {
 			return nil, fmt.Errorf("%s: %w", dir, err)
 		}
 		exam.dir = dir
+		if _, err := trustedExamFile(exam, "check-ready.sh"); err != nil {
+			return nil, fmt.Errorf("%s: readiness check: %w", dir, err)
+		}
 		if err := validateLabSpec(exam); err != nil {
 			return nil, err
 		}
@@ -74,6 +77,15 @@ func loadExams(root string) ([]examDefinition, error) {
 		return nil, fmt.Errorf("%s: no tests found", root)
 	}
 	return exams, nil
+}
+
+func (a *app) readinessPath() (string, error) {
+	for _, exam := range a.exams {
+		if exam.ID == a.state.TestID {
+			return trustedExamFile(exam, "check-ready.sh")
+		}
+	}
+	return "", fmt.Errorf("unknown test %q", a.state.TestID)
 }
 
 func (a *app) selectExam(id string) error {

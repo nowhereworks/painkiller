@@ -1,145 +1,107 @@
-# CKA-002 — HA cluster practice exam
+# CKA-002 — practical CKA exam
 
-A 120-minute, 20-task, 100-point scenario exam on a five-node, highly available
-cluster: three stacked-etcd control-plane nodes behind a redundant API endpoint
-and two workers, on Calico. This is readiness evidence, not a guarantee of
-passing the CNCF exam.
+120 minutes, 20 tasks, 100 points. Domain weights follow
+`docs/cka-requirements.md`: architecture 25, workloads 15, networking 20,
+storage 10, troubleshooting 30.
 
-## Topology and provisioning
+## Minimal supporting lab
 
-CKA-002 declares its own lab contract in `test.json` and provisions, in
-prebaked mode, exactly five linked-clone VMs from the HA template `9200`:
+- Five linked clones of template **9198**: three controllers and two workers.
+  Two controllers start joined; the candidate prepares forwarding and joins the
+  third. Three stacked-etcd members provide real control-plane redundancy.
+- One HAProxy on the west worker serves `cka002-api:8443`. Each guest resolves
+  that name through `/etc/hosts` to the worker's DHCP address. The proxy itself
+  is intentionally not redundant. No API VIP or Keepalived.
+- Calico enforces NetworkPolicy.
+- One Traefik controller serves **both Ingress and Gateway API**.
+- Metrics Server supports resource inspection and HPA.
+- Local-path provisioner provides functional dynamic storage.
+- MetalLB allocates only **192.168.254.81**, for the LoadBalancer repair task.
+  Other reserved addresses remain unused.
 
-- Three control-plane nodes; two are joined initially and the third is prepared
-  but left unjoined for the candidate's kubeadm join task.
-- Two workers run HAProxy (TCP, `:8443`) and Keepalived (unicast VRRP) so the
-  reserved API virtual IP `192.168.254.80` is highly available; the API listens
-  on `192.168.254.80:8443`.
-- MetalLB serves LoadBalancer Services from the reserved pool
-  `192.168.254.81–89`. `192.168.254.90–99` remains unallocated.
+Build a new image at a free permitted VM ID with `scripts/build-template-ha.sh`
+(`LAB_IMAGE_HA_TEMPLATE_ID` overrides the default 9198). The builder refuses to
+overwrite an existing template. Tools and required images are cached at build
+time; cluster identity and per-attempt addresses are configured after cloning.
+The older image 9200 is retained, but does not satisfy this exam's tooling cache.
 
-Build the HA image before first use with `scripts/build-template-ha.sh`; it
-bakes `9200` from base `9199` (Kubernetes packages, `haproxy`/`keepalived`,
-Calico, and the exam/dependency images). HAProxy/Keepalived are installed but
-not configured at build time — `prepare.sh` configures them per node.
+## Preparation and reset
 
-Preparing another test requires resetting this lab; only one active attempt
-exists at a time. The reserved range and the standalone-exam rule are documented
-in the repository `AGENTS.md`.
+1. Check the LoadBalancer address using a local-network ARP scan.
+2. Linked-clone and start the VMs; configure the single TCP API proxy.
+3. Bootstrap Kubernetes using the existing shared prebaked path.
+4. Apply independent dependencies before waiting for readiness, copy candidate
+   assets, and apply fixtures. Required readiness failures stop preparation.
+5. Establish a good Deployment revision, introduce its failed update, then inject
+   node/component faults once.
 
-## Competency mapping
+Exam-owned phase markers live on the first controller under
+`/var/lib/painkiller/cka002`. Re-running the fixture phase after completion is a
+no-op, preserving candidate answers. Reset destroys the owned VMs and clears the
+attempt; no Kubernetes-level resource cleanup is needed.
 
-Every competency in `docs/cka-requirements.md` is addressed by a task or is
-explicitly documented below as harness-provided or not independently assessed.
+The east worker is deliberately broken. Repair its kubelet before drain or
+spread-scheduling tasks. Drain **only the east worker**; the west worker hosts
+shared fixtures and the proxy. The drain workload tolerates the east worker's
+taint. Scheduling/quota tasks use their own namespace.
 
-| Domain (weight) | Competency | Task |
+## Competency coverage
+
+| Domain | Requirement | Tasks |
 | --- | --- | --- |
-| Storage (10%) | Storage classes and dynamic provisioning | 13 |
-| | Volume types, access modes, reclaim policies | 13, 14 |
-| | Manage PVs and PVCs | 14 |
-| Troubleshooting (30%) | Troubleshoot clusters and nodes | 15 (kubelet), 2 (drain) |
-| | Troubleshoot cluster components | 16 (scheduler) |
-| | Monitor cluster/application resource usage | 19 (OOM/metrics/events) |
-| | Manage and evaluate container output streams | 20 (current/previous logs) |
-| | Troubleshoot services and networking | 18, 17 (CoreDNS) |
-| Workloads & Scheduling (15%) | Deployments, rolling update/rollback | 6 |
-| | ConfigMaps and Secrets | 7 |
-| | Workload autoscaling | 7 (CPU HPA) |
-| | Robust self-healing primitives | 6 (probes), 2 (PDB) |
-| | Pod admission and scheduling (limits, affinity) | 8, 7 |
-| Cluster Architecture (25%) | RBAC | 3 |
-| | Prepare underlying infrastructure | harness-provisioned, not candidate-assessed |
-| | Create/manage clusters with kubeadm | 1 |
-| | Manage cluster lifecycle | 1, 2 |
-| | Highly-available control plane | 1 |
+| Storage | StorageClasses and dynamic provisioning | 13 |
+| | Volume types, access modes, reclaim policies; PV/PVC management | 13–14 |
+| Troubleshooting | Clusters and nodes | 15; maintenance in 2 |
+| | Cluster components | 16 |
+| | Cluster/application resource usage | 19 (`top` for nodes and Pods) |
+| | Container output streams | 20 |
+| | Services and networking | 17–18 |
+| Workloads | Rolling updates and rollback | 6 |
+| | ConfigMaps, Secrets and autoscaling | 7 |
+| | Self-healing workloads | 6 probes; 2 PDB |
+| | Admission and scheduling | 8 quota, affinity, toleration, spread |
+| Architecture | RBAC | 3 |
+| | Prepare infrastructure | 1 persistent kernel forwarding configuration |
+| | kubeadm cluster management and HA | 1 control-plane join and etcd health |
+| | Cluster lifecycle | 1 join; 2 drain and snapshot |
 | | Helm and Kustomize | 4 |
-| | Extension interfaces (CNI, CSI, CRI) | 9 (CNI/Calico), 13–14 (storage provisioner), 15–16 (CRI/containerd) |
-| | CRDs, install/configure operators | 5 |
-| Services & Networking (20%) | Connectivity between Pods | 9 |
-| | Network Policies | 9 |
-| | ClusterIP, NodePort, LoadBalancer, endpoints | 11, 12, 18 |
-| | Gateway API | 10 |
-| | Ingress controllers and Ingress resources | 11 |
+| | CNI, CSI, CRI interfaces | 13 inspection; 9 policy; 15–16 node/runtime diagnosis |
+| | CRDs and operators | 5 CRD installation and reconciliation |
+| Networking | Pod connectivity and NetworkPolicy | 9 |
+| | ClusterIP, NodePort, LoadBalancer and endpoints | 9, 11, 12, 18 |
+| | Gateway API | 10 functional HTTP routing |
+| | Ingress controller/resources | 11 functional HTTP routing |
 | | CoreDNS | 17 |
 
-Domain totals: architecture 25, workloads 15, networking 20, storage 10,
-troubleshooting 30.
+### Assessment boundaries
 
-## Dependencies
+- The harness performs initial `kubeadm init` and package installation; the
+  candidate prepares and joins an additional controller. Live version upgrades
+  and full etcd disaster restore are not independently assessed.
+- Local-path is **not CSI**. Task 13 explicitly distinguishes the installed
+  non-CSI provisioner, CNI and CRI runtime; it does not assess CSI installation.
+- The small supplied Widget operator teaches CRD installation/reconciliation
+  without adding a heavyweight application platform.
+- Drain, rollback, and diagnostic history use evidence files in addition to
+  final-state checks. Evidence is not tamper-proof.
+- HA is node/process redundancy on one physical host, not host fault tolerance.
 
-All dependencies are vendored under `assets/` with checksums in
-`assets/SHA256SUMS`, pinned to versions compatible with Kubernetes `v1.36`:
+## Pinned dependencies
 
-| Component | Version | Notes |
-| --- | --- | --- |
-| Calico | 3.32.0 | CNI + NetworkPolicy enforcement, from the shared playbook |
-| Metrics Server | v0.9.1 | `--kubelet-insecure-tls` for the self-signed lab kubelets |
-| local-path-provisioner | v0.0.37 | dynamic provisioning, `WaitForFirstConsumer` |
-| MetalLB | v0.16.2 | native manifests, L2 pool `.81–.89` |
-| Envoy Gateway | v1.10.0 | Gateway API CRDs (v1.6.1) + controller |
-| Traefik | v3.7.19 | Ingress controller (kubernetesIngress provider) |
-| Helm | v3.19.0 | candidate tooling |
-| Widget operator | alpine/kubectl:1.36.1 | purpose-built teaching operator |
+Calico 3.32.0; Metrics Server 0.9.1; local-path-provisioner 0.0.37;
+MetalLB 0.16.2; Traefik 3.7.19; Gateway API standard CRDs 1.6.3;
+Helm 3.19.0; teaching operator image alpine/kubectl:1.36.1.
 
-`ingress-nginx` was retired in March 2026 and is deliberately not used.
-
-## Preparation stages
-
-`prepare.sh` runs three bounded, idempotent phases, all streamed through the
-operation log:
-
-1. `preflight` — reserved-address ARP scan (`192.168.254.80–89`) from the
-   Proxmox host, before any VM is cloned.
-2. `infrastructure` — the redundant API endpoint (HAProxy/Keepalived) on the two
-   workers, before `kubeadm init`.
-3. `fixtures` — dependency manifests, Helm tooling, supplied chart/kustomize/
-   operator assets, `setup.yaml`, node labels/taint, local data, the broken Helm
-   release, dependency readiness, then the intentional faults.
-
-Faults are injected last and idempotently so a retry reconciles completed stages
-without re-injecting them or resetting healthy state.
-
-## Grading and limitations
-
-- Grading is semantic and read-only: each task captures a JSON snapshot and
-  evaluates bounded functional probes (positive and negative), not command
-  history.
-- Historical actions (drain, rollback, failover, OOM/crash diagnosis) cannot be
-  proven by final state alone, so several tasks require saved evidence files;
-  this simulator is not tamper-proof.
-- Live version upgrades and full etcd disaster restore are **not** independently
-  assessed; "manage cluster lifecycle" is exercised through joining, drain, and
-  snapshot validation.
-- "Prepare underlying infrastructure" is performed by the harness, not the
-  candidate. The CRI (containerd) competency is exercised by identifying and
-  repairing kubelet/static-Pod faults, not a runtime swap. Storage uses a dynamic
-  local-path provisioner rather than a full CSI driver; the CSI extension
-  interface is addressed through that provisioner and the static local volume.
-- Node/process HA is practiced on a shared Proxmox host, not physical-host fault
-  tolerance.
+Gateway CRDs are vendored from the upstream v1.6.3 `standard-install.yaml`.
+Traefik's pinned version documents support for that version. Assets are
+checksummed in `assets/SHA256SUMS`.
 
 ## Validation
 
-Validated on 2026-11-13 on `prox-k12` against the prebaked HA image `9200`
-(VMs 3000–3004, three control-plane + two workers, Calico, endpoint
-`192.168.254.80:8443`). Provision to all nodes Ready: ~120 s (prebaked). The
-full `scripts/e2e/live.js` flow passed end to end:
+Run `scripts/e2e/live.js` with `E2E_EXAM=CKA-002` against a local server.
+The harness checks baseline scoring, reference answers, answer-removal penalties,
+browser terminal/reconnect, submission finality, and reset. It prints full
+preparation and reset durations.
 
-| Step | Result |
-| --- | --- |
-| Baseline (untouched lab) | **0 / 100** |
-| Reference solutions | **100 / 100** |
-| `rbac` answer removed / restored | 95 / 100 → 100 |
-| `netpol` answer removed / restored | 94 / 100 → 100 |
-| `ingress-nodeport` answer removed / restored | 95 / 100 → 100 |
-| Browser submit | **100 / 100** |
-| Submission finality | duplicate submit 409, terminal 409 |
-| Marks / terminal / reconnect | passed |
-| Reset | complete (idle) |
-
-Functional behavior verified on the disposable lab: Calico NetworkPolicy
-enforcement (allowed client, denied client, DNS), Envoy Gateway HTTPRoute
-Accepted + ResolvedRefs with a cross-namespace ReferenceGrant, Traefik Ingress
-and NodePort endpoints, MetalLB allocation from `192.168.254.81–89`, dynamic
-local-path provisioning with `WaitForFirstConsumer`, static local-PV binding,
-and the operator's Widget→ConfigMap reconciliation.
+Measured original setup on prox-k12: **504 seconds prepare, 20 seconds reset**.
+This includes fixtures, unlike the previous nodes-Ready-only timing.
