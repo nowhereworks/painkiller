@@ -95,3 +95,6 @@ optional Playwright checks described in `scripts/e2e/README.md` and the Go
 server tests. Do not claim browser coverage from the browser-free run.
 For mode changes, also check Simulation expiry and Learning overtime, question
 verification, navigation, submission, and terminal reconnect in a browser.
+For exam layout changes, run `node scripts/e2e/layout.js` (Playwright and Chrome
+required; no server or lab). It checks panel resizing, terminal fitting and
+bottom spacing, no exam page overflow, and preserved results-page scrolling.

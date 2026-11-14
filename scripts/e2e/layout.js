@@ -58,8 +58,43 @@ const {launch, check} = require('./lib');
     await page.setViewportSize({width: 600, height: 800});
     check(!await divider.isVisible(), 'mobile divider should be hidden');
     check(Math.abs((await widths())[0] - 600) < 1, 'mobile questions should fill width');
+    await page.evaluate(() => {
+      document.getElementById('instructions').textContent = 'Question content\n'.repeat(200);
+    });
+    for (const viewport of [
+      {width: 1200, height: 800}, {width: 1365, height: 767},
+      {width: 800, height: 601}, {width: 600, height: 800},
+      {width: 375, height: 667},
+    ]) {
+      await page.setViewportSize(viewport);
+      await page.evaluate(() => new Promise(resolve =>
+        requestAnimationFrame(() => requestAnimationFrame(resolve))));
+      const layout = await page.evaluate(() => {
+        const panel = document.getElementById('terminal-panel').getBoundingClientRect();
+        const screen = document.querySelector('#terminal .xterm-screen').getBoundingClientRect();
+        const questions = document.getElementById('question-panel');
+        return {
+          pageOverflow: document.documentElement.scrollHeight - innerHeight,
+          bottomGap: panel.bottom - screen.bottom,
+          screenBottom: screen.bottom,
+          questionsScroll: questions.scrollHeight > questions.clientHeight,
+        };
+      });
+      check(layout.pageOverflow <= 0, `page overflows at ${JSON.stringify(viewport)}`);
+      check(layout.bottomGap >= 8, `terminal bottom spacing missing at ${JSON.stringify(viewport)}`);
+      check(layout.screenBottom <= viewport.height - 8, 'last terminal row extends past viewport');
+      check(layout.questionsScroll, 'long questions should scroll inside their panel');
+    }
+    await page.evaluate(() => {
+      document.getElementById('exam').hidden = true;
+      const results = document.getElementById('results');
+      results.hidden = false;
+      results.innerHTML = '<p>Result</p>'.repeat(100);
+    });
+    check(await page.evaluate(() => document.documentElement.scrollHeight > innerHeight),
+      'long results should still allow page scrolling');
     check(errors.length === 0, 'browser errors: ' + errors.join(', '));
-    console.log('Layout checks passed: default split, drag, keyboard, minimums, terminal fit, mobile.');
+    console.log('Layout checks passed: default split, drag, keyboard, minimums, terminal fit, mobile, overflow, bottom spacing, results scrolling.');
   } finally {
     await browser.close();
   }

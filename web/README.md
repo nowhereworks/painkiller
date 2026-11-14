@@ -5,6 +5,8 @@ Drag the divider or focus it and use Left/Right (Shift for larger steps),
 Home, or End to resize. Minimum widths are 270px for questions and 150px
 for the terminal. Mobile keeps the vertically stacked layout.
 The terminal's existing ResizeObserver fits the shell when its panel changes.
+Exam overflow stays inside its panels, not on the page. Keep terminal spacing
+as margins (6px, with 8px below): FitAddon does not subtract container padding.
 
 Run `node scripts/e2e/layout.js` with `playwright-core` and Chrome installed
 for browser-only layout checks (no server or lab required).

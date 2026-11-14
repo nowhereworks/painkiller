@@ -113,6 +113,9 @@ article h2{font-weight:600;letter-spacing:-.02em}
 body{height:100dvh;display:flex;flex-direction:column}
 header{height:auto;min-height:56px;gap:16px;flex-shrink:0}
 main{height:auto;flex:1;min-height:0}
+/* Keep exam overflow inside its panels; FitAddon measures the terminal without padding. */
+#exam{overflow:hidden}
+#terminal{padding:0;margin:6px 6px 8px}
 #phase{display:flex;align-items:center;flex-wrap:wrap;gap:6px 10px;min-width:0;font-size:13px;color:#e2e8f0}
 #phase-exam{font-size:14px;font-weight:600;color:#fff;white-space:nowrap}
 #phase-exam[hidden]{display:none}
