@@ -83,3 +83,5 @@ The live exam test does not validate UI rendering, the browser terminal,
 submission via HTTP, or reconnect. For changes affecting those paths, use the
 optional Playwright checks described in `scripts/e2e/README.md` and the Go
 server tests. Do not claim browser coverage from the browser-free run.
+For mode changes, also check Simulation expiry and Learning overtime, question
+verification, navigation, submission, and terminal reconnect in a browser.

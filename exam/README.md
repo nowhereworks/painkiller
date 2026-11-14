@@ -26,6 +26,13 @@ attempt are active at a time; reset before choosing another test. Restarts
 restore the selected test, and attempts predating test selection belong to
 `CKA-001`. Do not remove or edit a test while its attempt is active.
 
+The mode is bound to the attempt at preparation. Simulation automatically
+submits at the time limit; Learning continues into overtime and can verify an
+individual question without submitting or saving scores. Older attempts default
+to Simulation. Verification uses the same trusted capture and check commands as
+grading, so exam authors must keep these commands read-only and bounded; HTTP and
+network probes may observe or contact supporting services.
+
 Duration comes from `test.json`; `PAINKILLER_MINUTES`, when set, overrides it.
 Without `lab`, tests retain the configured lab topology and provisioning
 defaults (one controller and two workers, prebaked template 9100).

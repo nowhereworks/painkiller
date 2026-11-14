@@ -3,8 +3,8 @@ main{height:calc(100dvh - 56px)}
 #home{height:100%;display:flex;flex-direction:column;min-height:0}
 #home[hidden]{display:none}
 #home>h1,#home>p,.lab-actions{flex-shrink:0}
-#home>label,#test-select{flex-shrink:0}
-#test-select{width:100%;max-width:540px;padding:10px;border:1px solid #a8b1bd;border-radius:4px;background:white;color:inherit;font:inherit}
+#home>label,#test-select,#mode-select{flex-shrink:0}
+#test-select,#mode-select{width:100%;max-width:540px;padding:10px;border:1px solid #a8b1bd;border-radius:4px;background:white;color:inherit;font:inherit}
 .lab-actions{display:flex;flex-wrap:wrap;gap:8px}
 #log{flex:1;min-height:0;overflow:hidden;background:#111;color:#eee;padding:12px;margin:14px 0;border:1px solid #303744;border-radius:4px}
 #log[hidden]{display:none}
@@ -55,6 +55,10 @@ article h2{font-size:20px;margin:0 0 18px}
 #solution p{white-space:normal}
 #solution pre{max-width:100%;overflow-x:auto;white-space:pre;font-size:14px}
 #solution :not(pre)>code{background:#eef1f5;padding:2px 4px;white-space:break-spaces}
+#verification:empty{display:none}
+#verification{margin:12px 0;padding:8px 12px;border:1px solid #cbd0d8;border-radius:4px}
+#verification p{margin:4px 0}
+#verification ul{padding-left:22px}
 @media(max-width:700px){#nav{gap:16px;padding:20px 16px}}
 #panel-divider{flex:0 0 8px;background:#cbd0d8;cursor:col-resize;touch-action:none}
 #panel-divider:hover,#panel-divider:focus-visible,#exam.resizing #panel-divider{background:#235c9c}

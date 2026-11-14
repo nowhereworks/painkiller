@@ -57,6 +57,7 @@ type result struct {
 }
 type state struct {
 	TestID          string                    `json:"test_id,omitempty"`
+	Mode            string                    `json:"mode,omitempty"`
 	Lab             *labConfig                `json:"lab,omitempty"`
 	Phase           string                    `json:"phase"`
 	Deadline        time.Time                 `json:"deadline,omitempty"`
@@ -80,6 +81,7 @@ type app struct {
 	lockDir   string
 	db        *sql.DB
 	duration  time.Duration
+	verifying bool
 }
 
 func (a *app) save() error {
@@ -106,7 +108,7 @@ func (a *app) closeTerminals() {
 	}
 }
 func (a *app) expire() {
-	if a.state.Phase == "running" && !time.Now().Before(a.state.Deadline) {
+	if a.state.Phase == "running" && a.state.Mode != "learning" && !time.Now().Before(a.state.Deadline) {
 		a.state.Phase = "grading"
 		a.closeTerminals()
 		if err := a.save(); err != nil {
@@ -116,6 +118,10 @@ func (a *app) expire() {
 		}
 		go a.grade()
 	}
+}
+
+func (a *app) running() bool {
+	return a.state.Phase == "running" && (a.state.Mode == "learning" || time.Now().Before(a.state.Deadline))
 }
 func (a *app) status(w http.ResponseWriter, r *http.Request) {
 	a.mu.Lock()
@@ -410,57 +416,60 @@ func (a *app) grade() {
 	}
 	results := make([]result, 0, len(a.tasks))
 	for _, t := range a.tasks {
-		if t.Resource != "" && answers[t.ID].Error != "" {
-			results = append(results, result{ID: t.ID, Error: answers[t.ID].Error})
-			continue
-		}
-		if t.Resource == "" {
-			args := append([]string{"30s", "ssh"}, a.labSSHArgs()...)
-			args = append(args, user+"@"+host, "kubectl get --raw=/readyz")
-			if health, err := output("timeout", args...); err != nil {
-				results = append(results, result{ID: t.ID, Error: fmt.Sprintf("cluster unavailable: %v %s", err, strings.TrimSpace(health))})
-				continue
-			}
-		}
-		checks := t.Checks
-		if len(checks) == 0 {
-			checks = []check{{Description: "Task requirements", Points: t.Points, Command: t.Check}}
-		}
-		res := result{ID: t.ID}
-		for _, c := range checks {
-			var out string
-			var err error
-			if t.Resource != "" {
-				// "// false" makes a missing path score zero instead of
-				// producing no output, which jq reports as an error.
-				cmd := exec.Command("timeout", "30s", "jq", "-e", "try (("+c.Expression+") // false) catch false")
-				cmd.Stdin = bytes.NewReader(answers[t.ID].Data)
-				var b []byte
-				b, err = cmd.CombinedOutput()
-				out = strings.TrimSpace(string(b))
-			} else {
-				args := append([]string{"30s", "ssh"}, a.labSSHArgs()...)
-				args = append(args, user+"@"+host, "bash -o pipefail -c "+shellQuote(c.Command))
-				out, err = output("timeout", args...)
-			}
-			cr := checkResult{Description: c.Description, Points: c.Points}
-			if err == nil {
-				cr.Earned = c.Points
-				res.Earned += c.Points
-			} else if checkUnavailable(err, out) {
-				cr.Error = fmt.Sprintf("check failed: %v %s", err, strings.TrimSpace(out))
-				res.Error = "One or more checks could not be graded"
-			}
-			res.Checks = append(res.Checks, cr)
-		}
-		res.Passed = res.Earned == t.Points && res.Error == ""
-		results = append(results, res)
+		results = append(results, a.evaluateTask(user, host, t, answers[t.ID]))
 	}
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	a.state.Results = results
 	a.state.Phase = "completed"
 	a.saveBackground()
+}
+
+// evaluateTask applies the same checks to a final snapshot or a fresh verification.
+func (a *app) evaluateTask(user, host string, t task, answer answerSnapshot) result {
+	if t.Resource != "" && answer.Error != "" {
+		return result{ID: t.ID, Error: answer.Error}
+	}
+	if t.Resource == "" {
+		args := append([]string{"30s", "ssh"}, a.labSSHArgs()...)
+		args = append(args, user+"@"+host, "kubectl get --raw=/readyz")
+		if health, err := output("timeout", args...); err != nil {
+			return result{ID: t.ID, Error: fmt.Sprintf("cluster unavailable: %v %s", err, strings.TrimSpace(health))}
+		}
+	}
+	checks := t.Checks
+	if len(checks) == 0 {
+		checks = []check{{Description: "Task requirements", Points: t.Points, Command: t.Check}}
+	}
+	res := result{ID: t.ID}
+	for _, c := range checks {
+		var out string
+		var err error
+		if t.Resource != "" {
+			// "// false" makes a missing path score zero instead of
+			// producing no output, which jq reports as an error.
+			cmd := exec.Command("timeout", "30s", "jq", "-e", "try (("+c.Expression+") // false) catch false")
+			cmd.Stdin = bytes.NewReader(answer.Data)
+			var b []byte
+			b, err = cmd.CombinedOutput()
+			out = strings.TrimSpace(string(b))
+		} else {
+			args := append([]string{"30s", "ssh"}, a.labSSHArgs()...)
+			args = append(args, user+"@"+host, "bash -o pipefail -c "+shellQuote(c.Command))
+			out, err = output("timeout", args...)
+		}
+		cr := checkResult{Description: c.Description, Points: c.Points}
+		if err == nil {
+			cr.Earned = c.Points
+			res.Earned += c.Points
+		} else if checkUnavailable(err, out) {
+			cr.Error = fmt.Sprintf("check failed: %v %s", err, strings.TrimSpace(out))
+			res.Error = "One or more checks could not be graded"
+		}
+		res.Checks = append(res.Checks, cr)
+	}
+	res.Passed = res.Earned == t.Points && res.Error == ""
+	return res
 }
 func shellQuote(s string) string { return "'" + strings.ReplaceAll(s, "'", "'\\''") + "'" }
 
@@ -474,6 +483,64 @@ func checkUnavailable(err error, out string) bool {
 	var exit *exec.ExitError
 	return !errors.As(err, &exit) || exit.ExitCode() != 1
 }
+
+// verify never writes answer snapshots or results. The copied lab configuration
+// keeps remote access stable if submission and reset happen during the request.
+func (a *app) verify(w http.ResponseWriter, r *http.Request) {
+	var request struct {
+		ID string `json:"id"`
+	}
+	if json.NewDecoder(http.MaxBytesReader(w, r.Body, 1024)).Decode(&request) != nil {
+		http.Error(w, "invalid question", http.StatusBadRequest)
+		return
+	}
+	a.mu.Lock()
+	a.expire()
+	if !a.running() || a.state.Mode != "learning" {
+		a.mu.Unlock()
+		http.Error(w, "verification requires a running learning attempt", http.StatusConflict)
+		return
+	}
+	var selected task
+	for _, t := range a.tasks {
+		if t.ID == request.ID {
+			selected = t
+			break
+		}
+	}
+	if selected.ID == "" {
+		a.mu.Unlock()
+		http.Error(w, "unknown question", http.StatusBadRequest)
+		return
+	}
+	if a.verifying {
+		a.mu.Unlock()
+		http.Error(w, "verification already in progress", http.StatusConflict)
+		return
+	}
+	a.verifying = true
+	host, deadline, testID := a.state.Host, a.state.Deadline, a.state.TestID
+	remote := &app{state: state{Lab: a.state.Lab}}
+	a.mu.Unlock()
+
+	user := remote.labValue("LAB_SSH_USER", "milkman")
+	var answer answerSnapshot
+	if selected.Resource != "" {
+		answer = remote.captureAnswer(user, host, selected)
+	}
+	res := remote.evaluateTask(user, host, selected, answer)
+
+	a.mu.Lock()
+	a.verifying = false
+	valid := a.running() && a.state.Mode == "learning" && a.state.TestID == testID && a.state.Deadline.Equal(deadline)
+	a.mu.Unlock()
+	if !valid {
+		http.Error(w, "attempt has ended", http.StatusConflict)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(res)
+}
 func env(k, d string) string {
 	if v := os.Getenv(k); v != "" {
 		return v
@@ -483,6 +550,10 @@ func env(k, d string) string {
 func (a *app) action(w http.ResponseWriter, r *http.Request) {
 	if r.Method != "POST" {
 		http.Error(w, "method not allowed", 405)
+		return
+	}
+	if r.URL.Path == "/api/verify" {
+		a.verify(w, r)
 		return
 	}
 	a.mu.Lock()
@@ -499,9 +570,17 @@ func (a *app) action(w http.ResponseWriter, r *http.Request) {
 		}
 		var selection struct {
 			TestID string `json:"test_id"`
+			Mode   string `json:"mode"`
 		}
 		if json.NewDecoder(http.MaxBytesReader(w, r.Body, 1024)).Decode(&selection) != nil {
 			http.Error(w, "invalid test selection", 400)
+			return
+		}
+		if selection.Mode == "" {
+			selection.Mode = "simulation"
+		}
+		if selection.Mode != "simulation" && selection.Mode != "learning" {
+			http.Error(w, "invalid mode", 400)
 			return
 		}
 		if err := a.selectExam(selection.TestID); err != nil {
@@ -521,6 +600,7 @@ func (a *app) action(w http.ResponseWriter, r *http.Request) {
 			a.state.Lab = config
 		}
 		a.state.TestID = selection.TestID
+		a.state.Mode = selection.Mode
 		a.state.Phase = "preparing"
 		next = a.prepare
 	case "retry":
@@ -553,7 +633,7 @@ func (a *app) action(w http.ResponseWriter, r *http.Request) {
 		a.state.Flags = map[string]bool{}
 		a.state.Done = map[string]bool{}
 	case "submit":
-		if a.state.Phase != "running" || !time.Now().Before(a.state.Deadline) {
+		if !a.running() {
 			http.Error(w, "exam is not running", 409)
 			return
 		}
@@ -586,7 +666,7 @@ func (a *app) action(w http.ResponseWriter, r *http.Request) {
 		a.state.FailedOperation = ""
 		next = a.reset
 	case "marks":
-		if a.state.Phase != "running" || !time.Now().Before(a.state.Deadline) {
+		if !a.running() {
 			http.Error(w, "exam is not running", 409)
 			return
 		}
@@ -598,7 +678,7 @@ func (a *app) action(w http.ResponseWriter, r *http.Request) {
 		a.state.Flags = marks.Flags
 		a.state.Done = marks.Done
 	case "mark":
-		if a.state.Phase != "running" || !time.Now().Before(a.state.Deadline) {
+		if !a.running() {
 			http.Error(w, "exam is not running", 409)
 			return
 		}
@@ -634,7 +714,7 @@ func (a *app) action(w http.ResponseWriter, r *http.Request) {
 		a.state.Flags = flags
 		a.state.Done = done
 	case "select":
-		if a.state.Phase != "running" || !time.Now().Before(a.state.Deadline) {
+		if !a.running() {
 			http.Error(w, "exam is not running", 409)
 			return
 		}
@@ -688,7 +768,7 @@ func sameOrigin(r *http.Request) bool {
 func (a *app) terminal(w http.ResponseWriter, r *http.Request) {
 	a.mu.Lock()
 	a.expire()
-	if a.state.Phase != "running" || !time.Now().Before(a.state.Deadline) {
+	if !a.running() {
 		a.mu.Unlock()
 		http.Error(w, "exam is not running", 409)
 		return

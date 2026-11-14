@@ -5,6 +5,8 @@ function drawTests(){
   const select=$('test-select');
   if(state.test_id)select.value=state.test_id;
   select.disabled=state.phase!=='idle'||!availableTests.length;
+  if(state.mode)$('mode-select').value=state.mode;
+  $('mode-select').disabled=state.phase!=='idle';
   $('prepare').disabled=!availableTests.some(test=>test.id===select.value);
   const test=availableTests.find(test=>test.id===select.value);
   $('test-description').textContent=test?`${test.description} (${test.minutes} minutes)`:'';
@@ -58,13 +60,44 @@ new ResizeObserver(()=>{
   divider.setAttribute('aria-valuenow',Math.round(questionPanel.getBoundingClientRect().width/available*100));
 }).observe(questionPanel);
 async function action(name,body){const r=await fetch('/api/'+name,{method:'POST',headers:{'Content-Type':'application/json'},body:body?JSON.stringify(body):'{}',keepalive:true});if(!r.ok)alert(await r.text());await refresh()}
-$('prepare').onclick=()=>action('prepare',{test_id:$('test-select').value});$('retry').onclick=()=>action('retry');$('start').onclick=()=>action('start');$('reset').onclick=()=>{if(confirm('Destroy all VMs belonging to this lab?'))action('reset')};$('submit').onclick=()=>{if(confirm('Submit the exam? This cannot be undone.'))action('submit')};
+$('prepare').onclick=()=>action('prepare',{test_id:$('test-select').value,mode:$('mode-select').value});$('retry').onclick=()=>action('retry');$('start').onclick=()=>action('start');$('reset').onclick=()=>{if(confirm('Destroy all VMs belonging to this lab?'))action('reset')};$('submit').onclick=()=>{if(confirm('Submit the exam? This cannot be undone.'))action('submit')};
 $('flag').onchange=$('done').onchange=()=>{state.flags??={};state.done??={};state.flags[tasks[index].ID]=$('flag').checked;state.done[tasks[index].ID]=$('done').checked;action('mark',{id:tasks[index].ID,flag:state.flags[tasks[index].ID],done:state.done[tasks[index].ID]})};
 function selectQuestion(i){if(i<0||i>=tasks.length)return;index=i;state.selected=tasks[i].ID;draw();action('select',{id:tasks[i].ID})}
 $('previous').onclick=()=>selectQuestion(index-1);
 $('next').onclick=()=>selectQuestion(index+1);
 $('question-select').onchange=e=>selectQuestion(Number(e.target.value));
 let renderedInstructions,renderedQuestion;
+let verificationSequence=0;
+$('verify').onclick=async()=>{
+  const id=tasks[index]?.ID, sequence=++verificationSequence;
+  if(!id)return;
+  $('verify').disabled=true;
+  $('verification').textContent='Checking…';
+  try{
+    const response=await fetch('/api/verify',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id})});
+    if(!response.ok)throw Error(await response.text());
+    const result=await response.json();
+    if(sequence!==verificationSequence||state.phase!=='running'||tasks[index]?.ID!==id)return;
+    const section=$('verification');section.replaceChildren();
+    const summary=document.createElement('p');
+    summary.textContent=`Checked at ${new Date().toLocaleTimeString()}`;
+    section.append(summary);
+    if(result.error&&!result.checks?.length){
+      const error=document.createElement('p');error.textContent='Could not verify: '+result.error;section.append(error);
+    }
+    const list=document.createElement('ul');
+    for(const check of result.checks||[]){
+      const item=document.createElement('li');
+      item.textContent=`${check.error?'Could not verify':check.earned===check.points?'Done':'Fail'}: ${check.description}`;
+      list.append(item);
+    }
+    section.append(list);
+  }catch(error){
+    if(sequence===verificationSequence)$('verification').textContent='Could not verify: '+error.message;
+  }finally{
+    if(sequence===verificationSequence)$('verify').disabled=false;
+  }
+};
 function renderMarkdown(element,markdown){
   element.innerHTML=DOMPurify.sanitize(marked.parse(markdown),{
     ALLOWED_TAGS:['p','br','strong','em','ul','ol','li','pre','code','blockquote','h3','h4'],
@@ -96,6 +129,7 @@ $('reveal').onclick=()=>{
 function draw(){
   const t=tasks[index];if(!t)return;
   if(renderedQuestion!==t.ID){
+    verificationSequence++;$('verification').replaceChildren();$('verify').disabled=false;
     $('solution').hidden=true;$('solution').replaceChildren();
     $('reveal').textContent='Reveal Instructions';$('reveal').setAttribute('aria-expanded','false');
     renderedQuestion=t.ID;
@@ -116,6 +150,7 @@ function draw(){
     renderedInstructions=t.Instructions;
   }
   $('flag').checked=!!state.flags?.[t.ID];$('done').checked=!!state.done?.[t.ID];
+  $('verify').hidden=state.mode!=='learning';
   tick();
 }
 function terminalKey(e){
@@ -155,6 +190,7 @@ function updateLog(text){
   logText=text;
 }
 function clearAttempt(){
+  verificationSequence++;$('verification').replaceChildren();$('verify').disabled=false;
   disconnect();if(term)term.reset();
   tasks=[];index=0;renderedQuestion=undefined;renderedInstructions=undefined;
   $('solution').hidden=true;$('solution').replaceChildren();
@@ -213,15 +249,18 @@ function renderResults(){
 }
 function tick(){
   drawTests();
+  if(state.phase&&state.phase!=='idle')$('phase').textContent=`${state.phase} · ${state.mode==='learning'?'Learning':'Simulation'}`;
   if(state.phase!=='running'){$('timer').textContent='';return}
-  const remaining=Math.max(0,(new Date(state.deadline)-Date.now())/1000);
+  const seconds=(new Date(state.deadline)-Date.now())/1000;
+  const remaining=Math.max(0,seconds);
   const percent=Math.min(100,remaining/(state.duration_seconds||7200)*100);
-  const minutes=Math.ceil(remaining/60),text=`${minutes} ${minutes===1?'minute':'minutes'}`;
+  const overtime=state.mode==='learning'&&seconds<0;
+  const minutes=Math.ceil((overtime?-seconds:remaining)/60),text=`${minutes} ${minutes===1?'minute':'minutes'} ${overtime?'overtime':'remaining'}`;
   $('timer').textContent=text;
   $('time-fill').style.width=percent+'%';
   $('time-progress').dataset.level=percent<=10?'red':percent<=25?'orange':'green';
   $('time-progress').setAttribute('aria-valuenow',String(Math.round(percent)));
-  $('time-progress').setAttribute('aria-valuetext',text+' remaining');
+  $('time-progress').setAttribute('aria-valuetext',text);
 }
 loadTests().catch(error=>{$('message').textContent=error.message});
 refresh();setInterval(refresh,5000);setInterval(tick,1000);
