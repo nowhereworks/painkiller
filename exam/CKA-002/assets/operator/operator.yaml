@@ -54,8 +54,8 @@ spec:
       containers:
         - name: operator
           # kubectl image matching the cluster version; bitnami/kubectl dropped
-          # its version tags, so use alpine/k8s (pinned) instead.
-          image: docker.io/alpine/k8s:1.36.1
+          # its version tags, so use the minimal alpine/kubectl (pinned) instead.
+          image: docker.io/alpine/kubectl:1.36.1
           command: ["/bin/sh", "-c"]
           args:
             - |

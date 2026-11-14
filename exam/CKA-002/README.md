@@ -79,7 +79,7 @@ All dependencies are vendored under `assets/` with checksums in
 | Envoy Gateway | v1.10.0 | Gateway API CRDs (v1.6.1) + controller |
 | Traefik | v3.7.19 | Ingress controller (kubernetesIngress provider) |
 | Helm | v3.19.0 | candidate tooling |
-| Widget operator | bitnami/kubectl:1.36.1 | purpose-built teaching operator |
+| Widget operator | alpine/kubectl:1.36.1 | purpose-built teaching operator |
 
 `ingress-nginx` was retired in March 2026 and is deliberately not used.
 

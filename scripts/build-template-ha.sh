@@ -127,7 +127,7 @@ for image in docker.io/traefik:v3.7.19 \
              docker.io/rancher/local-path-provisioner:v0.0.37 \
              quay.io/metallb/controller:v0.16.2 \
              quay.io/metallb/speaker:v0.16.2 \
-             docker.io/bitnami/kubectl:1.36.1 \
+             docker.io/alpine/kubectl:1.36.1 \
              docker.io/envoyproxy/gateway:v1.10.0 \
              docker.io/envoyproxy/ratelimit:5ae0682e; do
   sudo -n crictl pull "$image" || echo "best-effort cache miss: $image"
