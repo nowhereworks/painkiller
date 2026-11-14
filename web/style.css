@@ -110,3 +110,14 @@ article h2{font-weight:600;letter-spacing:-.02em}
 .terminal-header{display:flex;align-items:center;justify-content:space-between;padding:8px 12px;color:#e2e8f0;font-size:14px;font-weight:600}
 #reconnect{padding:5px 10px;font-size:13px}
 #results .result-card{border-radius:8px}
+body{height:100dvh;display:flex;flex-direction:column}
+header{height:auto;min-height:56px;gap:16px;flex-shrink:0}
+main{height:auto;flex:1;min-height:0}
+#phase{display:flex;align-items:center;flex-wrap:wrap;gap:6px 10px;min-width:0;font-size:13px;color:#e2e8f0}
+#phase-status{display:inline-flex;align-items:center;gap:7px;white-space:nowrap}
+#phase-status::before{content:"";width:7px;height:7px;border-radius:50%;background:#aebdcc;flex-shrink:0}
+#phase[data-phase="running"] #phase-status::before,#phase[data-phase="ready"] #phase-status::before,#phase[data-phase="completed"] #phase-status::before{background:#70d69a}
+#phase[data-phase="error"] #phase-status::before{background:#fca5a5}
+#phase-mode{border:1px solid #6b7b8f;border-radius:5px;padding:3px 7px;color:#e2e8f0;font-size:12px;white-space:nowrap}
+#phase-mode[hidden]{display:none}
+@media(max-width:600px){header{gap:8px;padding:8px 10px}header img{max-width:100px;height:auto}#phase{gap:4px;line-height:1.1}#phase-mode{padding:2px 4px}header #submit{font-size:12px;padding:6px;white-space:nowrap}}

@@ -78,6 +78,11 @@ async function main() {
     state.phase = 'running';
     await page.evaluate(() => refresh());
     assert.equal(await page.locator('#verify').isVisible(), true);
+    assert.equal(await page.locator('#phase-status').innerText(), 'In progress');
+    assert.equal(await page.locator('#phase-mode').innerText(), 'Learning mode');
+    await page.setViewportSize({width:320,height:900});
+    assert.equal(await page.locator('header').evaluate(el => el.scrollWidth <= el.clientWidth), true, 'header must fit narrow screens');
+    await page.setViewportSize({width:1280,height:900});
     assert.equal(await page.locator('#reveal').evaluate(el => {
       const reveal=el.getBoundingClientRect(), verify=document.querySelector('#verify').getBoundingClientRect();
       return reveal.left-verify.right===5 && reveal.top===verify.top;
@@ -272,7 +277,7 @@ async function main() {
     await page.locator('#submit').click();
     while (!finishSubmit) await new Promise(resolve => setImmediate(resolve));
     finishSubmit(true);
-    await page.waitForFunction(() => document.querySelector('#phase').textContent.startsWith('grading'));
+    await page.waitForFunction(() => document.querySelector('#phase-status').textContent === 'Grading');
     await page.reload();
     await page.waitForFunction(() => document.querySelector('.grading-status'));
     assert.equal(await page.locator('#home').isHidden(), true);
@@ -343,7 +348,7 @@ async function main() {
     await page.locator('#test-select').selectOption('CKA-002');
     assert.equal(await page.locator('#test-description').innerText(), 'Another test (60 minutes)');
     await page.locator('#prepare').click();
-    await page.waitForFunction(() => document.querySelector('#phase').textContent.startsWith('preparing'));
+    await page.waitForFunction(() => document.querySelector('#phase-status').textContent === 'Preparing lab');
     assert.equal(state.test_id, 'CKA-002');
     assert.equal(await page.locator('#test-select').isDisabled(), true);
     state.phase = 'ready';
