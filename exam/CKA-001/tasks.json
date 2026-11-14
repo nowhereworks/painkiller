@@ -84,7 +84,7 @@
     ],
     "title": "Run a static Pod",
     "points": 4,
-    "instructions": "On any worker node, create a static Pod manifest named `static-web` using image `nginx:1.27`. For example, use {{worker1}}. Write the manifest to `/etc/kubernetes/manifests/static-web.yaml`. The kubelet must run a Pod named `static-web-<node-name>`. Do not run it on the control-plane node; run `exit` to return to the controller.",
+    "instructions": "On any worker node, create a static Pod manifest named `static-web` using image `nginx:1.27`. For example, use {{worker1}}.\n\n- Write the manifest to `/etc/kubernetes/manifests/static-web.yaml`.\n- The kubelet must run a Pod named `static-web-<node-name>`.\n\n**Important:** Do not run it on the control-plane node; run `exit` to return to the controller.",
     "solution": "worker=$(kubectl get nodes -o json | jq -r '[.items[] | select(.metadata.labels[\"node-role.kubernetes.io/control-plane\"] == null)][0].metadata.name')\nip=$(kubectl get node \"$worker\" -o jsonpath='{.status.addresses[?(@.type==\"InternalIP\")].address}')\nssh \"$ip\" 'sudo tee /etc/kubernetes/manifests/static-web.yaml >/dev/null' <<'YAML'\napiVersion: v1\nkind: Pod\nmetadata:\n  name: static-web\nspec:\n  containers:\n    - name: web\n      image: nginx:1.27\nYAML",
     "resource": "kubectl get pods --all-namespaces -o json",
     "checks": [
@@ -439,7 +439,7 @@
     ],
     "title": "Bind a persistent volume",
     "points": 6,
-    "instructions": "Create a PersistentVolume named `exam-pv` with capacity `1Gi`, access mode `ReadWriteOnce`, storage class `exam-local` and hostPath `/tmp/exam-data`. Create a PersistentVolumeClaim named `exam-claim` in `exam-workloads` requesting `1Gi` with the same access mode and class, and make sure it binds to `exam-pv`.",
+    "instructions": "1. Create a PersistentVolume named `exam-pv` with capacity `1Gi`, access mode `ReadWriteOnce`, storage class `exam-local` and hostPath `/tmp/exam-data`.\n2. Create a PersistentVolumeClaim named `exam-claim` in `exam-workloads` requesting `1Gi` with the same access mode and class, and make sure it binds to `exam-pv`.",
     "solution": "kubectl apply -f - <<'YAML'\napiVersion: v1\nkind: PersistentVolume\nmetadata:\n  name: exam-pv\nspec:\n  capacity:\n    storage: 1Gi\n  accessModes: [ReadWriteOnce]\n  storageClassName: exam-local\n  hostPath:\n    path: /tmp/exam-data\n---\napiVersion: v1\nkind: PersistentVolumeClaim\nmetadata:\n  name: exam-claim\n  namespace: exam-workloads\nspec:\n  accessModes: [ReadWriteOnce]\n  storageClassName: exam-local\n  resources:\n    requests:\n      storage: 1Gi\nYAML",
     "resource": "kubectl -n exam-workloads get pv,pvc -o json",
     "checks": [

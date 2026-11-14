@@ -11,6 +11,11 @@ for browser-only layout checks (no server or lab required).
 
 ## Question walkthroughs
 
+Question titles, points, and ID/category metadata are displayed separately.
+Author question instructions in Markdown: use short paragraphs for context and
+lists for multiple requirements, preserving constraints and leaving solution
+steps in the walkthrough. Short questions need no extra headings.
+
 **Reveal Instructions** shows a question's numbered solution steps and commands;
 it does not copy the question to the clipboard. **Hide Instructions** collapses
 the block. Switching questions hides and clears it; polling keeps it open.

@@ -44,8 +44,12 @@ header #submit{margin-left:auto}
 #nav button{width:36px;padding:0;flex-shrink:0;background:#f8f9fa}
 #question-select{flex:1;min-width:0;width:100%;padding:0 8px;background:white}
 article{padding:0 24px 20px;font:16px Arial,sans-serif;color:#222}
-article h2{font-size:20px;margin:0 0 18px}
-#instructions{line-height:1.55;overflow-wrap:anywhere}
+article h2{font-size:20px;line-height:1.3;margin:0;min-width:0;overflow-wrap:anywhere}
+.question-heading{border-bottom:1px solid #e2e5e8;margin-bottom:20px;padding-bottom:14px}
+.question-title-row{display:flex;flex-wrap:wrap;align-items:baseline;justify-content:space-between;gap:4px 16px}
+#question-points{font-size:14px;white-space:nowrap}
+#question-meta{font-size:13px;line-height:1.5;color:#505b69;margin:6px 0 0;overflow-wrap:anywhere}
+#instructions{line-height:1.6;overflow-wrap:anywhere}
 #instructions p{white-space:normal;margin:0 0 16px}
 #instructions ul,#instructions ol{padding-left:32px;margin:0 0 16px}
 #instructions li{margin:4px 0}

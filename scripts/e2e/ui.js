@@ -31,7 +31,7 @@ async function main() {
     });
     const instructions = 'Use context: `kubectl config use-context k8s-c2-AC`\n\nFind **important information**:\n\n- Server private key location\n- Server certificate expiration\n\nWrite to `/opt/course/p1/etcd-info.txt`.\n\n```bash\nkubectl get pods --all-namespaces\n```\n\n```yaml\napiVersion: v1\nkind: Pod\n```\n\n```json\n{"ready": true}\n```\n\n```unknown\n<plain>\n```\n\n<script>window.unsafe=true</script><img src=x onerror="window.unsafe=true"><a href="javascript:alert(1)">unsafe link</a>';
     const tasks = [
-      {ID:'one',Title:'Inspect the cluster',Points:3,Instructions:instructions.replace('kubectl get pods --all-namespaces', '# Inspect all namespaces\nkubectl get pods --all-namespaces'),Steps:['Run `kubectl get pods`. <img src=x onerror="window.unsafe=true"><script>window.unsafe=true</script>','Verify that the expected Pods exist.'],Solution:'kubectl get pods\n# <script>window.unsafe=true</script>',Explanation:'Inspect the running Pods.'},
+      {ID:'one',QuestionID:'CKA-002-Q1',Category:'Cluster Architecture, Installation & Configuration',Title:'Inspect the cluster',Points:3,Instructions:instructions.replace('kubectl get pods --all-namespaces', '# Inspect all namespaces\nkubectl get pods --all-namespaces'),Steps:['Run `kubectl get pods`. <img src=x onerror="window.unsafe=true"><script>window.unsafe=true</script>','Verify that the expected Pods exist.'],Solution:'kubectl get pods\n# <script>window.unsafe=true</script>',Explanation:'Inspect the running Pods.'},
       {ID:'two',Title:'Create a namespace',Points:2,Instructions:'Create namespace `exam-sandbox`.'},
       {ID:'three',Title:'Review configuration',Points:2,Instructions:'Check the configuration.'}
     ];
@@ -87,6 +87,12 @@ async function main() {
     assert.equal(await page.locator('#next').isDisabled(), false);
     assert.equal(await page.locator('#time-fill').evaluate(el => el.style.width), '75%');
     assert.equal(await page.locator('#time-progress').getAttribute('data-level'), 'green');
+    assert.equal(await page.locator('#title').innerText(), 'Inspect the cluster');
+    assert.equal(await page.locator('#question-points').innerText(), '3 points');
+    assert.equal(await page.locator('#question-meta').innerText(), 'CKA-002-Q1 — Cluster Architecture, Installation & Configuration');
+    await page.setViewportSize({width:600,height:900});
+    assert.equal(await page.locator('#question-panel').evaluate(el => el.scrollWidth <= el.clientWidth), true, 'question heading must fit on mobile');
+    await page.setViewportSize({width:1280,height:900});
     assert.equal(await page.locator('#instructions p code').first().innerText(), 'kubectl config use-context k8s-c2-AC');
     assert.equal(await page.locator('#instructions li').count(), 2);
     for (const language of ['bash','yaml','json']) {

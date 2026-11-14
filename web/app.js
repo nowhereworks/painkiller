@@ -156,7 +156,9 @@ function draw(){
   while(select.options.length>tasks.length)select.remove(select.options.length-1);
   if(select.value!==String(index))select.value=index;
   $('previous').disabled=index===0;$('next').disabled=index===tasks.length-1;
-  $('title').textContent=`${t.QuestionID}: ${t.Title} (${t.Points} points) — ${t.Category}`;
+  $('title').textContent=t.Title;
+  $('question-points').textContent=`${t.Points} ${t.Points===1?'point':'points'}`;
+  $('question-meta').textContent=[t.QuestionID,t.Category].filter(Boolean).join(' — ');
   if(renderedInstructions!==t.Instructions){
     renderMarkdown($('instructions'),t.Instructions);
     renderedInstructions=t.Instructions;

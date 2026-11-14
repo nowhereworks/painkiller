@@ -5,7 +5,7 @@
     "category": "Cluster Architecture, Installation & Configuration",
     "title": "Join the third control-plane node",
     "points": 6,
-    "instructions": "Two control-plane nodes are joined. The unjoined third controller is {{controller3}}. On that node, enable IPv4 forwarding immediately and persistently in `/etc/sysctl.d/99-cka002.conf`. Generate a fresh bootstrap token and certificate key on the initial controller, join the third controller with kubeadm, and verify three Ready controllers and three healthy etcd members. The shared API endpoint is `cka002-api:8443`; its single proxy is provided by the lab. Run `exit` to return to the initial controller.",
+    "instructions": "Two control-plane nodes are joined. The unjoined third controller is {{controller3}}.\n\n**Requirements**\n\n1. On that node, enable IPv4 forwarding immediately and persistently in `/etc/sysctl.d/99-cka002.conf`.\n2. Generate a fresh bootstrap token and certificate key on the initial controller, join the third controller with kubeadm, and verify three Ready controllers and three healthy etcd members.\n\n**Environment**\n\nThe shared API endpoint is `cka002-api:8443`; its single proxy is provided by the lab. Run `exit` to return to the initial controller.",
     "steps": [
       "On the first control-plane node run `kubectl get nodes` and note there are two control-plane nodes and two workers.",
       "Connect to {{controller3}}. Set `net.ipv4.ip_forward=1` in `/etc/sysctl.d/99-cka002.conf` and apply it with `sudo sysctl -p /etc/sysctl.d/99-cka002.conf`. Run `exit`, then generate a certificate key on the initial controller with `sudo kubeadm init phase upload-certs --upload-certs`.",
@@ -35,7 +35,7 @@
     "category": "Cluster Architecture, Installation & Configuration",
     "title": "Drain a worker safely and back up etcd",
     "points": 5,
-    "instructions": "Complete the worker kubelet repair (CKA-002-Q15) first. From the initial controller, cordon and drain the worker labeled `topology.kubernetes.io/zone=east`, respecting `web-pdb` in `exam-workloads`. Save successful drain output on the initial controller to `/tmp/drain-evidence.txt`, then uncordon it. Do not drain the west worker: it hosts shared fixtures and the API proxy. Create an etcd snapshot at `/opt/backup/etcd.db` on the initial controller and confirm it is readable.",
+    "instructions": "**First:** Complete the worker kubelet repair (CKA-002-Q15).\n\n**Requirements**\n\n1. From the initial controller, cordon and drain the worker labeled `topology.kubernetes.io/zone=east`, respecting `web-pdb` in `exam-workloads`.\n2. Save successful drain output on the initial controller to `/tmp/drain-evidence.txt`, then uncordon it.\n3. Create an etcd snapshot at `/opt/backup/etcd.db` on the initial controller and confirm it is readable.\n\n**Important:** Do not drain the west worker: it hosts shared fixtures and the API proxy.",
     "steps": [
       "After repairing the kubelet, select the east worker using `kubectl get nodes -l topology.kubernetes.io/zone=east` and cordon it.",
       "Drain it with `kubectl drain <worker> --ignore-daemonsets --delete-emptydir-data` so its Pods reschedule without violating the PDB, and record the output with `2>&1 | tee /tmp/drain-evidence.txt`.",
@@ -104,7 +104,7 @@
     "category": "Cluster Architecture, Installation & Configuration",
     "title": "Repair a Helm release and deploy a Kustomize overlay",
     "points": 5,
-    "instructions": "A Helm release named `demo` in `exam-helm` was installed with an unpullable image tag. Repair it with `helm upgrade` so it runs `nginx:1.27` while staying Helm-managed. Then deploy the supplied Kustomize overlay at `/opt/painkiller/cka002/kustomize/overlay` to create `kustom-app` with three replicas, without editing the base.",
+    "instructions": "A Helm release named `demo` in `exam-helm` was installed with an unpullable image tag.\n\n1. Repair it with `helm upgrade` so it runs `nginx:1.27` while staying Helm-managed.\n2. Deploy the supplied Kustomize overlay at `/opt/painkiller/cka002/kustomize/overlay` to create `kustom-app` with three replicas, without editing the base.",
     "steps": [
       "Inspect the release with `helm -n exam-helm list` and `kubectl -n exam-helm get deploy demo-web`.",
       "Repair it with `helm upgrade demo /opt/painkiller/cka002/chart -n exam-helm --set image.tag=1.27`.",
@@ -178,7 +178,7 @@
     "category": "Troubleshooting",
     "title": "Recover a rollout with probes and rolling-update limits",
     "points": 5,
-    "instructions": "The latest rollout of app in exam-workloads uses an invalid image. Roll back to the previous nginx:1.27 revision and save the rollback command output to /tmp/rollback-evidence.txt. Add HTTP readiness and liveness probes on port 80 and set RollingUpdate maxUnavailable=0, maxSurge=1. Finish with two available replicas.",
+    "instructions": "The latest rollout of `app` in `exam-workloads` uses an invalid image.\n\n- Roll back to the previous `nginx:1.27` revision and save the rollback command output to `/tmp/rollback-evidence.txt`.\n- Add HTTP readiness and liveness probes on port 80 and set RollingUpdate `maxUnavailable=0`, `maxSurge=1`.\n- Finish with two available replicas.",
     "steps": [
       "Inspect with `kubectl -n exam-workloads describe deployment app` to see the image pull failure.",
       "Run `kubectl -n exam-workloads rollout undo deployment/app | tee /tmp/rollback-evidence.txt`.",
@@ -258,7 +258,7 @@
     "category": "Workloads & Scheduling",
     "title": "Pin scheduling with affinity, toleration, and spread",
     "points": 5,
-    "instructions": "Complete the worker kubelet repair first. In exam-scheduling, create pinned (3 replicas, nginx:1.27) tolerating exam=reserved:NoSchedule, requiring node affinity to zone west or east, and spreading across topology.kubernetes.io/zone with maxSkew=1 and DoNotSchedule. Create exam-quota in that namespace limiting Pods to 10. Finish with three available replicas.",
+    "instructions": "**First:** Complete the worker kubelet repair.\n\nIn `exam-scheduling`, create `pinned` (3 replicas, `nginx:1.27`) with:\n\n- A toleration for `exam=reserved:NoSchedule`.\n- Required node affinity to zone west or east.\n- Spread across `topology.kubernetes.io/zone` with `maxSkew=1` and `DoNotSchedule`.\n\nCreate `exam-quota` in that namespace limiting Pods to 10. Finish with three available replicas.",
     "steps": [
       "Inspect the taint with `kubectl get nodes -o json | jq '[.items[].spec.taints]'`.",
       "Create the Deployment with a toleration for `exam=reserved:NoSchedule`, required node affinity on `topology.kubernetes.io/zone`, and a topologySpreadConstraint on the same key with `maxSkew: 1`.",
@@ -447,7 +447,7 @@
     "category": "Storage",
     "title": "Provision dynamic storage with delayed binding",
     "points": 5,
-    "instructions": "In exam-storage, create StorageClass exam-sc (rancher.io/local-path, WaitForFirstConsumer, Retain), PVC exam-pvc (1Gi, ReadWriteOnce), and Pod data-app mounting it at /data. Write cka-storage to /data/proof.txt and read it back. Inspect the installed networking, runtime and storage provisioner; save /tmp/interfaces.json with keys cni, runtime, storageProvisioner and boolean usesCSI. Distinguish this provisioner from a CSI driver.",
+    "instructions": "In `exam-storage`:\n\n- Create StorageClass `exam-sc` (`rancher.io/local-path`, `WaitForFirstConsumer`, `Retain`), PVC `exam-pvc` (`1Gi`, `ReadWriteOnce`), and Pod `data-app` mounting it at `/data`.\n- Write `cka-storage` to `/data/proof.txt` and read it back.\n- Inspect the installed networking, runtime and storage provisioner; save `/tmp/interfaces.json` with keys `cni`, `runtime`, `storageProvisioner` and boolean `usesCSI`. Distinguish this provisioner from a CSI driver.",
     "steps": [
       "Create the StorageClass with `volumeBindingMode: WaitForFirstConsumer` and `reclaimPolicy: Retain`.",
       "Create the PVC `exam-pvc` (1Gi, ReadWriteOnce, storageClassName `exam-sc`).",
@@ -652,7 +652,7 @@
     "category": "Troubleshooting",
     "title": "Diagnose and fix an OOM-killed workload",
     "points": 5,
-    "instructions": "Diagnose the failing oom-app Deployment in exam-repair using describe and events. Save the diagnosis output to /tmp/oom-evidence.txt, raise its memory limit to at least 128Mi, and restore availability. Capture current node and exam-repair Pod resource usage with kubectl top to /tmp/node-usage.txt and /tmp/pod-usage.txt.",
+    "instructions": "Diagnose the failing `oom-app` Deployment in `exam-repair` using describe and events.\n\n- Save the diagnosis output to `/tmp/oom-evidence.txt`, raise its memory limit to at least `128Mi`, and restore availability.\n- Capture current node and `exam-repair` Pod resource usage with `kubectl top` to `/tmp/node-usage.txt` and `/tmp/pod-usage.txt`.",
     "steps": [
       "Diagnose with `kubectl -n exam-repair describe pod -l app=oom-app` and `kubectl -n exam-repair get events --sort-by=.lastTimestamp`.",
       "Save the evidence with `kubectl -n exam-repair describe pod -l app=oom-app > /tmp/oom-evidence.txt`.",
