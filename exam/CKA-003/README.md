@@ -139,3 +139,7 @@ The revised variant was validated on 2026-11-14 against disposable clones on pro
 loss/restore mutations passed, and automatic VM cleanup passed. The complete
 browser-free run took 291.71 seconds. Local Go race tests, vet, JavaScript
 syntax, shellcheck, and asset checksum checks also passed.
+
+Verification diagnostics were revalidated on 2026-11-14: baseline 0,
+reference solutions 100/100, all 16 loss/restore mutations, and automatic cleanup
+passed in 348.66 seconds. This is browser-free scoring coverage.

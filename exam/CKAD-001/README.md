@@ -129,3 +129,12 @@ and automatic lab destruction passed. The complete run took 711.24 seconds.
 All 168 local Go tests (with race detection), vet, shellcheck, asset checksums,
 JavaScript syntax, and playbook syntax checks also passed. No browser coverage
 is claimed.
+
+Verification diagnostics were revalidated on 2026-11-14 after gating live exec
+on Pod readiness: baseline 0, reference solutions 100/100, and all 21 isolated
+loss/restore mutations passed. The wrapper reported failure only at automatic
+cleanup because another operation held the shared lab lock (exit 75); this was
+not a scoring failure. Ownership-verified manual cleanup subsequently acquired
+the shared lock and destroyed only the three test VMs. All 221 local Go race
+tests passed on the isolated code
+snapshot; this does not claim browser or CKA-002 live coverage.
