@@ -105,12 +105,13 @@ From the repository root:
 go run ./cmd/painkiller
 ```
 
-Open <http://127.0.0.1:8080>, select an exam, and choose **Prepare**. Once the
-lab is ready, choose **Start**, complete tasks in the terminal, and **Submit**
-for grading. Use **Reset** when finished or before choosing another exam.
-Inspect errors before retrying an operation; interrupted cloning may require
-manual investigation. Lab state and answer snapshots are stored under `data/`
-and should be treated as sensitive.
+Open <http://127.0.0.1:8080>, select a test and mode, and choose **Prepare lab**.
+Once the lab is ready, choose **Start exam**, complete tasks in the terminal,
+and submit for grading. Use **Destroy lab** when finished or before choosing
+another test. If preparation fails, inspect the error before retrying or using
+**Reset failed attempt**; interrupted cloning may require manual investigation.
+Resetting a failed attempt can destroy any VMs already created for it. Lab state
+and answer snapshots are stored under `data/` and should be treated as sensitive.
 
 ## Documentation
 

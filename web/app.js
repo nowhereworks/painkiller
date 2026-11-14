@@ -10,8 +10,12 @@ function drawTests(){
   $('prepare').disabled=!availableTests.some(test=>test.id===select.value);
   const test=availableTests.find(test=>test.id===select.value);
   $('test-description').textContent=test?`${test.description} (${test.minutes} minutes)`:'';
+  $('mode-description').textContent=$('mode-select').value==='learning'
+    ?'Learning continues beyond the time limit and allows question verification.'
+    :'Simulation ends at the time limit.';
 }
 $('test-select').onchange=drawTests;
+$('mode-select').onchange=drawTests;
 async function loadTests(){
   const response=await fetch('/api/tests',{cache:'no-store'});
   if(!response.ok)throw Error('Could not load available tests.');
@@ -72,7 +76,7 @@ async function submitExam(){
   }catch(e){alert('Could not submit exam: '+e.message)}
   finally{submitting=false;await refresh()}
 }
-$('prepare').onclick=()=>action('prepare',{test_id:$('test-select').value,mode:$('mode-select').value});$('retry').onclick=()=>action('retry');$('start').onclick=()=>action('start');$('reset').onclick=()=>{if(confirm('Destroy all VMs belonging to this lab?'))action('reset')};$('submit').onclick=submitExam;
+$('prepare').onclick=()=>action('prepare',{test_id:$('test-select').value,mode:$('mode-select').value});$('retry').onclick=()=>action('retry');$('start').onclick=()=>action('start');$('reset').onclick=()=>{if(confirm('Reset this attempt? Any VMs belonging to its lab will be destroyed.'))action('reset')};$('submit').onclick=submitExam;
 $('flag').onchange=$('done').onchange=async e=>{
   const id=tasks[index]?.ID,advance=e.target===$('done')&&$('done').checked;
   if(!id)return;
@@ -205,6 +209,7 @@ function updateLog(text){
   const log=$('log');
   if(logText===text)return;
   log.hidden=!text;
+  $('log-heading').hidden=!text;
   if(!logTerm&&text){
     logTerm=new Terminal({disableStdin:true,convertEol:true,cursorBlink:false,cursorInactiveStyle:'none',fontSize:14,scrollback:3000,theme:{background:'#111111',foreground:'#eeeeee'}});
     logFit=new FitAddon.FitAddon();logTerm.loadAddon(logFit);logTerm.open(log);
@@ -228,7 +233,7 @@ function clearAttempt(){
   $('flag').checked=false;$('done').checked=false;
 }
 let refreshSequence=0;
-async function refresh(){if(submitting)return;const sequence=++refreshSequence;try{const next=await(await fetch('/api/status',{cache:'no-store'})).json();const nextTasks=['running','completed'].includes(next.phase)?await(await fetch('/api/tasks',{cache:'no-store'})).json():null;const log=['preparing','resetting','error'].includes(next.phase)?await(await fetch('/api/log',{cache:'no-store'})).text():'';if(sequence!==refreshSequence)return;let old=state.phase;state=next;if((state.phase==='idle'||state.phase==='resetting')&&old!==state.phase)clearAttempt();if(state.phase==='running'&&old!=='running'){clearAttempt()}$('message').textContent=state.message||'';$('prepare').hidden=state.phase!=='idle';$('start').hidden=state.phase!=='ready';$('retry').hidden=state.phase!=='error'||!['prepare','reset'].includes(state.failed_operation);$('reset').hidden=['running','preparing','grading','resetting'].includes(state.phase);$('submit').hidden=state.phase!=='running';$('home').hidden=['running','grading','completed'].includes(state.phase);$('exam').hidden=state.phase!=='running';$('results').hidden=!['grading','completed'].includes(state.phase);if(nextTasks){tasks=nextTasks;let selected=tasks.findIndex(t=>t.ID===state.selected);index=selected>=0?selected:0;if(state.phase==='running')draw()}updateLog(log);if(state.phase==='running'&&old!=='running')connect();if(old==='running'&&state.phase!=='running')disconnect();if(state.phase==='grading')renderGrading();if(state.phase==='completed')renderResults();tick()}catch(e){if(sequence===refreshSequence)$('message').textContent='Cannot reach server: '+e}}
+async function refresh(){if(submitting)return;const sequence=++refreshSequence;try{const next=await(await fetch('/api/status',{cache:'no-store'})).json();const nextTasks=['running','completed'].includes(next.phase)?await(await fetch('/api/tasks',{cache:'no-store'})).json():null;const log=['preparing','resetting','error'].includes(next.phase)?await(await fetch('/api/log',{cache:'no-store'})).text():'';if(sequence!==refreshSequence)return;let old=state.phase;state=next;if((state.phase==='idle'||state.phase==='resetting')&&old!==state.phase)clearAttempt();if(state.phase==='running'&&old!=='running'){clearAttempt()}$('message').textContent=state.message||'';$('prepare').hidden=state.phase!=='idle';$('start').hidden=state.phase!=='ready';$('retry').hidden=state.phase!=='error'||!['prepare','reset'].includes(state.failed_operation);$('retry').textContent=state.failed_operation==='reset'?'Retry cleanup':'Retry preparation';$('reset').hidden=!['ready','error'].includes(state.phase)||!state.test_id;$('reset').textContent=state.phase==='error'?'Reset failed attempt':'Destroy lab';$('submit').hidden=state.phase!=='running';$('home').hidden=['running','grading','completed'].includes(state.phase);$('exam').hidden=state.phase!=='running';$('results').hidden=!['grading','completed'].includes(state.phase);if(nextTasks){tasks=nextTasks;let selected=tasks.findIndex(t=>t.ID===state.selected);index=selected>=0?selected:0;if(state.phase==='running')draw()}updateLog(log);if(state.phase==='running'&&old!=='running')connect();if(old==='running'&&state.phase!=='running')disconnect();if(state.phase==='grading')renderGrading();if(state.phase==='completed')renderResults();tick()}catch(e){if(sequence===refreshSequence)$('message').textContent='Cannot reach server: '+e}}
 function renderGrading(){
   const status=document.createElement('div');status.className='grading-status';status.setAttribute('role','status');
   const spinner=document.createElement('span');spinner.className='spinner';spinner.setAttribute('aria-hidden','true');

@@ -123,3 +123,21 @@ main{height:auto;flex:1;min-height:0}
 #phase-mode{border:1px solid #6b7b8f;border-radius:5px;padding:3px 7px;color:#e2e8f0;font-size:12px;white-space:nowrap}
 #phase-mode[hidden]{display:none}
 @media(max-width:600px){header{gap:8px;padding:8px 10px}header img{max-width:100px;height:auto}#phase{gap:4px;line-height:1.1}#phase-mode{padding:2px 4px}header #submit{font-size:12px;padding:6px;white-space:nowrap}}
+
+/* Practice test setup */
+#home{padding:24px clamp(16px,3vw,32px);overflow:auto}
+.home-heading,.test-options,#test-description,#mode-description,#message,.lab-actions,#log-heading{flex-shrink:0}
+.home-heading h1{margin:0 0 4px}
+.home-heading p{margin:0;color:var(--ui-muted)}
+.test-options{display:grid;grid-template-columns:minmax(0,2fr) minmax(170px,1fr);gap:16px;max-width:760px;margin-top:20px}
+.test-options label{font-weight:600;margin:0 0 6px}
+.test-options select{max-width:none}
+#test-description{margin:12px 0 0}
+#mode-description{margin:4px 0 0}
+#test-description:empty,#message:empty{display:none}
+.lab-actions{align-items:center;max-width:760px;margin-top:18px}
+.lab-actions #reset{margin-left:auto}
+#message{margin:12px 0 0}
+#log-heading{margin-top:16px;font-weight:600}
+#log{margin:8px 0 0;min-height:100px}
+@media(max-width:520px){.test-options{grid-template-columns:1fr;gap:12px}.lab-actions #reset{margin-left:0}#home{padding:16px}}
