@@ -105,6 +105,13 @@ intentional faults. Start remains disabled on failure.
 Each question is all-or-nothing using its full source weight. Read-only capture
 logic is installed at `/opt/painkiller/cka003/capture.sh`. Missing resources fail
 the answer; API errors fail capture. API and HTTP calls are bounded.
+Every question also captures specific unmet requirements for Learning
+verification, without changing its all-or-nothing weight. Readiness messages
+distinguish unsettled workloads from configuration checks; they do not grant
+credit before convergence. Already prepared labs retain their installed capture
+script, so expanded diagnostics require a newly prepared lab.
+For the monitored HTTP question, a completed HTTP failure is an incorrect
+answer; inability to exec the probe in `status-monitor` is a capture error.
 
 RBAC roles must contain only the requested rule; effective get permissions and
 representative forbidden operations are also tested by impersonation. This is

@@ -23,6 +23,16 @@ ansible-playbook --syntax-check -i localhost, playbooks/kubeadm-cluster/kubeadm-
 The live Go test is skipped unless explicitly enabled through the wrapper.
 Run relevant local checks after changes; run the live exam validation when
 exam setup, student access, answers, or grading changes require it.
+For capture diagnostics and error classification, the local
+`TestVerificationDiagnosticsAndProbeErrors` cases exercise valid/missing answers,
+failed application probes, and failed exec transport through the real capture
+scripts and grader. Exam-owned missing-answer tests require diagnostic text for
+every CKAD-001/CKA-003 question. `TestCKA002RBACCapture` distinguishes authorization
+denials from API errors; `TestKubectlLogSubresourceSpelling` optionally uses an
+installed kubectl against a local fake API (never the configured cluster).
+Supporting probe failures must remain capture errors even when kubectl reports
+`(NotFound)`: the generic capture path otherwise treats that text as a missing
+candidate answer. Sanitize supporting exec stderr and emit a distinct error.
 
 ## Browser-free live exam validation
 

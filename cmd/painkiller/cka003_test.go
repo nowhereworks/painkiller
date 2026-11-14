@@ -49,6 +49,9 @@ func TestCKA003Definition(t *testing.T) {
 			if task.Resource != fmt.Sprintf("bash /opt/painkiller/cka003/capture.sh q%d", i+1) {
 				t.Fatalf("unexpected capture for %s", task.ID)
 			}
+			if len(task.Checks) != 1 || task.Checks[0].Diagnostics != ".failures // []" {
+				t.Fatalf("%s must expose capture diagnostics without splitting its score", task.QuestionID)
+			}
 			for _, want := range variants[i] {
 				if !strings.Contains(task.Instructions, want) {
 					t.Fatalf("%s missing variant detail %q", task.QuestionID, want)
@@ -101,7 +104,7 @@ func TestCKA003MissingAnswers(t *testing.T) {
 	}
 	dir := t.TempDir()
 	stubs := map[string]string{
-		"kubectl": "#!/bin/sh\ncase \"$*\" in\n*exec*) echo 'expected connection failure' >&2; exit 1;;\n*'auth can-i'*) echo 'Warning: resource is not namespace scoped' >&2; echo no; exit 1;;\n*jsonpath*) echo controller;;\n*) echo '{}';;\nesac\n",
+		"kubectl": "#!/bin/sh\ncase \"$*\" in\n*exec*) exit 0;;\n*'auth can-i'*) echo 'Warning: resource is not namespace scoped' >&2; echo no; exit 1;;\n*jsonpath*) echo controller;;\n*) echo '{}';;\nesac\n",
 		"helm":    "#!/bin/sh\necho '[]'\n",
 		"curl":    "#!/bin/sh\necho 'expected HTTP probe failure' >&2\nexit 7\n",
 		"sudo":    "#!/bin/sh\nexit 1\n",
@@ -119,12 +122,18 @@ func TestCKA003MissingAnswers(t *testing.T) {
 			if err != nil {
 				t.Fatalf("missing answer failed capture: %v", err)
 			}
-			var result struct{ OK bool }
+			var result struct {
+				OK       bool
+				Failures []string
+			}
 			if err := json.Unmarshal(data, &result); err != nil {
 				t.Fatal(err)
 			}
 			if result.OK {
 				t.Fatal("missing answer passed")
+			}
+			if len(result.Failures) == 0 {
+				t.Fatalf("missing answer needs actionable diagnostics: %s", data)
 			}
 		})
 	}

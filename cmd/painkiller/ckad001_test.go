@@ -35,6 +35,9 @@ func TestCKAD001Definition(t *testing.T) {
 			if task.Resource != fmt.Sprintf("bash /opt/painkiller/ckad001/capture.sh q%d", i+1) {
 				t.Fatalf("unexpected capture: %s", task.Resource)
 			}
+			if len(task.Checks) != 1 || task.Checks[0].Diagnostics != ".failures // []" {
+				t.Fatalf("%s must expose capture diagnostics without splitting its score", task.QuestionID)
+			}
 			if strings.Contains(task.Solution, "exam/CKA-") {
 				t.Fatal("cross-exam solution dependency")
 			}
@@ -96,9 +99,15 @@ func TestCKAD001MissingAnswers(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Q%d capture failed instead of returning a missing answer: %v\n%s", q, err, out)
 		}
-		var result struct{ OK bool }
+		var result struct {
+			OK       bool
+			Failures []string
+		}
 		if err := json.Unmarshal(out, &result); err != nil || result.OK {
 			t.Fatalf("Q%d should return false JSON, got %s (%v)", q, out, err)
+		}
+		if len(result.Failures) == 0 {
+			t.Fatalf("Q%d missing answer needs actionable diagnostics: %s", q, out)
 		}
 	}
 	if err := os.WriteFile(filepath.Join(dir, "kubectl"), []byte("#!/bin/bash\nexit 42\n"), 0700); err != nil {

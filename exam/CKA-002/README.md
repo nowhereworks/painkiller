@@ -85,6 +85,10 @@ taint. Scheduling/quota tasks use their own namespace.
 - Drain, rollback, and diagnostic history use evidence files in addition to
   final-state checks. Evidence is not tamper-proof.
 - HA is node/process redundancy on one physical host, not host fault tolerance.
+- RBAC log access is checked with `kubectl auth can-i get pods --subresource=log`.
+  In `auth can-i`, `pods/log` and `pods/logs` address named Pods, not the log
+  subresource. Explicit `no` is a denied permission; API/transport errors fail
+  capture rather than being mistaken for denials.
 
 ## Pinned dependencies
 

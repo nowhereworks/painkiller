@@ -83,14 +83,21 @@ Missing resources and malformed candidate YAML fail the answer. Service tasks
 include HTTP probes from the observer Pod. QoS evidence is compared against all
 live namespace Pods, independent of row order. Secret import and the read-only
 Secret mount include live container checks. Both quota spellings are accepted.
-Q1 captures include specific unmet requirements (container names/images,
-environment, declared port, and running/readiness state) for Learning verification.
+All questions capture specific unmet requirements for Learning verification,
+including configuration, evidence files, HTTP behavior, and readiness. Startup
+messages suggest retrying after convergence without awarding premature credit.
 These diagnostics do not change its all-or-nothing scoring. Other exams can opt
 in through a check's `diagnostics` jq expression, returning an array of strings
 from the same read-only snapshot.
-Already prepared labs retain their installed capture script; Q1's detailed
+Already prepared labs retain their installed capture script; the expanded
 diagnostics require a newly prepared lab. Older captures still return normal
 pass/fail results.
+HTTP probes run inside an exec wrapper: a completed failed HTTP request remains
+an answer mismatch, but inability to exec in the observer is a capture error.
+The same distinction applies to live environment and mounted-file checks:
+missing values/files fail the requirement, while exec transport failures are
+reported as unavailable verification. Diagnostic text does not disclose live
+Secret values.
 
 The deny-all question checks its complete policy and absence of competing
 policies, backed by the separate initial enforcement checks; grading does not

@@ -22,7 +22,7 @@
     "steps": ["Create a storage.k8s.io/v1 StorageClass manifest.", "Set provisioner, volumeBindingMode, and allowVolumeExpansion as requested."],
     "solution": "kubectl apply -f - <<'YAML'\napiVersion: storage.k8s.io/v1\nkind: StorageClass\nmetadata: {name: cedar-static}\nprovisioner: kubernetes.io/no-provisioner\nvolumeBindingMode: WaitForFirstConsumer\nallowVolumeExpansion: true\nYAML",
     "resource": "bash /opt/painkiller/ckad001/capture.sh q2",
-    "checks": [{"description": "StorageClass matches all fields", "points": 2, "expression": ".ok == true"}],
+    "checks": [{"description": "StorageClass matches all fields", "points": 2, "expression": ".ok == true", "diagnostics": ".failures // []"}],
     "explanation": "WaitForFirstConsumer defers binding until the scheduler has placement information."
   },
   {
@@ -35,7 +35,7 @@
     "steps": ["Use cron schedule */20 * * * *.", "Set the container command to sh -c 'ps -eaf' and restartPolicy to OnFailure or Never."],
     "solution": "kubectl -n batch-lab create cronjob process-report --image=node:22-bookworm --schedule='*/20 * * * *' -- sh -c 'ps -eaf'",
     "resource": "bash /opt/painkiller/ckad001/capture.sh q3",
-    "checks": [{"description": "CronJob runs the process command in a shell every 20 minutes", "points": 8, "expression": ".ok == true"}],
+    "checks": [{"description": "CronJob runs the process command in a shell every 20 minutes", "points": 8, "expression": ".ok == true", "diagnostics": ".failures // []"}],
     "explanation": "CronJobs create Jobs on a schedule; the shell must be explicit when required."
   },
   {
@@ -48,7 +48,7 @@
     "steps": ["Write a Pod manifest with the required container name and image.", "Set command to sleep 7200 and create the Pod."],
     "solution": "kubectl apply -f - <<'YAML'\napiVersion: v1\nkind: Pod\nmetadata: {name: ubuntu-rest, namespace: pod-workshop}\nspec:\n  containers:\n  - name: ubuntu-agent\n    image: ubuntu:24.04\n    command: [sleep, '7200']\nYAML",
     "resource": "bash /opt/painkiller/ckad001/capture.sh q4",
-    "checks": [{"description": "Ubuntu Pod has the requested command and is running", "points": 1, "expression": ".ok == true"}],
+    "checks": [{"description": "Ubuntu Pod has the requested command and is running", "points": 1, "expression": ".ok == true", "diagnostics": ".failures // []"}],
     "explanation": "A Pod needs a continuing foreground process to remain running."
   },
   {
@@ -61,7 +61,7 @@
     "steps": ["Create the two labeled Deployments with six and four replicas.", "Give both Pod templates the shared release=stable label.", "Create a NodePort Service selecting that shared label and forwarding 8081 to 8080."],
     "solution": "kubectl apply -f - <<'YAML'\napiVersion: apps/v1\nkind: Deployment\nmetadata: {name: azure-web, labels: {track-one: azure}}\nspec:\n  replicas: 6\n  selector: {matchLabels: {track-one: azure}}\n  template:\n    metadata: {labels: {track-one: azure, release: stable}}\n    spec:\n      containers: [{name: web, image: 'kodekloud/webapp-color:v1', ports: [{containerPort: 8080}]}]\n---\napiVersion: apps/v1\nkind: Deployment\nmetadata: {name: jade-web, labels: {track-two: jade}}\nspec:\n  replicas: 4\n  selector: {matchLabels: {track-two: jade}}\n  template:\n    metadata: {labels: {track-two: jade, release: stable}}\n    spec:\n      containers: [{name: web, image: 'kodekloud/webapp-color:v2', ports: [{containerPort: 8080}]}]\n---\napiVersion: v1\nkind: Service\nmetadata: {name: release-entry}\nspec:\n  type: NodePort\n  selector: {release: stable}\n  ports: [{port: 8081, targetPort: 8080}]\nYAML",
     "resource": "bash /opt/painkiller/ckad001/capture.sh q5",
-    "checks": [{"description": "Both versions are ready with the requested split and working NodePort", "points": 8, "expression": ".ok == true"}],
+    "checks": [{"description": "Both versions are ready with the requested split and working NodePort", "points": 8, "expression": ".ok == true", "diagnostics": ".failures // []"}],
     "explanation": "A common Service selector distributes connections across the selected ready endpoints."
   },
   {
@@ -74,7 +74,7 @@
     "steps": ["Inspect Pods and logs in dev-workshop.", "The nginx startup command references an invalid configuration path; remove that override.", "Wait for two ready replicas and check HTTP service."],
     "solution": "kubectl -n dev-workshop patch deployment bulletin-web --type=json -p '[{\"op\":\"remove\",\"path\":\"/spec/template/spec/containers/0/command\"}]'\nkubectl -n dev-workshop rollout status deployment/bulletin-web --timeout=180s",
     "resource": "bash /opt/painkiller/ckad001/capture.sh q6",
-    "checks": [{"description": "Existing application is healthy and serves HTTP", "points": 2, "expression": ".ok == true"}],
+    "checks": [{"description": "Existing application is healthy and serves HTTP", "points": 2, "expression": ".ok == true", "diagnostics": ".failures // []"}],
     "explanation": "Logs and container command overrides can reveal startup configuration mistakes."
   },
   {
@@ -87,7 +87,7 @@
     "steps": ["Inspect the selectors in both templates and align them with the Pod labels.", "Set values.yaml replicaCount to 4 and service.type to NodePort; set Chart.yaml appVersion to 1.21.0.", "Run helm upgrade --install lantern-web /opt/lantern-chart -n frontend-workshop --create-namespace --wait."],
     "solution": "sed -i 's/app: broken-selector/app: {{ .Release.Name }}/g' /opt/lantern-chart/templates/*.yaml\nsed -i 's/replicaCount: 1/replicaCount: 4/; s/type: ClusterIP/type: NodePort/' /opt/lantern-chart/values.yaml\nsed -i 's/appVersion: \"1.0.0\"/appVersion: \"1.21.0\"/' /opt/lantern-chart/Chart.yaml\nhelm upgrade --install lantern-web /opt/lantern-chart -n frontend-workshop --create-namespace --wait --timeout 180s",
     "resource": "bash /opt/painkiller/ckad001/capture.sh q7",
-    "checks": [{"description": "Chart files, Helm release, replicas, and working Service match", "points": 8, "expression": ".ok == true"}],
+    "checks": [{"description": "Chart files, Helm release, replicas, and working Service match", "points": 8, "expression": ".ok == true", "diagnostics": ".failures // []"}],
     "explanation": "Deployment selectors must match template labels, and the Service must select those same Pods."
   },
   {
@@ -100,7 +100,7 @@
     "steps": ["Inspect the Pod labels.", "Use kubectl expose pod with port 6445, target-port 80, and the required Service name."],
     "solution": "kubectl expose pod parcel-web --name=parcel-entry --port=6445 --target-port=80",
     "resource": "bash /opt/painkiller/ckad001/capture.sh q8",
-    "checks": [{"description": "ClusterIP Service selects the Pod and serves HTTP on 6445", "points": 1, "expression": ".ok == true"}],
+    "checks": [{"description": "ClusterIP Service selects the Pod and serves HTTP on 6445", "points": 1, "expression": ".ok == true", "diagnostics": ".failures // []"}],
     "explanation": "Service port and application targetPort may differ. Final-state grading cannot prove an imperative command was used."
   },
   {
@@ -113,7 +113,7 @@
     "steps": ["Create the namespace.", "Use an empty podSelector and both Ingress and Egress policyTypes.", "Set ingress and egress to empty lists."],
     "solution": "kubectl create namespace sealed-workshop\nkubectl apply -f - <<'YAML'\napiVersion: networking.k8s.io/v1\nkind: NetworkPolicy\nmetadata: {name: isolate-everything, namespace: sealed-workshop}\nspec:\n  podSelector: {}\n  policyTypes: [Ingress, Egress]\n  ingress: []\n  egress: []\nYAML",
     "resource": "bash /opt/painkiller/ckad001/capture.sh q9",
-    "checks": [{"description": "Namespace has a deny-all ingress and egress policy without competing allowances", "points": 8, "expression": ".ok == true"}],
+    "checks": [{"description": "Namespace has a deny-all ingress and egress policy without competing allowances", "points": 8, "expression": ".ok == true", "diagnostics": ".failures // []"}],
     "explanation": "NetworkPolicy allowances are additive; both traffic directions must be explicitly isolated."
   },
   {
@@ -126,7 +126,7 @@
     "steps": ["Discover the controller InternalIP.", "Inspect host-web-entry and its EndpointSlice.", "Correct the IPv4 endpoint and its port to the host address and 9998, then test from a Pod."],
     "solution": "ip=$(kubectl get nodes -l node-role.kubernetes.io/control-plane -o jsonpath='{.items[0].status.addresses[?(@.type==\"InternalIP\")].address}')\nkubectl patch endpointslice host-web-backend --type=merge -p \"{\\\"endpoints\\\":[{\\\"addresses\\\":[\\\"$ip\\\"],\\\"conditions\\\":{\\\"ready\\\":true}}],\\\"ports\\\":[{\\\"name\\\":\\\"http\\\",\\\"protocol\\\":\\\"TCP\\\",\\\"port\\\":9998}]}\"",
     "resource": "bash /opt/painkiller/ckad001/capture.sh q10",
-    "checks": [{"description": "Selectorless Service points at the real host server and is reachable from a Pod", "points": 8, "expression": ".ok == true"}],
+    "checks": [{"description": "Selectorless Service points at the real host server and is reachable from a Pod", "points": 8, "expression": ".ok == true", "diagnostics": ".failures // []"}],
     "explanation": "A selectorless Service can route to an external backend via a manually managed EndpointSlice."
   },
   {
@@ -139,7 +139,7 @@
     "steps": ["Create and label the application Pod.", "Create a ClusterIP Service with selector tier=messages and ports 6381 to 8080."],
     "solution": "kubectl run message-web --image=kodekloud/webapp-color:v1 --labels=tier=messages\nkubectl expose pod message-web --name=message-entry --port=6381 --target-port=8080",
     "resource": "bash /opt/painkiller/ckad001/capture.sh q11",
-    "checks": [{"description": "Pod, labels, and working ClusterIP Service match", "points": 4, "expression": ".ok == true"}],
+    "checks": [{"description": "Pod, labels, and working ClusterIP Service match", "points": 4, "expression": ".ok == true", "diagnostics": ".failures // []"}],
     "explanation": "Services discover Pods by labels, not their resource names."
   },
   {
@@ -152,7 +152,7 @@
     "steps": ["Create a v1 Service with type ExternalName.", "Set externalName to dns.google and declare UDP port 53."],
     "solution": "kubectl apply -f - <<'YAML'\napiVersion: v1\nkind: Service\nmetadata: {name: resolver-alias}\nspec:\n  type: ExternalName\n  externalName: dns.google\n  ports: [{port: 53, protocol: UDP}]\nYAML",
     "resource": "bash /opt/painkiller/ckad001/capture.sh q12",
-    "checks": [{"description": "ExternalName and DNS port match", "points": 4, "expression": ".ok == true"}],
+    "checks": [{"description": "ExternalName and DNS port match", "points": 4, "expression": ".ok == true", "diagnostics": ".failures // []"}],
     "explanation": "ExternalName returns a DNS CNAME; it does not create ordinary Service proxy endpoints."
   },
   {
@@ -165,7 +165,7 @@
     "steps": ["Set a CPU request without an equal matching limit, then create the Pod.", "Wait until Kubernetes assigns its QoS class.", "Use custom-columns to collect names and status.qosClass and save the report with sudo tee."],
     "solution": "kubectl apply -f - <<'YAML'\napiVersion: v1\nkind: Pod\nmetadata: {name: elastic-web, namespace: qos-workshop}\nspec:\n  containers:\n  - name: elastic-container\n    image: nginx:1.27\n    resources: {requests: {cpu: 50m, memory: 32Mi}, limits: {memory: 96Mi}}\nYAML\nkubectl -n qos-workshop wait pod/elastic-web --for=condition=Ready --timeout=180s\nkubectl -n qos-workshop get pods -o custom-columns=NAME:.metadata.name,QOS:.status.qosClass | sudo -n tee /root/qos-report.txt >/dev/null",
     "resource": "bash /opt/painkiller/ckad001/capture.sh q13",
-    "checks": [{"description": "Burstable Pod and complete, accurate QoS report exist", "points": 8, "expression": ".ok == true"}],
+    "checks": [{"description": "Burstable Pod and complete, accurate QoS report exist", "points": 8, "expression": ".ok == true", "diagnostics": ".failures // []"}],
     "explanation": "Burstable Pods have some resource requests or limits but do not meet the Guaranteed criteria."
   },
   {
@@ -178,7 +178,7 @@
     "steps": ["Use kubectl get crd and inspect the anime CRD.", "Create an Anime using spec.title and spec.episodes."],
     "solution": "kubectl apply -f - <<'YAML'\napiVersion: entertainment.ckad001.test/v1\nkind: Anime\nmetadata: {name: evening-series}\nspec: {title: Cowboy Bebop, episodes: 26}\nYAML",
     "resource": "bash /opt/painkiller/ckad001/capture.sh q14",
-    "checks": [{"description": "Custom resource matches the discovered schema and requested data", "points": 4, "expression": ".ok == true"}],
+    "checks": [{"description": "Custom resource matches the discovered schema and requested data", "points": 4, "expression": ".ok == true", "diagnostics": ".failures // []"}],
     "explanation": "The CRD establishes the resource's API group, scope, and validation schema; an operator is not required for this task."
   },
   {
@@ -191,7 +191,7 @@
     "steps": ["Inspect both supplied environment files.", "Use repeated --from-env-file flags with kubectl create configmap."],
     "solution": "kubectl create configmap workshop-settings --from-env-file=<(sudo -n cat /root/workshop-env/app.env) --from-env-file=<(sudo -n cat /root/workshop-env/cache.env)",
     "resource": "bash /opt/painkiller/ckad001/capture.sh q15",
-    "checks": [{"description": "ConfigMap contains every supplied environment entry", "points": 2, "expression": ".ok == true"}],
+    "checks": [{"description": "ConfigMap contains every supplied environment entry", "points": 2, "expression": ".ok == true", "diagnostics": ".failures // []"}],
     "explanation": "Repeated --from-env-file arguments merge entries into individual ConfigMap keys."
   },
   {
@@ -204,7 +204,7 @@
     "steps": ["Create the Secret with three literal entries.", "Export the Pod, remove generated metadata/status, and add envFrom.secretRef.", "Delete and recreate the Pod, preserving its existing application."],
     "solution": "kubectl -n database-workshop create secret generic ledger-settings --from-literal=DB_Host=sql02 --from-literal=DB_User=ledger --from-literal=DB_Password=practice456\nkubectl -n database-workshop get pod ledger-client -o json | jq 'del(.metadata.uid,.metadata.resourceVersion,.metadata.creationTimestamp,.metadata.managedFields,.status) | .spec.containers[0].envFrom=[{\"secretRef\":{\"name\":\"ledger-settings\"}}]' > /tmp/ckad001-ledger.json\nkubectl -n database-workshop delete pod ledger-client --wait=true\nkubectl create -f /tmp/ckad001-ledger.json",
     "resource": "bash /opt/painkiller/ckad001/capture.sh q16",
-    "checks": [{"description": "Secret values and live imported application environment match", "points": 8, "expression": ".ok == true"}],
+    "checks": [{"description": "Secret values and live imported application environment match", "points": 8, "expression": ".ok == true", "diagnostics": ".failures // []"}],
     "explanation": "envFrom imports Secret keys without individually mapping each variable."
   },
   {
@@ -217,7 +217,7 @@
     "steps": ["Create the namespace.", "Create a ResourceQuota with hard count/resourcequotas set to 1."],
     "solution": "kubectl create namespace quota-workshop\nkubectl -n quota-workshop create quota quota-object-cap --hard=count/resourcequotas=1",
     "resource": "bash /opt/painkiller/ckad001/capture.sh q17",
-    "checks": [{"description": "ResourceQuota limits its own resource kind to one object", "points": 2, "expression": ".ok == true"}],
+    "checks": [{"description": "ResourceQuota limits its own resource kind to one object", "points": 2, "expression": ".ok == true", "diagnostics": ".failures // []"}],
     "explanation": "Object-count quotas can limit resource kinds, including ResourceQuota itself."
   },
   {
@@ -230,7 +230,7 @@
     "steps": ["Copy the template to a writable location.", "Add a Secret volume and its read-only volumeMount.", "Create the Pod and inspect the mounted .token file."],
     "solution": "sudo -n cat /root/workshop-secret-pod.yaml > /tmp/ckad001-vault.yaml\ncat >> /tmp/ckad001-vault.yaml <<'YAML'\n    volumeMounts:\n    - {name: credential-volume, mountPath: /etc/credentials, readOnly: true}\n  volumes:\n  - name: credential-volume\n    secret: {secretName: vault-settings}\nYAML\nkubectl create -f /tmp/ckad001-vault.yaml",
     "resource": "bash /opt/painkiller/ckad001/capture.sh q18",
-    "checks": [{"description": "Template Pod mounts and reads the Secret at the required read-only path", "points": 4, "expression": ".ok == true"}],
+    "checks": [{"description": "Template Pod mounts and reads the Secret at the required read-only path", "points": 4, "expression": ".ok == true", "diagnostics": ".failures // []"}],
     "explanation": "Secret volumes support dotfile keys and should be mounted read-only."
   },
   {
@@ -243,7 +243,7 @@
     "steps": ["Export the existing Pod and remove generated metadata and status.", "Add the HTTP readiness probe, delete the original Pod, and recreate it.", "Wait for application startup and a successful readiness probe."],
     "solution": "kubectl get pod warmup-web -o json | jq 'del(.metadata.uid,.metadata.resourceVersion,.metadata.creationTimestamp,.metadata.managedFields,.status) | .spec.containers[0].readinessProbe={\"httpGet\":{\"path\":\"/ready\",\"port\":8080},\"initialDelaySeconds\":20}' > /tmp/ckad001-ready.json\nkubectl delete pod warmup-web --wait=true\nkubectl create -f /tmp/ckad001-ready.json",
     "resource": "bash /opt/painkiller/ckad001/capture.sh q19",
-    "checks": [{"description": "Application has the requested HTTP readiness probe and is ready", "points": 2, "expression": ".ok == true"}],
+    "checks": [{"description": "Application has the requested HTTP readiness probe and is ready", "points": 2, "expression": ".ok == true", "diagnostics": ".failures // []"}],
     "explanation": "Readiness determines whether a Pod is eligible for Service traffic."
   },
   {
@@ -256,7 +256,7 @@
     "steps": ["Inspect the manifest and correct the Pod apiVersion to v1.", "Apply the corrected file and wait for Ready."],
     "solution": "sudo -n sed -i 's/apiVersion: apps\\/v1/apiVersion: v1/' /root/workshop-busybox.yaml\nsudo -n cat /root/workshop-busybox.yaml | kubectl apply -f -",
     "resource": "bash /opt/painkiller/ckad001/capture.sh q20",
-    "checks": [{"description": "Source manifest is corrected and matching BusyBox Pod is running", "points": 4, "expression": ".ok == true"}],
+    "checks": [{"description": "Source manifest is corrected and matching BusyBox Pod is running", "points": 4, "expression": ".ok == true", "diagnostics": ".failures // []"}],
     "explanation": "Pods are core/v1 resources, not apps/v1 resources."
   },
   {
@@ -269,7 +269,7 @@
     "steps": ["Generate a redis Pod manifest.", "Add livenessProbe.exec.command [ls] and initialDelaySeconds 8.", "Create the Pod and verify it is ready."],
     "solution": "kubectl run redis-watch --image=redis:7.4 --dry-run=client -o json | jq '.spec.containers[0].livenessProbe={\"exec\":{\"command\":[\"ls\"]},\"initialDelaySeconds\":8}' | kubectl create -f -",
     "resource": "bash /opt/painkiller/ckad001/capture.sh q21",
-    "checks": [{"description": "Redis is running with the requested exec liveness probe", "points": 4, "expression": ".ok == true"}],
+    "checks": [{"description": "Redis is running with the requested exec liveness probe", "points": 4, "expression": ".ok == true", "diagnostics": ".failures // []"}],
     "explanation": "An exec probe succeeds when its command exits with status zero."
   }
 ]
