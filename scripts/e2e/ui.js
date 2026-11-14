@@ -38,6 +38,7 @@ async function main() {
     tasks[0].Explanation = 'Inspect the running Pods with `kubectl get pods`. <script>window.unsafe=true</script><img src=x onerror="window.unsafe=true">';
     const state = {phase:'idle',mode:'simulation',deadline:new Date(now.getTime()+90*60000).toISOString(),duration_seconds:7200,flags:{},done:{}};
     const actions = [];
+    let failMark = false;
     let finishSubmit;
     await page.route('**/api/**', async route => {
       const name = new URL(route.request().url()).pathname.split('/').pop();
@@ -51,6 +52,7 @@ async function main() {
       if (name === 'verify') return route.fulfill({json:{checks:[{description:'Fixture check',earned:1,points:1}]}});
       const body = route.request().postDataJSON();
       actions.push(name);
+      if (name === 'mark' && failMark) return route.fulfill({status:500,body:'Save failed'});
       if (name === 'submit') {
         const accepted = await new Promise(resolve => { finishSubmit = resolve; });
         if (!accepted) return route.fulfill({status:409,body:'Submission failed'});
@@ -76,6 +78,7 @@ async function main() {
     state.phase = 'running';
     await page.evaluate(() => refresh());
     assert.equal(await page.locator('#verify').isVisible(), true);
+    assert.ok(await page.locator('#reveal').evaluate(el => el.getBoundingClientRect().top - document.querySelector('#verify').getBoundingClientRect().bottom) >= 16);
     await page.locator('#verify').click();
     await page.waitForFunction(() => document.querySelector('#verification').textContent.includes('Done: Fixture check'));
     state.mode = 'simulation';
@@ -90,6 +93,7 @@ async function main() {
     assert.equal(await page.locator('#title').innerText(), 'Inspect the cluster');
     assert.equal(await page.locator('#question-points').innerText(), '3 points');
     assert.equal(await page.locator('#question-meta').innerText(), 'CKA-002-Q1 — Cluster Architecture, Installation & Configuration');
+    assert.equal(await page.locator('#question-select option').first().innerText(), 'Inspect the cluster');
     await page.setViewportSize({width:600,height:900});
     assert.equal(await page.locator('#question-panel').evaluate(el => el.scrollWidth <= el.clientWidth), true, 'question heading must fit on mobile');
     await page.setViewportSize({width:1280,height:900});
@@ -134,10 +138,25 @@ async function main() {
     assert.equal(await page.locator('#solution').isHidden(), true, 'switching questions hides the walkthrough');
     assert.equal(await page.locator('#solution').innerHTML(), '');
     assert.equal(await page.locator('#reveal').getAttribute('aria-expanded'), 'false');
+    failMark = true;
+    page.once('dialog', dialog => dialog.accept());
+    await page.locator('#done').check();
+    await page.waitForFunction(() => !document.querySelector('#done').disabled && !document.querySelector('#done').checked);
+    assert.equal(await page.locator('#question-select').inputValue(), '1', 'failed save must not advance');
+    failMark = false;
     await page.locator('#flag').check();
     await page.waitForFunction(() => document.querySelector('#question-select option[value="1"]').textContent.includes('⚑'));
     await page.locator('#done').check();
+    await page.waitForFunction(() => document.querySelector('#question-select').value === '2');
     await page.waitForFunction(() => document.querySelector('#question-select option[value="1"]').textContent.includes('✓'));
+    await page.locator('#done').check();
+    await page.waitForFunction(() => document.querySelector('#question-select option[value="2"]').textContent.includes('✓'));
+    assert.equal(await page.locator('#question-select').inputValue(), '2', 'last question must not advance');
+    await page.locator('#done').uncheck();
+    await page.waitForFunction(() => !document.querySelector('#question-select option[value="2"]').textContent.includes('✓'));
+    assert.equal(await page.locator('#question-select').inputValue(), '2', 'clearing completion must not advance');
+    await page.locator('#previous').click();
+    await page.waitForFunction(() => document.querySelector('#question-select').value === '1');
     await page.reload();
     await page.waitForFunction(() => document.querySelector('#question-select').value === '1');
     assert.equal(await page.locator('#flag').isChecked(), true);

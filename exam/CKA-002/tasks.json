@@ -65,7 +65,7 @@
     "category": "Cluster Architecture, Installation & Configuration",
     "title": "Grant least-privilege Pod log access",
     "points": 5,
-    "instructions": "In namespace `exam-rbac`, create a Role named `pod-log-reader` that allows `get` and `list` on `pods` and `pods/log`, and bind it to the ServiceAccount `auditor` with a RoleBinding named `read-pod-logs`. The auditor must be able to read Pod logs but must be denied Secrets and access to other namespaces.",
+    "instructions": "In namespace `exam-rbac`:\n\n- Create a Role named `pod-log-reader` that allows `get` and `list` on `pods` and `pods/log`.\n- Bind it to the ServiceAccount `auditor` with a RoleBinding named `read-pod-logs`.\n\nThe auditor must be able to read Pod logs but must be denied Secrets and access to other namespaces.",
     "steps": [
       "Create the Role with `kubectl -n exam-rbac create role pod-log-reader --verb=get,list --resource=pods,pods/log`.",
       "Bind it with `kubectl -n exam-rbac create rolebinding read-pod-logs --role=pod-log-reader --serviceaccount=exam-rbac:auditor`.",
@@ -218,7 +218,7 @@
     "category": "Workloads & Scheduling",
     "title": "Configure an application with a CPU autoscaler",
     "points": 5,
-    "instructions": "In `exam-workloads`, configure the Deployment `hpa-web` to mount the ConfigMap `app-config` at `/etc/config` and the Secret `app-secret` at `/etc/secret`. Give its container a CPU request of `100m`, then create a HorizontalPodAutoscaler named `hpa-web` that scales it between 1 and 5 replicas at 50% CPU.",
+    "instructions": "In `exam-workloads`, configure the Deployment `hpa-web`:\n\n- Mount the ConfigMap `app-config` at `/etc/config` and the Secret `app-secret` at `/etc/secret`.\n- Give its container a CPU request of `100m`.\n\nThen create a HorizontalPodAutoscaler named `hpa-web` that scales it between 1 and 5 replicas at 50% CPU.",
     "steps": [
       "Edit the Deployment with `kubectl -n exam-workloads edit deployment hpa-web` and add the two volumes and volume mounts.",
       "Add `resources.requests.cpu: 100m` to the container.",
@@ -302,7 +302,7 @@
     "category": "Services & Networking",
     "title": "Isolate a database with NetworkPolicy",
     "points": 6,
-    "instructions": "In `exam-netpol`, create a NetworkPolicy named `allow-web` that selects the Pod `db` and allows ingress only from Pods labeled `app=web` on port 80. After applying it, the `web` Pod must still reach `db` and resolve it via DNS, while the `other` Pod must be denied.",
+    "instructions": "In `exam-netpol`, create a NetworkPolicy named `allow-web` that selects the Pod `db` and allows ingress only from Pods labeled `app=web` on port 80.\n\nAfter applying it:\n\n- The `web` Pod must still reach `db` and resolve it via DNS.\n- The `other` Pod must be denied.",
     "steps": [
       "Inspect the Pods with `kubectl -n exam-netpol get pods --show-labels`.",
       "Create the NetworkPolicy selecting `app=db` with ingress from `app=web` on port 80.",
@@ -341,7 +341,7 @@
     "category": "Services & Networking",
     "title": "Route an application with the Gateway API",
     "points": 5,
-    "instructions": "In exam-gw, create Gateway exam using the installed traefik GatewayClass with an HTTP listener on port 80. Create HTTPRoute exam attached to it, routing gw.example.com path / to Service backend port 80 in the same namespace. Verify the route is accepted and HTTP requests through the Traefik Service succeed.",
+    "instructions": "In `exam-gw`:\n\n1. Create Gateway `exam` using the installed `traefik` GatewayClass with an HTTP listener on port 80.\n2. Create HTTPRoute `exam` attached to it, routing `gw.example.com` path `/` to Service `backend` port 80 in the same namespace.\n3. Verify the route is accepted and HTTP requests through the Traefik Service succeed.",
     "steps": [
       "Create Gateway exam in exam-gw using GatewayClass traefik and an HTTP listener on port 80.",
       "Create HTTPRoute exam in exam-gw with parentRef exam, hostname gw.example.com, path prefix /, and backendRef backend port 80.",
@@ -379,7 +379,7 @@
     "category": "Services & Networking",
     "title": "Expose an application with Ingress and NodePort",
     "points": 5,
-    "instructions": "In `exam-ingress`, create an Ingress named `web` that routes host `ing.example.com` to the Service `web` on port 80 using the `traefik` IngressClass. Also create a NodePort Service named `web-np` (port 80 to targetPort 80) selecting the `web` Deployment, and confirm it has ready endpoints.",
+    "instructions": "In `exam-ingress`:\n\n- Create an Ingress named `web` that routes host `ing.example.com` to the Service `web` on port 80 using the `traefik` IngressClass.\n- Create a NodePort Service named `web-np` (port 80 to targetPort 80) selecting the `web` Deployment, and confirm it has ready endpoints.",
     "steps": [
       "Create the Ingress with ingressClassName `traefik`, host `ing.example.com`, and a backend to Service `web` port 80.",
       "Create the NodePort Service `web-np` selecting `app: web` on port 80.",
@@ -491,7 +491,7 @@
     "category": "Troubleshooting",
     "title": "Recover a static local volume binding",
     "points": 5,
-    "instructions": "A static local PV `exam-local-pv` and a PVC `exam-local-pvc` in `exam-storage` fail to bind: the PVC requests the wrong StorageClass and the PV's node affinity names a non-existent worker. Fix both so the claim binds, then run a Pod named `local-app` that mounts the claim at `/mnt` and can read the supplied file `data.txt`.",
+    "instructions": "A static local PV `exam-local-pv` and a PVC `exam-local-pvc` in `exam-storage` fail to bind: the PVC requests the wrong StorageClass and the PV's node affinity names a non-existent worker.\n\n1. Fix both so the claim binds.\n2. Run a Pod named `local-app` that mounts the claim at `/mnt` and can read the supplied file `data.txt`.",
     "steps": [
       "Inspect with `kubectl -n exam-storage get pvc exam-local-pvc` (Pending) and `kubectl get pv exam-local-pv -o yaml`.",
       "Recreate the unbound PVC with storageClassName exam-local.",
@@ -531,7 +531,7 @@
     "category": "Troubleshooting",
     "title": "Repair a worker kubelet",
     "points": 5,
-    "instructions": "The east worker {{worker2}} has a corrupted kubelet configuration and is NotReady. Repair `/var/lib/kubelet/config.yaml` on that worker and restart kubelet so the node becomes Ready again without losing its identity or workloads. Run `exit` to return to the initial controller.",
+    "instructions": "The east worker {{worker2}} has a corrupted kubelet configuration and is NotReady.\n\nRepair `/var/lib/kubelet/config.yaml` on that worker and restart kubelet so the node becomes Ready again without losing its identity or workloads.\n\nRun `exit` to return to the initial controller.",
     "steps": [
       "Find the NotReady worker with `kubectl get nodes` and note its IP with `kubectl get nodes -o wide`.",
       "Connect to {{worker2}} and inspect `sudo systemctl status kubelet` and `/var/lib/kubelet/config.yaml`.",
@@ -555,7 +555,7 @@
     "category": "Troubleshooting",
     "title": "Repair a broken scheduler static Pod",
     "points": 5,
-    "instructions": "The kube-scheduler static Pod manifest on the control-plane node {{controller2}} uses an invalid image, so its scheduler cannot start. Repair `/etc/kubernetes/manifests/kube-scheduler.yaml` there and confirm every scheduler is running again without resetting the cluster. Run `exit` to return to the initial controller.",
+    "instructions": "The kube-scheduler static Pod manifest on the control-plane node {{controller2}} uses an invalid image, so its scheduler cannot start.\n\nRepair `/etc/kubernetes/manifests/kube-scheduler.yaml` there and confirm every scheduler is running again without resetting the cluster.\n\nRun `exit` to return to the initial controller.",
     "steps": [
       "Find the failing scheduler with `kubectl -n kube-system get pods -l component=kube-scheduler -o wide`.",
       "Connect to {{controller2}} and edit `/etc/kubernetes/manifests/kube-scheduler.yaml`.",
@@ -584,7 +584,7 @@
     "category": "Troubleshooting",
     "title": "Repair CoreDNS and configure Pod DNS",
     "points": 5,
-    "instructions": "The CoreDNS Corefile forwards external lookups to an unreachable resolver (`1.2.3.4`). Repair the `coredns` ConfigMap in `kube-system` to forward through `/etc/resolv.conf`, reload CoreDNS, then create a Pod named `dns-app` in `exam-repair` with `dnsConfig` nameservers `1.1.1.1` and search domain `example.test`.",
+    "instructions": "The CoreDNS Corefile forwards external lookups to an unreachable resolver (`1.2.3.4`).\n\n1. Repair the `coredns` ConfigMap in `kube-system` to forward through `/etc/resolv.conf`, and reload CoreDNS.\n2. Create a Pod named `dns-app` in `exam-repair` with `dnsConfig` nameservers `1.1.1.1` and search domain `example.test`.",
     "steps": [
       "Inspect with `kubectl -n kube-system get cm coredns -o yaml` and locate the broken `forward . 1.2.3.4` line.",
       "Edit the ConfigMap to use `forward . /etc/resolv.conf`.",
@@ -686,7 +686,7 @@
     "category": "Troubleshooting",
     "title": "Recover a multi-container crash",
     "points": 5,
-    "instructions": "Both containers in the Deployment `crash-app` in `exam-repair` exit immediately. Use current and previous logs (`kubectl logs -p`) to diagnose, save the previous logs to `/tmp/crash-logs.txt`, repair the container commands so they keep running, and confirm the Pod is available.",
+    "instructions": "Both containers in the Deployment `crash-app` in `exam-repair` exit immediately.\n\n1. Use current and previous logs (`kubectl logs -p`) to diagnose, and save the previous logs to `/tmp/crash-logs.txt`.\n2. Repair the container commands so they keep running, and confirm the Pod is available.",
     "steps": [
       "Diagnose with `kubectl -n exam-repair logs -l app=crash-app --all-containers --previous`.",
       "Save evidence with `kubectl -n exam-repair logs -l app=crash-app --all-containers --previous > /tmp/crash-logs.txt`.",

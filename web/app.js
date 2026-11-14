@@ -73,7 +73,21 @@ async function submitExam(){
   finally{submitting=false;await refresh()}
 }
 $('prepare').onclick=()=>action('prepare',{test_id:$('test-select').value,mode:$('mode-select').value});$('retry').onclick=()=>action('retry');$('start').onclick=()=>action('start');$('reset').onclick=()=>{if(confirm('Destroy all VMs belonging to this lab?'))action('reset')};$('submit').onclick=submitExam;
-$('flag').onchange=$('done').onchange=()=>{state.flags??={};state.done??={};state.flags[tasks[index].ID]=$('flag').checked;state.done[tasks[index].ID]=$('done').checked;action('mark',{id:tasks[index].ID,flag:state.flags[tasks[index].ID],done:state.done[tasks[index].ID]})};
+$('flag').onchange=$('done').onchange=async e=>{
+  const id=tasks[index]?.ID,advance=e.target===$('done')&&$('done').checked;
+  if(!id)return;
+  const body={id,flag:$('flag').checked,done:$('done').checked};
+  $('flag').disabled=$('done').disabled=true;
+  try{
+    const response=await fetch('/api/mark',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body),keepalive:true});
+    if(!response.ok)throw Error(await response.text());
+    if(advance&&tasks[index]?.ID===id&&index<tasks.length-1)selectQuestion(index+1);
+    else await refresh();
+  }catch(error){
+    alert('Could not save question status: '+error.message);
+    await refresh();
+  }finally{$('flag').disabled=$('done').disabled=false}
+};
 function selectQuestion(i){if(i<0||i>=tasks.length)return;index=i;state.selected=tasks[i].ID;draw();action('select',{id:tasks[i].ID})}
 $('previous').onclick=()=>selectQuestion(index-1);
 $('next').onclick=()=>selectQuestion(index+1);
@@ -150,7 +164,7 @@ function draw(){
   tasks.forEach((x,i)=>{
     let option=select.options[i];
     if(!option){option=document.createElement('option');option.value=i;select.append(option)}
-    const text=`${x.QuestionID}: ${x.Title}${state.flags?.[x.ID]?' ⚑':''}${state.done?.[x.ID]?' ✓':''}`;
+    const text=`${x.Title}${state.flags?.[x.ID]?' ⚑':''}${state.done?.[x.ID]?' ✓':''}`;
     if(option.textContent!==text)option.textContent=text;
   });
   while(select.options.length>tasks.length)select.remove(select.options.length-1);

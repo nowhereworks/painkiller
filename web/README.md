@@ -15,6 +15,8 @@ Question titles, points, and ID/category metadata are displayed separately.
 Author question instructions in Markdown: use short paragraphs for context and
 lists for multiple requirements, preserving constraints and leaving solution
 steps in the walkthrough. Short questions need no extra headings.
+Marking a question complete saves its status and advances to the next question;
+the last question remains selected. Clearing the mark does not advance.
 
 **Reveal Instructions** shows a question's numbered solution steps and commands;
 it does not copy the question to the clipboard. **Hide Instructions** collapses
