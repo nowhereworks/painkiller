@@ -1,0 +1,23 @@
+{
+  "id": "CKAD-001",
+  "title": "CKAD practice exam — mock 01",
+  "description": "21 application-development tasks: multi-container Pods, scheduling jobs, deployments, Helm, networking, configuration, security, and probes.",
+  "minutes": 120,
+  "categories": [
+    "Application Design and Build",
+    "Application Deployment",
+    "Services and Networking",
+    "Application Environment, Configuration and Security",
+    "Application Observability and Maintenance"
+  ],
+  "lab": {
+    "controllers": 1,
+    "workers": 2,
+    "initial_controllers": 1,
+    "provision_mode": "legacy",
+    "cni": "calico",
+    "memory_mb": 4096,
+    "template_id": "9199",
+    "prepare": "prepare.sh"
+  }
+}

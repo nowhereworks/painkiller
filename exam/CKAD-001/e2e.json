@@ -1,0 +1,26 @@
+{
+  "baseline": 0,
+  "mutations": [
+    {"task":"multi-container","remove":"bash /opt/painkiller/ckad001/mutate.sh remove q1","restore":"bash /opt/painkiller/ckad001/mutate.sh restore q1"},
+    {"task":"storage-class","remove":"bash /opt/painkiller/ckad001/mutate.sh remove q2","restore":"bash /opt/painkiller/ckad001/mutate.sh restore q2"},
+    {"task":"cronjob","remove":"bash /opt/painkiller/ckad001/mutate.sh remove q3","restore":"bash /opt/painkiller/ckad001/mutate.sh restore q3"},
+    {"task":"ubuntu-pod","remove":"bash /opt/painkiller/ckad001/mutate.sh remove q4","restore":"bash /opt/painkiller/ckad001/mutate.sh restore q4"},
+    {"task":"traffic-split","remove":"bash /opt/painkiller/ckad001/mutate.sh remove q5","restore":"bash /opt/painkiller/ckad001/mutate.sh restore q5"},
+    {"task":"crash-repair","remove":"bash /opt/painkiller/ckad001/mutate.sh remove q6","restore":"bash /opt/painkiller/ckad001/mutate.sh restore q6"},
+    {"task":"helm-repair","remove":"bash /opt/painkiller/ckad001/mutate.sh remove q7","restore":"bash /opt/painkiller/ckad001/mutate.sh restore q7"},
+    {"task":"expose-pod","remove":"bash /opt/painkiller/ckad001/mutate.sh remove q8","restore":"bash /opt/painkiller/ckad001/mutate.sh restore q8"},
+    {"task":"deny-all","remove":"bash /opt/painkiller/ckad001/mutate.sh remove q9","restore":"bash /opt/painkiller/ckad001/mutate.sh restore q9"},
+    {"task":"external-service","remove":"bash /opt/painkiller/ckad001/mutate.sh remove q10","restore":"bash /opt/painkiller/ckad001/mutate.sh restore q10"},
+    {"task":"pod-service","remove":"bash /opt/painkiller/ckad001/mutate.sh remove q11","restore":"bash /opt/painkiller/ckad001/mutate.sh restore q11"},
+    {"task":"external-name","remove":"bash /opt/painkiller/ckad001/mutate.sh remove q12","restore":"bash /opt/painkiller/ckad001/mutate.sh restore q12"},
+    {"task":"qos-evidence","remove":"bash /opt/painkiller/ckad001/mutate.sh remove q13","restore":"bash /opt/painkiller/ckad001/mutate.sh restore q13"},
+    {"task":"custom-resource","remove":"bash /opt/painkiller/ckad001/mutate.sh remove q14","restore":"bash /opt/painkiller/ckad001/mutate.sh restore q14"},
+    {"task":"env-configmap","remove":"bash /opt/painkiller/ckad001/mutate.sh remove q15","restore":"bash /opt/painkiller/ckad001/mutate.sh restore q15"},
+    {"task":"secret-env","remove":"bash /opt/painkiller/ckad001/mutate.sh remove q16","restore":"bash /opt/painkiller/ckad001/mutate.sh restore q16"},
+    {"task":"quota","remove":"bash /opt/painkiller/ckad001/mutate.sh remove q17","restore":"bash /opt/painkiller/ckad001/mutate.sh restore q17"},
+    {"task":"secret-volume","remove":"bash /opt/painkiller/ckad001/mutate.sh remove q18","restore":"bash /opt/painkiller/ckad001/mutate.sh restore q18"},
+    {"task":"readiness","remove":"bash /opt/painkiller/ckad001/mutate.sh remove q19","restore":"bash /opt/painkiller/ckad001/mutate.sh restore q19"},
+    {"task":"manifest-repair","remove":"bash /opt/painkiller/ckad001/mutate.sh remove q20","restore":"bash /opt/painkiller/ckad001/mutate.sh restore q20"},
+    {"task":"liveness","remove":"bash /opt/painkiller/ckad001/mutate.sh remove q21","restore":"bash /opt/painkiller/ckad001/mutate.sh restore q21"}
+  ]
+}

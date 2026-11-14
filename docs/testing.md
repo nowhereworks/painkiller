@@ -14,6 +14,8 @@ go vet ./...
 node --check web/app.js
 shellcheck -x scripts/test-exam.sh scripts/create-lab.sh scripts/build-template.sh scripts/playbooks.sh scripts/validate-image.sh scripts/configure-exam-access.sh exam/*/reference-solutions.sh exam/*/check-ready.sh
 shellcheck exam/CKA-003/prepare.sh exam/CKA-003/assets/capture.sh
+shellcheck exam/CKAD-001/*.sh exam/CKAD-001/assets/*.sh
+(cd exam/CKAD-001/assets && sha256sum --check --quiet SHA256SUMS)
 (cd exam/CKA-003/assets && sha256sum --check --quiet SHA256SUMS)
 ansible-playbook --syntax-check -i localhost, playbooks/kubeadm-cluster/kubeadm-cluster.yml -e controller_ips=192.0.2.1
 ```
@@ -45,8 +47,9 @@ Do not build or replace a template as part of this test.
 
    ```sh
    LAB_VM_START=3100 scripts/test-exam.sh CKA-001
-    LAB_VM_START=3100 scripts/test-exam.sh CKA-002
-    LAB_VM_START=3100 scripts/test-exam.sh CKA-003
+   LAB_VM_START=3100 scripts/test-exam.sh CKA-002
+   LAB_VM_START=3100 scripts/test-exam.sh CKA-003
+   LAB_VM_START=3100 scripts/test-exam.sh CKAD-001
    ```
 
    Run exams sequentially and verify the range is free before each run. The
@@ -86,6 +89,12 @@ exam-owned NFS CSI, routing, and metrics dependencies; it needs package/image
 downloads and a working NFS server on the first worker. Validate all 16 scoring
 mutations, including the PVC expansion-capability check. See its exam-owned
 README for source adaptations and evidence limitations.
+
+CKAD-001 uses three linked clones of base 9199 with full-install provisioning
+and Calico, not the default prebaked Flannel image. Its readiness check verifies
+real ingress/egress isolation with separate canaries. It needs package/image
+downloads and its host HTTP fixture on port 9998. Validate all 21 loss/restore
+mutations; see `exam/CKAD-001/README.md` for source corrections and boundaries.
 
 ## Browser coverage
 

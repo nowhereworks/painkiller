@@ -1,0 +1,6 @@
+apiVersion: v2
+name: lantern
+description: CKAD-001 application chart repair exercise
+type: application
+version: 0.1.0
+appVersion: "1.0.0"

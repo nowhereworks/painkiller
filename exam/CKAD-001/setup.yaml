@@ -1,0 +1,226 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: ckad001-system
+  labels: {painkiller-shell/exam: CKAD-001}
+---
+apiVersion: v1
+kind: Namespace
+metadata: {name: ckad001-policycheck}
+---
+apiVersion: v1
+kind: Namespace
+metadata: {name: container-lab}
+---
+apiVersion: v1
+kind: Namespace
+metadata: {name: batch-lab}
+---
+apiVersion: v1
+kind: Namespace
+metadata: {name: pod-workshop}
+---
+apiVersion: v1
+kind: Namespace
+metadata: {name: dev-workshop}
+---
+apiVersion: v1
+kind: Namespace
+metadata: {name: qos-workshop}
+---
+apiVersion: v1
+kind: Namespace
+metadata: {name: database-workshop}
+---
+apiVersion: v1
+kind: Namespace
+metadata: {name: secret-workshop}
+---
+apiVersion: v1
+kind: Pod
+metadata: {name: observer, namespace: ckad001-system}
+spec:
+  containers:
+  - name: observer
+    image: busybox:1.36
+    command: [sh, -c, "sleep 86400"]
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: open-web
+  namespace: ckad001-policycheck
+  labels: {role: open}
+spec:
+  containers:
+  - name: web
+    image: busybox:1.36
+    command: [sh, -c, "mkdir -p /www; echo ckad001-policy > /www/index.html; httpd -f -p 8080 -h /www"]
+    readinessProbe: {httpGet: {path: /, port: 8080}}
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: blocked-web
+  namespace: ckad001-policycheck
+  labels: {role: blocked}
+spec:
+  containers:
+  - name: web
+    image: busybox:1.36
+    command: [sh, -c, "mkdir -p /www; echo ckad001-policy > /www/index.html; httpd -f -p 8080 -h /www"]
+    readinessProbe: {httpGet: {path: /, port: 8080}}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata: {name: canary-isolation, namespace: ckad001-policycheck}
+spec:
+  podSelector: {matchLabels: {role: blocked}}
+  policyTypes: [Ingress, Egress]
+  ingress: []
+  egress: []
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: bulletin-web, namespace: dev-workshop}
+spec:
+  replicas: 2
+  selector: {matchLabels: {app: bulletin}}
+  template:
+    metadata: {labels: {app: bulletin}}
+    spec:
+      containers:
+      - name: web
+        image: nginx:1.27
+        command: [nginx, -c, /etc/nginx/missing-workshop.conf, -g, "daemon off;"]
+        readinessProbe: {httpGet: {path: /, port: 80}}
+---
+apiVersion: v1
+kind: Service
+metadata: {name: bulletin-entry, namespace: dev-workshop}
+spec:
+  selector: {app: bulletin}
+  ports: [{port: 80, targetPort: 80}]
+---
+apiVersion: v1
+kind: Pod
+metadata: {name: parcel-web, labels: {app: parcel}, namespace: default}
+spec:
+  containers:
+  - name: web
+    image: nginx:1.27
+    readinessProbe: {httpGet: {path: /, port: 80}}
+---
+apiVersion: v1
+kind: Service
+metadata: {name: host-web-entry, namespace: default}
+spec:
+  ports: [{name: http, port: 8082, targetPort: 9998}]
+---
+apiVersion: discovery.k8s.io/v1
+kind: EndpointSlice
+metadata:
+  name: host-web-backend
+  namespace: default
+  labels:
+    kubernetes.io/service-name: host-web-entry
+    endpointslice.kubernetes.io/managed-by: ckad001
+addressType: IPv4
+ports: [{name: http, protocol: TCP, port: 9997}]
+endpoints: [{addresses: [192.0.2.123], conditions: {ready: true}}]
+---
+apiVersion: v1
+kind: Pod
+metadata: {name: baseline-best-effort, namespace: qos-workshop}
+spec:
+  containers: [{name: web, image: "nginx:1.27"}]
+---
+apiVersion: v1
+kind: Pod
+metadata: {name: baseline-guaranteed, namespace: qos-workshop}
+spec:
+  containers:
+  - name: web
+    image: nginx:1.27
+    resources:
+      requests: {cpu: 50m, memory: 64Mi}
+      limits: {cpu: 50m, memory: 64Mi}
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata: {name: animes.entertainment.ckad001.test}
+spec:
+  group: entertainment.ckad001.test
+  scope: Namespaced
+  names: {plural: animes, singular: anime, kind: Anime}
+  versions:
+  - name: v1
+    served: true
+    storage: true
+    schema:
+      openAPIV3Schema:
+        type: object
+        required: [spec]
+        properties:
+          spec:
+            type: object
+            required: [title, episodes]
+            properties:
+              title: {type: string, minLength: 1}
+              episodes: {type: integer, minimum: 1}
+---
+apiVersion: v1
+kind: Pod
+metadata: {name: ledger-client, namespace: database-workshop}
+spec:
+  containers:
+  - name: client
+    image: busybox:1.36
+    command:
+    - sh
+    - -c
+    - 'test "$DB_Host" = sql02 && test "$DB_User" = ledger && test "$DB_Password" = practice456 && exec sleep 86400'
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: sql02, namespace: database-workshop}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: sql02}}
+  template:
+    metadata: {labels: {app: sql02}}
+    spec:
+      containers:
+      - name: database
+        image: mysql:8.4
+        env:
+        - {name: MYSQL_ROOT_PASSWORD, value: practice-root-only}
+        - {name: MYSQL_DATABASE, value: ledger}
+        - {name: MYSQL_USER, value: ledger}
+        - {name: MYSQL_PASSWORD, value: practice456}
+        readinessProbe:
+          exec: {command: [sh, -c, 'mysqladmin ping -h 127.0.0.1 -uroot -p"$MYSQL_ROOT_PASSWORD"']}
+          initialDelaySeconds: 10
+          periodSeconds: 5
+        resources: {requests: {memory: 256Mi, cpu: 100m}}
+---
+apiVersion: v1
+kind: Service
+metadata: {name: sql02, namespace: database-workshop}
+spec:
+  selector: {app: sql02}
+  ports: [{port: 3306, targetPort: 3306}]
+---
+apiVersion: v1
+kind: Secret
+metadata: {name: vault-settings, namespace: secret-workshop}
+type: Opaque
+stringData: {".token": workshop-token-42}
+---
+apiVersion: v1
+kind: Pod
+metadata: {name: warmup-web, namespace: default}
+spec:
+  containers:
+  - name: web
+    image: kodekloud/webapp-delayed-start
