@@ -17,7 +17,7 @@ import (
 func TestVerificationDiagnosticsAndProbeErrors(t *testing.T) {
 	stubCommand(t, "kubectl", `#!/bin/bash
 if [[ $* == *exec* ]]; then
-  [[ ${PROBE_MODE:-} != transport-error ]] || { echo 'Error from server (NotFound): probe Pod not found' >&2; exit 42; }
+  [[ ${PROBE_MODE:-} != transport-error && ${PROBE_MODE:-} != unready ]] || { echo 'Error from server (NotFound): probe Pod not found' >&2; exit 42; }
   while [[ $1 != -- ]]; do shift; done
   shift
   exec "$@"
@@ -58,12 +58,18 @@ printf '%s\n' "$CAPTURE_OBJECT"
 		if tc.probe {
 			modes = append(modes, "mismatch", "transport-error")
 		}
+		if tc.exam == "CKAD-001" && (tc.question == "q16" || tc.question == "q18") {
+			modes = append(modes, "unready")
+		}
 		for _, mode := range modes {
 			t.Run(tc.exam+"/"+tc.question+"/"+mode, func(t *testing.T) {
 				t.Setenv("CAPTURE_OBJECT", tc.object)
 				t.Setenv("PROBE_MODE", mode)
 				if mode == "missing" {
 					t.Setenv("CAPTURE_OBJECT", "{}")
+				}
+				if mode == "unready" {
+					t.Setenv("CAPTURE_OBJECT", strings.Replace(tc.object, `"type":"Ready","status":"True"`, `"type":"Ready","status":"False"`, 1))
 				}
 				out, err := exec.Command("bash", filepath.Join("../../exam", tc.exam, "assets/capture.sh"), tc.question).CombinedOutput()
 				if mode == "transport-error" {

@@ -214,7 +214,9 @@ q16)
     requirement("Live container environment must match all three Secret values"; $envs == "sql02\nledger\npractice456")]'
   p=$(get pod ledger-client -n database-workshop)
   envs=''
-  if jq -e '.status.phase == "Running"' >/dev/null <<<"$p"; then
+  # Phase Running can still mean CrashLoopBackOff. An unready answer already
+  # fails grading; do not mistake inability to exec there for a capture outage.
+  if jq -e '.status.phase == "Running" and any(.status.conditions[]?; .type == "Ready" and .status == "True")' >/dev/null <<<"$p"; then
     envs=$(timeout 8 kubectl --request-timeout=6s exec -n database-workshop ledger-client -- \
       sh -c 'printenv DB_Host DB_User DB_Password || true' 2>/dev/null) || {
       echo "Could not inspect the live client environment" >&2; exit 1;
@@ -242,7 +244,7 @@ q18)
     requirement("Mounted .token must be readable with the expected content"; $token == "workshop-token-42")]'
   p=$(get pod vault-reader -n secret-workshop)
   token=''
-  if jq -e '.status.phase == "Running"' >/dev/null <<<"$p"; then
+  if jq -e '.status.phase == "Running" and any(.status.conditions[]?; .type == "Ready" and .status == "True")' >/dev/null <<<"$p"; then
     token=$(timeout 8 kubectl --request-timeout=6s exec -n secret-workshop vault-reader -- \
       sh -c 'cat /etc/credentials/.token 2>/dev/null || true' 2>/dev/null) || {
       echo "Could not inspect the mounted credential" >&2; exit 1;

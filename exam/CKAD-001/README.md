@@ -98,6 +98,9 @@ The same distinction applies to live environment and mounted-file checks:
 missing values/files fail the requirement, while exec transport failures are
 reported as unavailable verification. Diagnostic text does not disclose live
 Secret values.
+Live environment/file inspection runs only when the candidate Pod is Ready.
+Phase `Running` alone also covers crash-looping containers; those must fail
+readiness, not produce a misleading capture outage.
 
 The deny-all question checks its complete policy and absence of competing
 policies, backed by the separate initial enforcement checks; grading does not
