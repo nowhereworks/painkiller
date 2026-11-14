@@ -282,7 +282,7 @@ func (a *app) prepareLab(create bool) {
 		a.state.FailedOperation = "prepare"
 		a.state.Message = fmt.Sprintf("%v: %s", err, out)
 	} else {
-		a.state = state{Phase: "ready", Host: host, TestID: a.state.TestID, Lab: a.state.Lab}
+		a.state = state{Phase: "ready", Host: host, TestID: a.state.TestID, Mode: a.state.Mode, Lab: a.state.Lab}
 	}
 	a.saveBackground()
 }

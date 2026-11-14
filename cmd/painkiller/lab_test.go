@@ -222,13 +222,13 @@ echo "PHASE: $1"
 			if err != nil {
 				t.Fatal(err)
 			}
-			a.state = state{Phase: "preparing", TestID: exam.ID, Lab: config}
+			a.state = state{Phase: "preparing", TestID: exam.ID, Mode: "learning", Lab: config}
 			a.prepareLab(true)
 			calls, err := os.ReadFile(os.Getenv("CALLS"))
 			if err != nil {
 				t.Fatal(err)
 			}
-			if strings.Contains(string(calls), "unexpected-setup") || a.state.Lab != config {
+			if strings.Contains(string(calls), "unexpected-setup") || a.state.Lab != config || a.state.Mode != "learning" {
 				t.Fatalf("trusted preparation lost binding or applied default setup: %s %+v", calls, a.state)
 			}
 			if fail != "" {
@@ -267,7 +267,7 @@ echo "PHASE: $1"
 			}
 			a.prepareLab(false)
 			calls, err = os.ReadFile(os.Getenv("CALLS"))
-			if err != nil || strings.Contains(string(calls), "create ") || a.state.Phase != "ready" {
+			if err != nil || strings.Contains(string(calls), "create ") || a.state.Phase != "ready" || a.state.Mode != "learning" {
 				t.Fatalf("unsafe retry: %s %v %+v", calls, err, a.state)
 			}
 		})

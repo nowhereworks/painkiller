@@ -36,7 +36,7 @@ async function main() {
       {ID:'three',Title:'Review configuration',Points:2,Instructions:'Check the configuration.'}
     ];
     tasks[0].Explanation = 'Inspect the running Pods with `kubectl get pods`. <script>window.unsafe=true</script><img src=x onerror="window.unsafe=true">';
-    const state = {phase:'running',deadline:new Date(now.getTime()+90*60000).toISOString(),duration_seconds:7200,flags:{},done:{}};
+    const state = {phase:'idle',mode:'simulation',deadline:new Date(now.getTime()+90*60000).toISOString(),duration_seconds:7200,flags:{},done:{}};
     const actions = [];
     let finishSubmit;
     await page.route('**/api/**', async route => {
@@ -48,6 +48,7 @@ async function main() {
       ]});
       if (name === 'tasks') return route.fulfill({json:tasks});
       if (name === 'log') return route.fulfill({body:''});
+      if (name === 'verify') return route.fulfill({json:{checks:[{description:'Fixture check',earned:1,points:1}]}});
       const body = route.request().postDataJSON();
       actions.push(name);
       if (name === 'submit') {
@@ -55,13 +56,32 @@ async function main() {
         if (!accepted) return route.fulfill({status:409,body:'Submission failed'});
         state.phase = 'grading';
       }
-      if (name === 'prepare') { state.test_id = body.test_id; state.phase = 'preparing'; }
+      if (name === 'prepare') { state.test_id = body.test_id; state.mode = body.mode; state.phase = 'preparing'; }
       if (name === 'select') state.selected = body.id;
       if (name === 'mark') { state.flags[body.id] = body.flag; state.done[body.id] = body.done; }
       await route.fulfill({status:204});
     });
     const base = `http://127.0.0.1:${server.address().port}`;
     await page.goto(base);
+    await page.waitForFunction(() => !document.querySelector('#prepare').disabled);
+    await page.locator('#mode-select').selectOption('learning');
+    await page.clock.runFor(1100);
+    now.setTime(now.getTime()+1100);
+    await page.evaluate(() => refresh());
+    assert.equal(await page.locator('#mode-select').inputValue(), 'learning', 'idle refresh must preserve the chosen mode');
+    await page.locator('#prepare').click();
+    await page.waitForFunction(() => document.querySelector('#phase').textContent.includes('Learning'));
+    assert.equal(state.mode, 'learning');
+    state.deadline = new Date(now.getTime()+90*60000).toISOString();
+    state.phase = 'running';
+    await page.evaluate(() => refresh());
+    assert.equal(await page.locator('#verify').isVisible(), true);
+    await page.locator('#verify').click();
+    await page.waitForFunction(() => document.querySelector('#verification').textContent.includes('Done: Fixture check'));
+    state.mode = 'simulation';
+    await page.evaluate(() => refresh());
+    assert.equal(await page.locator('#verify').isHidden(), true);
+    assert.ok((await page.locator('#phase').innerText()).includes('Simulation'));
     await page.waitForFunction(() => document.querySelector('#timer').textContent === '90 minutes remaining');
     assert.equal(await page.locator('#previous').isDisabled(), true);
     assert.equal(await page.locator('#next').isDisabled(), false);

@@ -5,7 +5,7 @@ function drawTests(){
   const select=$('test-select');
   if(state.test_id)select.value=state.test_id;
   select.disabled=state.phase!=='idle'||!availableTests.length;
-  if(state.mode)$('mode-select').value=state.mode;
+  if(state.phase!=='idle'&&state.mode)$('mode-select').value=state.mode;
   $('mode-select').disabled=state.phase!=='idle';
   $('prepare').disabled=!availableTests.some(test=>test.id===select.value);
   const test=availableTests.find(test=>test.id===select.value);
