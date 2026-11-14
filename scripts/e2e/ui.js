@@ -66,6 +66,7 @@ async function main() {
     const base = `http://127.0.0.1:${server.address().port}`;
     await page.goto(base);
     await page.waitForFunction(() => !document.querySelector('#prepare').disabled);
+    assert.equal(await page.locator('#phase-exam').isHidden(), true);
     await page.locator('#mode-select').selectOption('learning');
     await page.clock.runFor(1100);
     now.setTime(now.getTime()+1100);
@@ -73,12 +74,14 @@ async function main() {
     assert.equal(await page.locator('#mode-select').inputValue(), 'learning', 'idle refresh must preserve the chosen mode');
     await page.locator('#prepare').click();
     await page.waitForFunction(() => document.querySelector('#phase').textContent.includes('Learning'));
+    assert.equal(await page.locator('#phase-exam').innerText(), 'CKA-001');
     assert.equal(state.mode, 'learning');
     state.deadline = new Date(now.getTime()+90*60000).toISOString();
     state.phase = 'running';
     await page.evaluate(() => refresh());
     assert.equal(await page.locator('#verify').isVisible(), true);
     assert.equal(await page.locator('#phase-status').innerText(), 'In progress');
+    assert.equal(await page.locator('#phase-exam').innerText(), 'CKA-001');
     assert.equal(await page.locator('#phase-mode').innerText(), 'Learning mode');
     await page.setViewportSize({width:320,height:900});
     assert.equal(await page.locator('header').evaluate(el => el.scrollWidth <= el.clientWidth), true, 'header must fit narrow screens');

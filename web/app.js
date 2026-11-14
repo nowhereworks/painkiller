@@ -284,6 +284,8 @@ function renderResults(){
 function tick(){
   drawTests();
   const labels={idle:'Not started',preparing:'Preparing lab',ready:'Ready to start',running:'In progress',grading:'Grading',completed:'Completed',resetting:'Resetting lab',error:'Needs attention'};
+  $('phase-exam').hidden=state.phase==='idle'||!state.test_id;
+  $('phase-exam').textContent=state.test_id||'';
   $('phase-status').textContent=labels[state.phase]||state.phase||'Loading';
   $('phase').dataset.phase=state.phase||'';
   $('phase-mode').hidden=state.phase==='idle'||!['learning','simulation'].includes(state.mode);

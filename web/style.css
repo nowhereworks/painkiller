@@ -114,6 +114,8 @@ body{height:100dvh;display:flex;flex-direction:column}
 header{height:auto;min-height:56px;gap:16px;flex-shrink:0}
 main{height:auto;flex:1;min-height:0}
 #phase{display:flex;align-items:center;flex-wrap:wrap;gap:6px 10px;min-width:0;font-size:13px;color:#e2e8f0}
+#phase-exam{font-size:14px;font-weight:600;color:#fff;white-space:nowrap}
+#phase-exam[hidden]{display:none}
 #phase-status{display:inline-flex;align-items:center;gap:7px;white-space:nowrap}
 #phase-status::before{content:"";width:7px;height:7px;border-radius:50%;background:#aebdcc;flex-shrink:0}
 #phase[data-phase="running"] #phase-status::before,#phase[data-phase="ready"] #phase-status::before,#phase[data-phase="completed"] #phase-status::before{background:#70d69a}
