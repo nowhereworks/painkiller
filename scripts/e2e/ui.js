@@ -78,7 +78,14 @@ async function main() {
     state.phase = 'running';
     await page.evaluate(() => refresh());
     assert.equal(await page.locator('#verify').isVisible(), true);
-    assert.ok(await page.locator('#reveal').evaluate(el => el.getBoundingClientRect().top - document.querySelector('#verify').getBoundingClientRect().bottom) >= 16);
+    assert.equal(await page.locator('#reveal').evaluate(el => {
+      const reveal=el.getBoundingClientRect(), verify=document.querySelector('#verify').getBoundingClientRect();
+      return reveal.left-verify.right===5 && reveal.top===verify.top;
+    }), true, 'learning actions should share a row with a 5px gap');
+    assert.equal(await page.locator('.question-marks').evaluate(el => {
+      const [flag,done]=Array.from(el.children, child=>child.getBoundingClientRect());
+      return done.left-flag.right===5 && done.top===flag.top;
+    }), true, 'question marks should share a row with a 5px gap');
     await page.locator('#verify').click();
     await page.waitForFunction(() => document.querySelector('#verification').textContent.includes('Done: Fixture check'));
     state.mode = 'simulation';
