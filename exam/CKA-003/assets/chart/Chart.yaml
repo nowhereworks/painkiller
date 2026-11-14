@@ -1,4 +1,4 @@
 apiVersion: v2
-name: webapp-color-apd
+name: harbor-portal
 version: 0.1.0
 appVersion: "broken"

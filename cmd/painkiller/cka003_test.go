@@ -23,6 +23,24 @@ func TestCKA003Definition(t *testing.T) {
 			t.Fatalf("got %d questions, want 16", len(exam.tasks))
 		}
 		weights := []int{6, 8, 8, 8, 6, 6, 8, 4, 8, 8, 4, 8, 8, 4, 4, 2}
+		variants := [][]string{
+			{"quay-frontend", "75%", "minimum 3", "maximum 9"},
+			{"namespace-observer-role", "namespace-observer-binding", "default/namespace-observer"},
+			{"catalog-api", "catalog-repair", "3 replicas", "only 2"},
+			{"cedar-pvc", "cedar-pv", "cedar-consumer", "64Mi", "96Mi"},
+			{"/opt/portal-chart", "harbor-portal", "portal-lab", "replicaCount: 4", "1.21.6"},
+			{"portal-route", "portal-gateway", "portal-service", "gateway-lab", "practice-controller"},
+			{"release-reader", "release-reader-role", "release-reader-binding"},
+			{"dns-web", "dns-web-service", "/root/CKA/service-dns.txt", "/root/CKA/pod-dns.txt"},
+			{"queued-web"},
+			{"inventory-api", "release-lab", "/root/restored-image.txt", "6 replicas"},
+			{"ledger-db", "ledger-credentials"},
+			{"color-stream", "4 replicas", "30%", "60%", "/opt/rollout-revision.txt"},
+			{"portal-ingress", "harbor-http", "site-service"},
+			{"reports-api", "cka003/update: queued"},
+			{"status-monitor", "status-web", "status-service", "8080", "application port 80"},
+			{"archive-local", "kubernetes.io/no-provisioner", "WaitForFirstConsumer"},
+		}
 		ids := make(map[string]bool)
 		for i, task := range exam.tasks {
 			if task.QuestionID != fmt.Sprintf("CKA-003-Q%d", i+1) || task.Points != weights[i] {
@@ -30,6 +48,11 @@ func TestCKA003Definition(t *testing.T) {
 			}
 			if task.Resource != fmt.Sprintf("bash /opt/painkiller/cka003/capture.sh q%d", i+1) {
 				t.Fatalf("unexpected capture for %s", task.ID)
+			}
+			for _, want := range variants[i] {
+				if !strings.Contains(task.Instructions, want) {
+					t.Fatalf("%s missing variant detail %q", task.QuestionID, want)
+				}
 			}
 			ids[task.ID] = true
 			cmd := exec.Command("bash", "-n")

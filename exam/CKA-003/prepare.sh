@@ -37,9 +37,9 @@ if [[ $1 == infrastructure ]]; then
     fi"
   done
   node "$w1" 'sudo -n env DEBIAN_FRONTEND=noninteractive apt-get install -y -qq nfs-kernel-server
-    sudo -n mkdir -p /srv/cka003/papaya /etc/exports.d
+    sudo -n mkdir -p /srv/cka003/cedar /etc/exports.d
     sudo -n touch /etc/exports
-    sudo -n chmod 0777 /srv/cka003/papaya'
+    sudo -n chmod 0777 /srv/cka003/cedar'
   {
     printf '/srv/cka003'
     for ip in "${ips[@]}"; do printf ' %s(rw,sync,no_subtree_check,no_root_squash)' "$ip"; done
@@ -65,10 +65,10 @@ fi
 kube() { node "$cp" "kubectl $*"; }
 apply() { node "$cp" 'kubectl apply --server-side --force-conflicts -f -' < "$1"; }
 # Copy only trusted capture logic and the deliberately broken candidate chart.
-node "$cp" 'sudo -n mkdir -p /opt/painkiller/cka003 /opt/webapp-color-apd
-  sudo -n chown "$(id -un):$(id -gn)" /opt/painkiller/cka003 /opt/webapp-color-apd'
+node "$cp" 'sudo -n mkdir -p /opt/painkiller/cka003 /opt/portal-chart
+  sudo -n chown "$(id -un):$(id -gn)" /opt/painkiller/cka003 /opt/portal-chart'
 node "$cp" 'cat > /opt/painkiller/cka003/capture.sh' < "$assets/capture.sh"
-tar -C "$assets/chart" -cf - . | node "$cp" 'tar -C /opt/webapp-color-apd -xf -'
+tar -C "$assets/chart" -cf - . | node "$cp" 'tar -C /opt/portal-chart -xf -'
 apply "$assets/gateway-api.yaml"
 apply "$assets/metrics-server.yaml"
 kube patch deployment metrics-server -n kube-system --type=json \
@@ -84,15 +84,15 @@ if ! node "$cp" "sudo -n test -e $marker/fixtures"; then
 fi
 apply "$assets/routing.yaml"
 control=$(kube get nodes -l node-role.kubernetes.io/control-plane -o 'jsonpath={.items[0].metadata.name}')
-kube label node "$control" cka003/controlplane=true --overwrite
-node "$cp" "if ! grep -q ' cka003-controlplane$' /etc/hosts; then
-  echo '$cp cka003-controlplane' | sudo -n tee -a /etc/hosts >/dev/null
+kube label node "$control" cka003/placement=controller --overwrite
+node "$cp" "if ! grep -q ' practice-controller$' /etc/hosts; then
+  echo '$cp practice-controller' | sudo -n tee -a /etc/hosts >/dev/null
 fi"
 if ! node "$cp" "sudo -n test -e $marker/storage"; then
   node "$cp" "kubectl apply -f -" <<YAML
 apiVersion: storage.k8s.io/v1
 kind: StorageClass
-metadata: {name: papaya-stc-cka09-str}
+metadata: {name: cedar-sc}
 provisioner: nfs.csi.k8s.io
 allowVolumeExpansion: true
 volumeBindingMode: Immediate
@@ -100,31 +100,31 @@ parameters: {server: "$w1", share: /srv/cka003}
 ---
 apiVersion: v1
 kind: PersistentVolume
-metadata: {name: papaya-pv-cka09-str}
+metadata: {name: cedar-pv}
 spec:
-  capacity: {storage: 50Mi}
+  capacity: {storage: 64Mi}
   accessModes: [ReadWriteMany]
   persistentVolumeReclaimPolicy: Retain
-  storageClassName: papaya-stc-cka09-str
+  storageClassName: cedar-sc
   mountOptions: [nfsvers=4.1]
   csi:
     driver: nfs.csi.k8s.io
-    volumeHandle: "$w1#/srv/cka003#papaya"
-    volumeAttributes: {server: "$w1", share: /srv/cka003/papaya}
+    volumeHandle: "$w1#/srv/cka003#cedar"
+    volumeAttributes: {server: "$w1", share: /srv/cka003/cedar}
 ---
 apiVersion: v1
 kind: PersistentVolumeClaim
-metadata: {name: papaya-pvc-cka09-str, namespace: default}
+metadata: {name: cedar-pvc, namespace: default}
 spec:
   accessModes: [ReadWriteMany]
-  storageClassName: papaya-stc-cka09-str
-  volumeName: papaya-pv-cka09-str
-  resources: {requests: {storage: 50Mi}}
+  storageClassName: cedar-sc
+  volumeName: cedar-pv
+  resources: {requests: {storage: 64Mi}}
 YAML
   node "$cp" 'kubectl apply -f -' <<'YAML'
 apiVersion: v1
 kind: Pod
-metadata: {name: papaya-consumer, namespace: default}
+metadata: {name: cedar-consumer, namespace: default}
 spec:
   containers:
     - name: storage
@@ -133,29 +133,29 @@ spec:
       volumeMounts: [{name: data, mountPath: /data}]
   volumes:
     - name: data
-      persistentVolumeClaim: {claimName: papaya-pvc-cka09-str}
+      persistentVolumeClaim: {claimName: cedar-pvc}
 YAML
   node "$cp" "sudo -n touch $marker/storage"
 fi
 for target in 'kube-system metrics-server' 'kube-system csi-nfs-controller' \
-  'cka003-system routing' 'default frontend-deployment' 'default nginx-deployment-cka04-svcn' \
-  'nginx-gateway web-backend'; do
+  'cka003-system routing' 'default quay-frontend' 'default site-backend' \
+  'gateway-lab portal-backend'; do
   read -r ns dep <<<"$target"
   kube rollout status deployment/"$dep" -n "$ns" --timeout=240s
 done
 kube rollout status daemonset/csi-nfs-node -n kube-system --timeout=240s
-kube wait pod/papaya-consumer -n default --for=condition=Ready --timeout=240s
+kube wait pod/cedar-consumer -n default --for=condition=Ready --timeout=240s
 if ! node "$cp" "sudo -n test -e $marker/rollback"; then
-  kube rollout status deployment/rollback-app -n dev-wl07 --timeout=180s
-  kube set image deployment/rollback-app -n dev-wl07 web=nginx:cka003-invalid
+  kube rollout status deployment/inventory-api -n release-lab --timeout=180s
+  kube set image deployment/inventory-api -n release-lab web=nginx:cka003-invalid
   node "$cp" "sudo -n touch $marker/rollback"
 fi
-if ! node "$cp" "sudo -n test -e $marker/black"; then
-  kube rollout status deployment/black-cka25-trb --timeout=180s
-  kube rollout pause deployment/black-cka25-trb
-  kube patch deployment black-cka25-trb --type=merge \
-    "-p='{\"spec\":{\"template\":{\"metadata\":{\"annotations\":{\"cka003/revision\":\"pending\"}}}}}'"
-  node "$cp" "sudo -n touch $marker/black"
+if ! node "$cp" "sudo -n test -e $marker/reports"; then
+  kube rollout status deployment/reports-api --timeout=180s
+  kube rollout pause deployment/reports-api
+  kube patch deployment reports-api --type=merge \
+    "-p='{\"spec\":{\"template\":{\"metadata\":{\"annotations\":{\"cka003/update\":\"queued\"}}}}}'"
+  node "$cp" "sudo -n touch $marker/reports"
 fi
 # Protect trusted grading logic from accidental candidate edits (sudo remains available).
 node "$cp" 'sudo -n chown -R root:root /opt/painkiller/cka003

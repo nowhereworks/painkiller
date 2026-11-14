@@ -6,23 +6,23 @@ metadata:
 ---
 apiVersion: v1
 kind: Namespace
-metadata: {name: nginx-gateway}
+metadata: {name: gateway-lab}
 ---
 apiVersion: v1
 kind: Namespace
-metadata: {name: dev-wl07}
+metadata: {name: release-lab}
 ---
 apiVersion: v1
 kind: Namespace
-metadata: {name: pink-troubleshooting}
+metadata: {name: catalog-repair}
 ---
 apiVersion: v1
 kind: ServiceAccount
-metadata: {name: green-sa-cka22-arch, namespace: default}
+metadata: {name: namespace-observer, namespace: default}
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
-metadata: {name: green-role-cka22-arch}
+metadata: {name: namespace-observer-role}
 rules:
   - apiGroups: [""]
     resources: ["namespaces"]
@@ -30,14 +30,14 @@ rules:
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
-metadata: {name: green-role-binding-cka22-arch}
-roleRef: {apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: green-role-cka22-arch}
+metadata: {name: namespace-observer-binding}
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: namespace-observer-role}
 subjects:
-  - {kind: ServiceAccount, name: green-sa-cka22-arch, namespace: default}
+  - {kind: ServiceAccount, name: namespace-observer, namespace: default}
 ---
 apiVersion: apps/v1
 kind: Deployment
-metadata: {name: frontend-deployment, namespace: default}
+metadata: {name: quay-frontend, namespace: default}
 spec:
   replicas: 1
   selector: {matchLabels: {app: frontend}}
@@ -51,88 +51,88 @@ spec:
 ---
 apiVersion: v1
 kind: ResourceQuota
-metadata: {name: pink-quota, namespace: pink-troubleshooting}
-spec: {hard: {pods: "1"}}
+metadata: {name: catalog-quota, namespace: catalog-repair}
+spec: {hard: {pods: "2"}}
 ---
 apiVersion: apps/v1
 kind: Deployment
-metadata: {name: pink-depl-cka14-trb, namespace: pink-troubleshooting}
+metadata: {name: catalog-api, namespace: catalog-repair}
 spec:
-  replicas: 2
-  selector: {matchLabels: {app: pink}}
+  replicas: 3
+  selector: {matchLabels: {app: catalog}}
   template:
-    metadata: {labels: {app: pink}}
+    metadata: {labels: {app: catalog}}
     spec:
       containers: [{name: web, image: "nginx:1.27"}]
 ---
 apiVersion: apps/v1
 kind: Deployment
-metadata: {name: web-backend, namespace: nginx-gateway}
+metadata: {name: portal-backend, namespace: gateway-lab}
 spec:
   replicas: 1
-  selector: {matchLabels: {app: web-backend}}
+  selector: {matchLabels: {app: portal-backend}}
   template:
-    metadata: {labels: {app: web-backend}}
+    metadata: {labels: {app: portal-backend}}
     spec:
       containers: [{name: web, image: "nginx:1.27", ports: [{containerPort: 80}]}]
 ---
 apiVersion: v1
 kind: Service
-metadata: {name: web-service, namespace: nginx-gateway}
+metadata: {name: portal-service, namespace: gateway-lab}
 spec:
-  selector: {app: web-backend}
+  selector: {app: portal-backend}
   ports: [{port: 80, targetPort: 80}]
 ---
 apiVersion: gateway.networking.k8s.io/v1
 kind: Gateway
-metadata: {name: web-gateway, namespace: nginx-gateway}
+metadata: {name: portal-gateway, namespace: gateway-lab}
 spec:
   gatewayClassName: cka003
   listeners:
     - name: web
       protocol: HTTP
       port: 80
-      hostname: cka003-controlplane
+      hostname: practice-controller
       allowedRoutes: {namespaces: {from: Same}}
 ---
 apiVersion: v1
 kind: Pod
-metadata: {name: grey-cka21-trb, namespace: default}
+metadata: {name: queued-web, namespace: default}
 spec:
-  nodeSelector: {cka003/controlplane: misspelled}
+  nodeSelector: {cka003/placement: misspelled}
   tolerations:
     - {key: node-role.kubernetes.io/control-plane, operator: Exists, effect: NoSchedule}
   containers: [{name: web, image: "nginx:1.27"}]
 ---
 apiVersion: apps/v1
 kind: Deployment
-metadata: {name: rollback-app, namespace: dev-wl07}
+metadata: {name: inventory-api, namespace: release-lab}
 spec:
   replicas: 1
-  selector: {matchLabels: {app: rollback-app}}
+  selector: {matchLabels: {app: inventory-api}}
   template:
-    metadata: {labels: {app: rollback-app}}
+    metadata: {labels: {app: inventory-api}}
     spec:
       containers: [{name: web, image: "nginx:1.27"}]
 ---
 apiVersion: v1
 kind: Secret
-metadata: {name: db-credentials-cka05-trb, namespace: default}
+metadata: {name: ledger-credentials, namespace: default}
 type: Opaque
 stringData:
-  root-password: practice-root
-  database: practice
-  username: practice-user
-  password: practice-password
+  admin-password: practice-root
+  db-name: practice
+  db-user: practice-user
+  db-password: practice-password
 ---
 apiVersion: apps/v1
 kind: Deployment
-metadata: {name: db-deployment-cka05-trb, namespace: default}
+metadata: {name: ledger-db, namespace: default}
 spec:
   replicas: 1
-  selector: {matchLabels: {app: db-cka05}}
+  selector: {matchLabels: {app: ledger-db}}
   template:
-    metadata: {labels: {app: db-cka05}}
+    metadata: {labels: {app: ledger-db}}
     spec:
       containers:
         - name: db
@@ -141,59 +141,59 @@ spec:
           args:
             - 'test "$DB_ROOT_PASSWORD" = practice-root && test "$DB_DATABASE" = practice && test "$DB_USER" = practice-user && test "$DB_PASSWORD" = practice-password && exec sleep 2147483647'
           env:
-            - {name: DB_ROOT_PASSWORD, valueFrom: {secretKeyRef: {name: db-credentials-cka05-trb, key: wrong-root}}}
-            - {name: DB_DATABASE, valueFrom: {secretKeyRef: {name: db-credentials-cka05-trb, key: wrong-database}}}
-            - {name: DB_USER, valueFrom: {secretKeyRef: {name: db-credentials-cka05-trb, key: wrong-user}}}
-            - {name: DB_PASSWORD, valueFrom: {secretKeyRef: {name: db-credentials-cka05-trb, key: wrong-password}}}
+            - {name: DB_ROOT_PASSWORD, valueFrom: {secretKeyRef: {name: ledger-credentials, key: wrong-root}}}
+            - {name: DB_DATABASE, valueFrom: {secretKeyRef: {name: ledger-credentials, key: wrong-database}}}
+            - {name: DB_USER, valueFrom: {secretKeyRef: {name: ledger-credentials, key: wrong-user}}}
+            - {name: DB_PASSWORD, valueFrom: {secretKeyRef: {name: ledger-credentials, key: wrong-password}}}
 ---
 apiVersion: apps/v1
 kind: Deployment
-metadata: {name: nginx-deployment-cka04-svcn, namespace: default}
+metadata: {name: site-backend, namespace: default}
 spec:
   replicas: 1
-  selector: {matchLabels: {app: ingress-backend}}
+  selector: {matchLabels: {app: site-backend}}
   template:
-    metadata: {labels: {app: ingress-backend}}
+    metadata: {labels: {app: site-backend}}
     spec:
       containers: [{name: web, image: "nginx:1.27"}]
 ---
 apiVersion: v1
 kind: Service
-metadata: {name: nginx-service-cka04-svcn, namespace: default}
+metadata: {name: site-service, namespace: default}
 spec:
-  selector: {app: ingress-backend}
+  selector: {app: site-backend}
   ports: [{port: 80, targetPort: 80}]
 ---
 apiVersion: apps/v1
 kind: Deployment
-metadata: {name: black-cka25-trb, namespace: default}
+metadata: {name: reports-api, namespace: default}
 spec:
   replicas: 1
-  selector: {matchLabels: {app: black}}
+  selector: {matchLabels: {app: reports}}
   template:
-    metadata: {labels: {app: black}}
+    metadata: {labels: {app: reports}}
     spec:
       containers: [{name: web, image: "nginx:1.27"}]
 ---
 apiVersion: v1
 kind: Pod
-metadata: {name: purple-app-cka27-trb, namespace: default, labels: {app: purple}}
+metadata: {name: status-web, namespace: default, labels: {app: status}}
 spec:
   containers: [{name: web, image: "nginx:1.27", ports: [{containerPort: 80}]}]
 ---
 apiVersion: v1
 kind: Service
-metadata: {name: purple-svc-cka27-trb, namespace: default}
+metadata: {name: status-service, namespace: default}
 spec:
-  selector: {app: purple}
-  ports: [{port: 80, targetPort: 81}]
+  selector: {app: status}
+  ports: [{port: 8080, targetPort: 81}]
 ---
 apiVersion: v1
 kind: Pod
-metadata: {name: purple-curl-cka27-trb, namespace: default}
+metadata: {name: status-monitor, namespace: default}
 spec:
   containers:
     - name: monitor
       image: curlimages/curl:8.12.1
       command: [sh, -c]
-      args: ["while true; do curl --connect-timeout 2 --max-time 3 -fsS http://purple-svc-cka27-trb && echo OK || echo ERROR; sleep 5; done"]
+      args: ["while true; do curl --connect-timeout 2 --max-time 3 -fsS http://status-service:8080 && echo OK || echo ERROR; sleep 5; done"]

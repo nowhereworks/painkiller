@@ -29,117 +29,117 @@ access() {
 }
 case "${1:-}" in
 q1)
-  expression='$h.spec.scaleTargetRef == {"apiVersion":"apps/v1","kind":"Deployment","name":"frontend-deployment"} and $h.spec.minReplicas == 2 and $h.spec.maxReplicas == 10 and any($h.spec.metrics[]?; .type == "Resource" and .resource.name == "cpu" and .resource.target.type == "Utilization" and .resource.target.averageUtilization == 70)'
-  evaluate --argjson h "$(get hpa frontend-deployment -n default)"
+  expression='$h.spec.scaleTargetRef == {"apiVersion":"apps/v1","kind":"Deployment","name":"quay-frontend"} and $h.spec.minReplicas == 3 and $h.spec.maxReplicas == 9 and any($h.spec.metrics[]?; .type == "Resource" and .resource.name == "cpu" and .resource.target.type == "Utilization" and .resource.target.averageUtilization == 75)'
+  evaluate --argjson h "$(get hpa quay-frontend -n default)"
   ;;
 q2)
-  expression='$r.rules == [{"apiGroups":[""],"resources":["namespaces"],"verbs":["get"]}] and ($b | bound("green-role-cka22-arch";"green-sa-cka22-arch")) and $sa.metadata.name == "green-sa-cka22-arch" and $get and ($list or $delete or $pods | not)'
-  evaluate --argjson r "$(get clusterrole green-role-cka22-arch)" \
-    --argjson b "$(get clusterrolebinding green-role-binding-cka22-arch)" \
-    --argjson sa "$(get serviceaccount green-sa-cka22-arch -n default)" \
-    --argjson get "$(access get namespaces green-sa-cka22-arch)" \
-    --argjson list "$(access list namespaces green-sa-cka22-arch)" \
-    --argjson delete "$(access delete namespaces green-sa-cka22-arch)" \
-    --argjson pods "$(access get pods green-sa-cka22-arch)"
+  expression='$r.rules == [{"apiGroups":[""],"resources":["namespaces"],"verbs":["get"]}] and ($b | bound("namespace-observer-role";"namespace-observer")) and $sa.metadata.name == "namespace-observer" and $get and ($list or $delete or $pods | not)'
+  evaluate --argjson r "$(get clusterrole namespace-observer-role)" \
+    --argjson b "$(get clusterrolebinding namespace-observer-binding)" \
+    --argjson sa "$(get serviceaccount namespace-observer -n default)" \
+    --argjson get "$(access get namespaces namespace-observer)" \
+    --argjson list "$(access list namespaces namespace-observer)" \
+    --argjson delete "$(access delete namespaces namespace-observer)" \
+    --argjson pods "$(access get pods namespace-observer)"
   ;;
 q3)
-  expression='$d | ready(2)'
-  evaluate --argjson d "$(get deployment pink-depl-cka14-trb -n pink-troubleshooting)"
+  expression='$d | ready(3)'
+  evaluate --argjson d "$(get deployment catalog-api -n catalog-repair)"
   ;;
 q4)
-  expression='$p.spec.resources.requests.storage == "80Mi" and $p.status.phase == "Bound" and $p.status.capacity.storage == "80Mi" and $p.spec.volumeName == "papaya-pv-cka09-str" and $v.spec.capacity.storage == "80Mi" and $v.spec.csi.driver == "nfs.csi.k8s.io" and $s.allowVolumeExpansion == true and ($c | running)'
-  evaluate --argjson p "$(get pvc papaya-pvc-cka09-str -n default)" \
-    --argjson v "$(get pv papaya-pv-cka09-str)" --argjson s "$(get storageclass papaya-stc-cka09-str)" \
-    --argjson c "$(get pod papaya-consumer -n default)"
+  expression='$p.spec.resources.requests.storage == "96Mi" and $p.status.phase == "Bound" and $p.status.capacity.storage == "96Mi" and $p.spec.volumeName == "cedar-pv" and $v.spec.capacity.storage == "96Mi" and $v.spec.csi.driver == "nfs.csi.k8s.io" and $s.allowVolumeExpansion == true and ($c | running)'
+  evaluate --argjson p "$(get pvc cedar-pvc -n default)" \
+    --argjson v "$(get pv cedar-pv)" --argjson s "$(get storageclass cedar-sc)" \
+    --argjson c "$(get pod cedar-consumer -n default)"
   ;;
 q5)
-  release=$(helm list -n frontend-apd -o json --filter '^webapp-color-apd$')
+  release=$(helm list -n portal-lab -o json --filter '^harbor-portal$')
   chart=$(python3 - <<'PY'
 import json
 import yaml
 result = {}
 for name in ("Chart", "values"):
     try:
-        with open("/opt/webapp-color-apd/" + name + ".yaml") as stream:
+        with open("/opt/portal-chart/" + name + ".yaml") as stream:
             result[name] = yaml.safe_load(stream)
     except (OSError, yaml.YAMLError):
         result[name] = {}
 print(json.dumps(result))
 PY
 )
-  expression='any($r[]?; .name == "webapp-color-apd" and .namespace == "frontend-apd" and .status == "deployed" and .app_version == "1.20.0") and ($d | ready(3)) and $d.spec.template.spec.containers[0].image == "nginx:1.20.0" and $s.spec.type == "NodePort" and $s.spec.selector == $d.spec.selector.matchLabels and $chart.Chart.appVersion == "1.20.0" and $chart.values.replicaCount == 3 and $chart.values.service.type == "NodePort"'
+  expression='any($r[]?; .name == "harbor-portal" and .namespace == "portal-lab" and .status == "deployed" and .app_version == "1.21.6") and ($d | ready(4)) and $d.spec.template.spec.containers[0].image == "nginx:1.21.6" and $s.spec.type == "NodePort" and $s.spec.selector == $d.spec.selector.matchLabels and $chart.Chart.appVersion == "1.21.6" and $chart.values.replicaCount == 4 and $chart.values.service.type == "NodePort"'
   evaluate --argjson r "$release" --argjson chart "$chart" \
-    --argjson d "$(get deployment webapp-color-apd -n frontend-apd)" \
-    --argjson s "$(get service webapp-color-apd -n frontend-apd)"
+    --argjson d "$(get deployment harbor-portal -n portal-lab)" \
+    --argjson s "$(get service harbor-portal -n portal-lab)"
   ;;
 q6)
-  expression='$h.spec.hostnames == ["cka003-controlplane"] and any($h.spec.parentRefs[]?; .name == "web-gateway" and (.namespace // "nginx-gateway") == "nginx-gateway") and any($h.spec.rules[]?.backendRefs[]?; .name == "web-service" and .port == 80 and (.namespace // "nginx-gateway") == "nginx-gateway") and any($h.status.parents[]?; .parentRef.name == "web-gateway" and any(.conditions[]?; .type == "Accepted" and .status == "True") and any(.conditions[]?; .type == "ResolvedRefs" and .status == "True")) and $http'
-  evaluate --argjson h "$(get httproute web-route -n nginx-gateway)" \
-    --argjson http "$(probe -H 'Host: cka003-controlplane' http://cka003-controlplane:30080/)"
+  expression='$h.spec.hostnames == ["practice-controller"] and any($h.spec.parentRefs[]?; .name == "portal-gateway" and (.namespace // "gateway-lab") == "gateway-lab") and any($h.spec.rules[]?.backendRefs[]?; .name == "portal-service" and .port == 80 and (.namespace // "gateway-lab") == "gateway-lab") and any($h.status.parents[]?; .parentRef.name == "portal-gateway" and any(.conditions[]?; .type == "Accepted" and .status == "True") and any(.conditions[]?; .type == "ResolvedRefs" and .status == "True")) and $http'
+  evaluate --argjson h "$(get httproute portal-route -n gateway-lab)" \
+    --argjson http "$(probe -H 'Host: practice-controller' http://practice-controller:30080/)"
   ;;
 q7)
-  expression='$sa.metadata.name == "deploy-cka20-arch" and $r.rules == [{"apiGroups":["apps"],"resources":["deployments"],"verbs":["get"]}] and ($b | bound("deploy-role-cka20-arch";"deploy-cka20-arch")) and $get and ($list or $delete | not)'
-  evaluate --argjson sa "$(get serviceaccount deploy-cka20-arch -n default)" \
-    --argjson r "$(get clusterrole deploy-role-cka20-arch)" \
-    --argjson b "$(get clusterrolebinding deploy-role-binding-cka20-arch)" \
-    --argjson get "$(access get deployments.apps deploy-cka20-arch)" \
-    --argjson list "$(access list deployments.apps deploy-cka20-arch)" \
-    --argjson delete "$(access delete deployments.apps deploy-cka20-arch)"
+  expression='$sa.metadata.name == "release-reader" and $r.rules == [{"apiGroups":["apps"],"resources":["deployments"],"verbs":["get"]}] and ($b | bound("release-reader-role";"release-reader")) and $get and ($list or $delete | not)'
+  evaluate --argjson sa "$(get serviceaccount release-reader -n default)" \
+    --argjson r "$(get clusterrole release-reader-role)" \
+    --argjson b "$(get clusterrolebinding release-reader-binding)" \
+    --argjson get "$(access get deployments.apps release-reader)" \
+    --argjson list "$(access list deployments.apps release-reader)" \
+    --argjson delete "$(access delete deployments.apps release-reader)"
   ;;
 q8)
-  pod=$(get pod nginx-resolver-cka06-svcn -n default)
-  svc=$(get service nginx-resolver-service-cka06-svcn -n default)
-  expression='($p | running) and any($p.spec.containers[]?; .image == "nginx" or (.image | startswith("nginx:"))) and $s.spec.type == "ClusterIP" and ($s.spec.selector | length) > 0 and all(($s.spec.selector // {}) | to_entries[]; $p.metadata.labels[.key] == .value) and $s.spec.ports[0].port == 80 and ($sf | contains("nginx-resolver-service-cka06-svcn")) and ($sf | contains($s.spec.clusterIP // "missing-service-ip")) and ($pf | contains(($p.status.podIP // "missing-pod-ip" | gsub("\\."; "-")) + ".default.pod")) and ($pf | contains($p.status.podIP // "missing-pod-ip"))'
+  pod=$(get pod dns-web -n default)
+  svc=$(get service dns-web-service -n default)
+  expression='($p | running) and any($p.spec.containers[]?; .image == "nginx" or (.image | startswith("nginx:"))) and $s.spec.type == "ClusterIP" and ($s.spec.selector | length) > 0 and all(($s.spec.selector // {}) | to_entries[]; $p.metadata.labels[.key] == .value) and $s.spec.ports[0].port == 80 and ($sf | contains("dns-web-service")) and ($sf | contains($s.spec.clusterIP // "missing-service-ip")) and ($pf | contains(($p.status.podIP // "missing-pod-ip" | gsub("\\."; "-")) + ".default.pod")) and ($pf | contains($p.status.podIP // "missing-pod-ip"))'
   evaluate --argjson p "$pod" --argjson s "$svc" \
-    --arg sf "$(file /root/CKA/nginx.svc.cka06.svcn)" --arg pf "$(file /root/CKA/nginx.pod.cka06.svcn)"
+    --arg sf "$(file /root/CKA/service-dns.txt)" --arg pf "$(file /root/CKA/pod-dns.txt)"
   ;;
 q9)
   expression='($p | running) and $p.spec.nodeName == $node'
-  evaluate --argjson p "$(get pod grey-cka21-trb -n default)" \
+  evaluate --argjson p "$(get pod queued-web -n default)" \
     --arg node "$(kubectl --request-timeout=8s get nodes -l node-role.kubernetes.io/control-plane -o 'jsonpath={.items[0].metadata.name}')"
   ;;
 q10)
-  expression='($d | ready(5)) and $d.spec.template.spec.containers[0].image == "nginx:1.27" and $record == "nginx:1.27" and any($rs.items[]?; .spec.template.spec.containers[0].image == "nginx:cka003-invalid")'
-  evaluate --argjson d "$(get deployment rollback-app -n dev-wl07)" \
-    --argjson rs "$(get replicasets -n dev-wl07 -l app=rollback-app)" \
-    --arg record "$(file /root/rolling-back-record.txt)"
+  expression='($d | ready(6)) and $d.spec.template.spec.containers[0].image == "nginx:1.27" and $record == "nginx:1.27" and any($rs.items[]?; .spec.template.spec.containers[0].image == "nginx:cka003-invalid")'
+  evaluate --argjson d "$(get deployment inventory-api -n release-lab)" \
+    --argjson rs "$(get replicasets -n release-lab -l app=inventory-api)" \
+    --arg record "$(file /root/restored-image.txt)"
   ;;
 q11)
   expression='($d | ready(1)) and ($d.spec.template.spec.containers[0].env // [] | sort_by(.name)) == ([
-    {name:"DB_ROOT_PASSWORD",valueFrom:{secretKeyRef:{name:"db-credentials-cka05-trb",key:"root-password"}}},
-    {name:"DB_DATABASE",valueFrom:{secretKeyRef:{name:"db-credentials-cka05-trb",key:"database"}}},
-    {name:"DB_USER",valueFrom:{secretKeyRef:{name:"db-credentials-cka05-trb",key:"username"}}},
-    {name:"DB_PASSWORD",valueFrom:{secretKeyRef:{name:"db-credentials-cka05-trb",key:"password"}}}
-    ] | sort_by(.name)) and $s.data == {"root-password":("practice-root"|@base64),"database":("practice"|@base64),"username":("practice-user"|@base64),"password":("practice-password"|@base64)}'
-  evaluate --argjson d "$(get deployment db-deployment-cka05-trb -n default)" \
-    --argjson s "$(get secret db-credentials-cka05-trb -n default)"
+    {name:"DB_ROOT_PASSWORD",valueFrom:{secretKeyRef:{name:"ledger-credentials",key:"admin-password"}}},
+    {name:"DB_DATABASE",valueFrom:{secretKeyRef:{name:"ledger-credentials",key:"db-name"}}},
+    {name:"DB_USER",valueFrom:{secretKeyRef:{name:"ledger-credentials",key:"db-user"}}},
+    {name:"DB_PASSWORD",valueFrom:{secretKeyRef:{name:"ledger-credentials",key:"db-password"}}}
+    ] | sort_by(.name)) and $s.data == {"admin-password":("practice-root"|@base64),"db-name":("practice"|@base64),"db-user":("practice-user"|@base64),"db-password":("practice-password"|@base64)}'
+  evaluate --argjson d "$(get deployment ledger-db -n default)" \
+    --argjson s "$(get secret ledger-credentials -n default)"
   ;;
 q12)
-  expression='($d | ready(3)) and $d.spec.template.spec.containers[0].image == "kodekloud/webapp-color:v1" and $d.spec.strategy.type == "RollingUpdate" and $d.spec.strategy.rollingUpdate.maxSurge == "55%" and $d.spec.strategy.rollingUpdate.maxUnavailable == "40%" and $record == "2" and (($d.metadata.annotations["deployment.kubernetes.io/revision"] // "0" | tonumber) >= 3) and any($rs.items[]?; any(.metadata.ownerReferences[]?; .uid == $d.metadata.uid and .kind == "Deployment") and .spec.template.spec.containers[0].image == "kodekloud/webapp-color:v2" and .metadata.annotations["deployment.kubernetes.io/revision"] == "2")'
-  evaluate --argjson d "$(get deployment ocean-tv-wl09 -n default)" \
+  expression='($d | ready(4)) and $d.spec.template.spec.containers[0].image == "kodekloud/webapp-color:v1" and $d.spec.strategy.type == "RollingUpdate" and $d.spec.strategy.rollingUpdate.maxSurge == "60%" and $d.spec.strategy.rollingUpdate.maxUnavailable == "30%" and $record == "2" and (($d.metadata.annotations["deployment.kubernetes.io/revision"] // "0" | tonumber) >= 3) and any($rs.items[]?; any(.metadata.ownerReferences[]?; .uid == $d.metadata.uid and .kind == "Deployment") and .spec.template.spec.containers[0].image == "kodekloud/webapp-color:v2" and .metadata.annotations["deployment.kubernetes.io/revision"] == "2")'
+  evaluate --argjson d "$(get deployment color-stream -n default)" \
     --argjson rs "$(get replicasets -n default)" \
-    --arg record "$(file /opt/revision-count.txt)"
+    --arg record "$(file /opt/rollout-revision.txt)"
   ;;
 q13)
-  expression='$i.spec.ingressClassName == "nginx-cka04" and $i.metadata.annotations["nginx.ingress.kubernetes.io/ssl-redirect"] == "false" and any($i.spec.rules[]?; (.host // "") == "" and any(.http.paths[]?; .path == "/" and .pathType == "Prefix" and .backend.service.name == "nginx-service-cka04-svcn" and .backend.service.port.number == 80)) and $http'
-  evaluate --argjson i "$(get ingress nginx-ingress-cka04-svcn -n default)" \
-    --argjson http "$(probe -H 'Host: ingress.cka003.test' http://cka003-controlplane:30080/)"
+  expression='$i.spec.ingressClassName == "harbor-http" and $i.metadata.annotations["nginx.ingress.kubernetes.io/ssl-redirect"] == "false" and any($i.spec.rules[]?; (.host // "") == "" and any(.http.paths[]?; .path == "/" and .pathType == "Prefix" and .backend.service.name == "site-service" and .backend.service.port.number == 80)) and $http'
+  evaluate --argjson i "$(get ingress portal-ingress -n default)" \
+    --argjson http "$(probe -H 'Host: ingress.cka003.test' http://practice-controller:30080/)"
   ;;
 q14)
-  expression='($d | ready(1)) and ($d.spec.paused // false) == false and $d.spec.template.metadata.annotations["cka003/revision"] == "pending"'
-  evaluate --argjson d "$(get deployment black-cka25-trb -n default)"
+  expression='($d | ready(1)) and ($d.spec.paused // false) == false and $d.spec.template.metadata.annotations["cka003/update"] == "queued"'
+  evaluate --argjson d "$(get deployment reports-api -n default)"
   ;;
 q15)
   http=false
-  if kubectl --request-timeout=8s exec purple-curl-cka27-trb -n default -- \
-    curl --connect-timeout 2 --max-time 4 -fsS http://purple-svc-cka27-trb 2>/dev/null | grep -q 'Welcome to nginx'; then http=true; fi
-  expression='($p | running) and $s.spec.type == "ClusterIP" and $s.spec.ports[0].port == 80 and $s.spec.ports[0].targetPort == 80 and $s.spec.selector.app == "purple" and $http'
-  evaluate --argjson p "$(get pod purple-app-cka27-trb -n default)" \
-    --argjson s "$(get service purple-svc-cka27-trb -n default)" --argjson http "$http"
+  if kubectl --request-timeout=8s exec status-monitor -n default -- \
+    curl --connect-timeout 2 --max-time 4 -fsS http://status-service:8080 2>/dev/null | grep -q 'Welcome to nginx'; then http=true; fi
+  expression='($p | running) and $s.spec.type == "ClusterIP" and $s.spec.ports[0].port == 8080 and $s.spec.ports[0].targetPort == 80 and $s.spec.selector.app == "status" and $http'
+  evaluate --argjson p "$(get pod status-web -n default)" \
+    --argjson s "$(get service status-service -n default)" --argjson http "$http"
   ;;
 q16)
   expression='$s.provisioner == "kubernetes.io/no-provisioner" and $s.volumeBindingMode == "WaitForFirstConsumer" and $s.allowVolumeExpansion == true'
-  evaluate --argjson s "$(get storageclass banana-sc-cka08-str)"
+  evaluate --argjson s "$(get storageclass archive-local)"
   ;;
 *) echo "Unknown CKA-003 task: ${1:-}" >&2; exit 2 ;;
 esac

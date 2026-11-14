@@ -3,83 +3,83 @@
   "mutations": [
     {
       "task": "hpa",
-      "remove": "kubectl -n default patch hpa frontend-deployment --type=merge -p '{\"spec\":{\"maxReplicas\":9}}'",
-      "restore": "kubectl -n default patch hpa frontend-deployment --type=merge -p '{\"spec\":{\"maxReplicas\":10}}'"
+      "remove": "kubectl -n default patch hpa quay-frontend --type=merge -p '{\"spec\":{\"maxReplicas\":8}}'",
+      "restore": "kubectl -n default patch hpa quay-frontend --type=merge -p '{\"spec\":{\"maxReplicas\":9}}'"
     },
     {
       "task": "restrict-rbac",
-      "remove": "kubectl patch clusterrole green-role-cka22-arch --type=json -p '[{\"op\":\"add\",\"path\":\"/rules/0/verbs/-\",\"value\":\"list\"}]'",
-      "restore": "kubectl patch clusterrole green-role-cka22-arch --type=merge -p '{\"rules\":[{\"apiGroups\":[\"\"],\"resources\":[\"namespaces\"],\"verbs\":[\"get\"]}]}'"
+      "remove": "kubectl patch clusterrole namespace-observer-role --type=json -p '[{\"op\":\"add\",\"path\":\"/rules/0/verbs/-\",\"value\":\"list\"}]'",
+      "restore": "kubectl patch clusterrole namespace-observer-role --type=merge -p '{\"rules\":[{\"apiGroups\":[\"\"],\"resources\":[\"namespaces\"],\"verbs\":[\"get\"]}]}'"
     },
     {
       "task": "pink-replicas",
-      "remove": "kubectl -n pink-troubleshooting scale deployment pink-depl-cka14-trb --replicas=0",
-      "restore": "kubectl -n pink-troubleshooting scale deployment pink-depl-cka14-trb --replicas=2; kubectl -n pink-troubleshooting rollout status deployment/pink-depl-cka14-trb --timeout=180s"
+      "remove": "kubectl -n catalog-repair scale deployment catalog-api --replicas=0",
+      "restore": "kubectl -n catalog-repair scale deployment catalog-api --replicas=3; kubectl -n catalog-repair rollout status deployment/catalog-api --timeout=180s"
     },
     {
       "task": "pvc-resize",
-      "remove": "kubectl patch storageclass papaya-stc-cka09-str --type=merge -p '{\"allowVolumeExpansion\":false}'",
-      "restore": "kubectl patch storageclass papaya-stc-cka09-str --type=merge -p '{\"allowVolumeExpansion\":true}'"
+      "remove": "kubectl patch storageclass cedar-sc --type=merge -p '{\"allowVolumeExpansion\":false}'",
+      "restore": "kubectl patch storageclass cedar-sc --type=merge -p '{\"allowVolumeExpansion\":true}'"
     },
     {
       "task": "helm-chart",
-      "remove": "kubectl -n frontend-apd patch service webapp-color-apd --type=merge -p '{\"spec\":{\"type\":\"ClusterIP\"}}'",
-      "restore": "kubectl -n frontend-apd patch service webapp-color-apd --type=merge -p '{\"spec\":{\"type\":\"NodePort\"}}'"
+      "remove": "kubectl -n portal-lab patch service harbor-portal --type=merge -p '{\"spec\":{\"type\":\"ClusterIP\"}}'",
+      "restore": "kubectl -n portal-lab patch service harbor-portal --type=merge -p '{\"spec\":{\"type\":\"NodePort\"}}'"
     },
     {
       "task": "http-route",
-      "remove": "kubectl -n nginx-gateway patch httproute web-route --type=merge -p '{\"spec\":{\"hostnames\":[\"wrong.cka003.test\"]}}'",
-      "restore": "kubectl -n nginx-gateway patch httproute web-route --type=merge -p '{\"spec\":{\"hostnames\":[\"cka003-controlplane\"]}}'; for i in {1..30}; do bash /opt/painkiller/cka003/capture.sh q6 | jq -e '.ok' >/dev/null && exit 0; sleep 2; done; exit 1"
+      "remove": "kubectl -n gateway-lab patch httproute portal-route --type=merge -p '{\"spec\":{\"hostnames\":[\"wrong.cka003.test\"]}}'",
+      "restore": "kubectl -n gateway-lab patch httproute portal-route --type=merge -p '{\"spec\":{\"hostnames\":[\"practice-controller\"]}}'; for i in {1..30}; do bash /opt/painkiller/cka003/capture.sh q6 | jq -e '.ok' >/dev/null && exit 0; sleep 2; done; exit 1"
     },
     {
       "task": "create-rbac",
-      "remove": "kubectl patch clusterrole deploy-role-cka20-arch --type=json -p '[{\"op\":\"add\",\"path\":\"/rules/0/verbs/-\",\"value\":\"delete\"}]'",
-      "restore": "kubectl patch clusterrole deploy-role-cka20-arch --type=merge -p '{\"rules\":[{\"apiGroups\":[\"apps\"],\"resources\":[\"deployments\"],\"verbs\":[\"get\"]}]}'"
+      "remove": "kubectl patch clusterrole release-reader-role --type=json -p '[{\"op\":\"add\",\"path\":\"/rules/0/verbs/-\",\"value\":\"delete\"}]'",
+      "restore": "kubectl patch clusterrole release-reader-role --type=merge -p '{\"rules\":[{\"apiGroups\":[\"apps\"],\"resources\":[\"deployments\"],\"verbs\":[\"get\"]}]}'"
     },
     {
       "task": "dns-evidence",
-      "remove": "sudo -n cp /root/CKA/nginx.pod.cka06.svcn /root/CKA/nginx.pod.cka06.svcn.saved; sudo -n truncate -s 0 /root/CKA/nginx.pod.cka06.svcn",
-      "restore": "sudo -n cp /root/CKA/nginx.pod.cka06.svcn.saved /root/CKA/nginx.pod.cka06.svcn"
+      "remove": "sudo -n cp /root/CKA/pod-dns.txt /root/CKA/pod-dns.txt.saved; sudo -n truncate -s 0 /root/CKA/pod-dns.txt",
+      "restore": "sudo -n cp /root/CKA/pod-dns.txt.saved /root/CKA/pod-dns.txt"
     },
     {
       "task": "pending-pod",
-      "remove": "kubectl -n default get pod grey-cka21-trb -o json | jq 'del(.metadata.uid,.metadata.resourceVersion,.metadata.creationTimestamp,.metadata.managedFields,.status)' > /tmp/cka003-grey.json; kubectl -n default delete pod grey-cka21-trb --wait=true",
-      "restore": "kubectl apply -f /tmp/cka003-grey.json; kubectl -n default wait pod/grey-cka21-trb --for=condition=Ready --timeout=180s"
+      "remove": "kubectl -n default get pod queued-web -o json | jq 'del(.metadata.uid,.metadata.resourceVersion,.metadata.creationTimestamp,.metadata.managedFields,.status)' > /tmp/cka003-queued-web.json; kubectl -n default delete pod queued-web --wait=true",
+      "restore": "kubectl apply -f /tmp/cka003-queued-web.json; kubectl -n default wait pod/queued-web --for=condition=Ready --timeout=180s"
     },
     {
       "task": "rollback",
-      "remove": "sudo -n cp /root/rolling-back-record.txt /root/rolling-back-record.saved; sudo -n truncate -s 0 /root/rolling-back-record.txt",
-      "restore": "sudo -n cp /root/rolling-back-record.saved /root/rolling-back-record.txt"
+      "remove": "sudo -n cp /root/restored-image.txt /root/restored-image.saved; sudo -n truncate -s 0 /root/restored-image.txt",
+      "restore": "sudo -n cp /root/restored-image.saved /root/restored-image.txt"
     },
     {
       "task": "secret-repair",
-      "remove": "kubectl -n default patch deployment db-deployment-cka05-trb --type=json -p '[{\"op\":\"replace\",\"path\":\"/spec/template/spec/containers/0/env/0/valueFrom/secretKeyRef/key\",\"value\":\"wrong-root\"}]'",
-      "restore": "kubectl -n default patch deployment db-deployment-cka05-trb --type=json -p '[{\"op\":\"replace\",\"path\":\"/spec/template/spec/containers/0/env/0/valueFrom/secretKeyRef/key\",\"value\":\"root-password\"}]'; kubectl -n default rollout status deployment/db-deployment-cka05-trb --timeout=180s"
+      "remove": "kubectl -n default patch deployment ledger-db --type=json -p '[{\"op\":\"replace\",\"path\":\"/spec/template/spec/containers/0/env/0/valueFrom/secretKeyRef/key\",\"value\":\"wrong-root\"}]'",
+      "restore": "kubectl -n default patch deployment ledger-db --type=json -p '[{\"op\":\"replace\",\"path\":\"/spec/template/spec/containers/0/env/0/valueFrom/secretKeyRef/key\",\"value\":\"admin-password\"}]'; kubectl -n default rollout status deployment/ledger-db --timeout=180s"
     },
     {
       "task": "rolling-update",
-      "remove": "sudo -n cp /opt/revision-count.txt /opt/revision-count.saved; sudo -n truncate -s 0 /opt/revision-count.txt",
-      "restore": "sudo -n cp /opt/revision-count.saved /opt/revision-count.txt"
+      "remove": "sudo -n cp /opt/rollout-revision.txt /opt/rollout-revision.saved; sudo -n truncate -s 0 /opt/rollout-revision.txt",
+      "restore": "sudo -n cp /opt/rollout-revision.saved /opt/rollout-revision.txt"
     },
     {
       "task": "ingress",
-      "remove": "kubectl -n default annotate ingress nginx-ingress-cka04-svcn nginx.ingress.kubernetes.io/ssl-redirect=true --overwrite",
-      "restore": "kubectl -n default annotate ingress nginx-ingress-cka04-svcn nginx.ingress.kubernetes.io/ssl-redirect=false --overwrite"
+      "remove": "kubectl -n default annotate ingress portal-ingress nginx.ingress.kubernetes.io/ssl-redirect=true --overwrite",
+      "restore": "kubectl -n default annotate ingress portal-ingress nginx.ingress.kubernetes.io/ssl-redirect=false --overwrite"
     },
     {
       "task": "paused-rollout",
-      "remove": "kubectl -n default rollout pause deployment/black-cka25-trb",
-      "restore": "kubectl -n default rollout resume deployment/black-cka25-trb; kubectl -n default rollout status deployment/black-cka25-trb --timeout=180s"
+      "remove": "kubectl -n default rollout pause deployment/reports-api",
+      "restore": "kubectl -n default rollout resume deployment/reports-api; kubectl -n default rollout status deployment/reports-api --timeout=180s"
     },
     {
       "task": "service-repair",
-      "remove": "kubectl -n default patch service purple-svc-cka27-trb --type=merge -p '{\"spec\":{\"ports\":[{\"port\":80,\"targetPort\":81}]}}'",
-      "restore": "kubectl -n default patch service purple-svc-cka27-trb --type=merge -p '{\"spec\":{\"ports\":[{\"port\":80,\"targetPort\":80}]}}'; for i in {1..30}; do bash /opt/painkiller/cka003/capture.sh q15 | jq -e '.ok' >/dev/null && exit 0; sleep 2; done; exit 1"
+      "remove": "kubectl -n default patch service status-service --type=merge -p '{\"spec\":{\"ports\":[{\"port\":8080,\"targetPort\":81}]}}'",
+      "restore": "kubectl -n default patch service status-service --type=merge -p '{\"spec\":{\"ports\":[{\"port\":8080,\"targetPort\":80}]}}'; for i in {1..30}; do bash /opt/painkiller/cka003/capture.sh q15 | jq -e '.ok' >/dev/null && exit 0; sleep 2; done; exit 1"
     },
     {
       "task": "storage-class",
-      "remove": "kubectl patch storageclass banana-sc-cka08-str --type=merge -p '{\"allowVolumeExpansion\":false}'",
-      "restore": "kubectl patch storageclass banana-sc-cka08-str --type=merge -p '{\"allowVolumeExpansion\":true}'"
+      "remove": "kubectl patch storageclass archive-local --type=merge -p '{\"allowVolumeExpansion\":false}'",
+      "restore": "kubectl patch storageclass archive-local --type=merge -p '{\"allowVolumeExpansion\":true}'"
     }
   ]
 }
