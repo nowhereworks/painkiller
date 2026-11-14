@@ -19,14 +19,12 @@
             <div class="test-options">
                 <div class="test-field"><label for="test-select">Test</label><select id="test-select" disabled>
                     <option value="">Loading tests…</option>
-                </select></div>
+                </select><p id="test-description"></p></div>
                 <div class="mode-field"><label for="mode-select">Mode</label><select id="mode-select">
                     <option value="simulation">Simulation</option>
                     <option value="learning">Learning</option>
-                </select></div>
+                </select><p id="mode-description"></p></div>
             </div>
-            <p id="test-description"></p>
-            <p id="mode-description"></p>
             <div class="lab-actions"><button id="prepare" disabled>Prepare lab</button> <button id="start" hidden>Start
                     exam</button> <button id="retry" hidden>Retry operation</button> <button id="reset" hidden>Destroy lab</button></div>
             <p id="message" role="status" aria-live="polite"></p>

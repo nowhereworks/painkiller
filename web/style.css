@@ -132,8 +132,7 @@ main{height:auto;flex:1;min-height:0}
 .test-options{display:grid;grid-template-columns:minmax(0,2fr) minmax(170px,1fr);gap:16px;max-width:760px;margin-top:20px}
 .test-options label{font-weight:600;margin:0 0 6px}
 .test-options select{max-width:none}
-#test-description{margin:12px 0 0}
-#mode-description{margin:4px 0 0}
+#test-description,#mode-description{margin:8px 0 0;color:var(--ui-muted);line-height:1.5;overflow-wrap:anywhere}
 #test-description:empty,#message:empty{display:none}
 .lab-actions{align-items:center;max-width:760px;margin-top:18px}
 .lab-actions #reset{margin-left:auto}
