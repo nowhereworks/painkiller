@@ -41,6 +41,10 @@ before provisioning.
 
 ## Quick start
 
+Starting with an empty Proxmox host? Follow the
+[initial setup runbook](docs/initial-setup.md) to create the base template,
+configure access and networking, and validate your first lab.
+
 ### 1. Prepare the management host and Proxmox
 
 You need:
@@ -121,6 +125,7 @@ and answer snapshots are stored under `data/` and should be treated as sensitive
 
 ## Documentation
 
+- [Fresh-host initial setup](docs/initial-setup.md)
 - [Operations, configuration, image builds, and limitations](docs/operations.md)
 - [VM images and templates](docs/vm-images-and-templates.md)
 - [Exam structure and authoring](exam/README.md)
