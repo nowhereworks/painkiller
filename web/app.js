@@ -60,7 +60,19 @@ new ResizeObserver(()=>{
   divider.setAttribute('aria-valuenow',Math.round(questionPanel.getBoundingClientRect().width/available*100));
 }).observe(questionPanel);
 async function action(name,body){const r=await fetch('/api/'+name,{method:'POST',headers:{'Content-Type':'application/json'},body:body?JSON.stringify(body):'{}',keepalive:true});if(!r.ok)alert(await r.text());await refresh()}
-$('prepare').onclick=()=>action('prepare',{test_id:$('test-select').value,mode:$('mode-select').value});$('retry').onclick=()=>action('retry');$('start').onclick=()=>action('start');$('reset').onclick=()=>{if(confirm('Destroy all VMs belonging to this lab?'))action('reset')};$('submit').onclick=()=>{if(confirm('Submit the exam? This cannot be undone.'))action('submit')};
+let submitting=false;
+async function submitExam(){
+  if(submitting||!confirm('Submit the exam? This cannot be undone.'))return;
+  submitting=true;refreshSequence++;
+  $('submit').hidden=true;$('home').hidden=true;$('exam').hidden=true;$('results').hidden=false;
+  renderGrading();
+  try{
+    const response=await fetch('/api/submit',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}',keepalive:true});
+    if(!response.ok)alert(await response.text());
+  }catch(e){alert('Could not submit exam: '+e.message)}
+  finally{submitting=false;await refresh()}
+}
+$('prepare').onclick=()=>action('prepare',{test_id:$('test-select').value,mode:$('mode-select').value});$('retry').onclick=()=>action('retry');$('start').onclick=()=>action('start');$('reset').onclick=()=>{if(confirm('Destroy all VMs belonging to this lab?'))action('reset')};$('submit').onclick=submitExam;
 $('flag').onchange=$('done').onchange=()=>{state.flags??={};state.done??={};state.flags[tasks[index].ID]=$('flag').checked;state.done[tasks[index].ID]=$('done').checked;action('mark',{id:tasks[index].ID,flag:state.flags[tasks[index].ID],done:state.done[tasks[index].ID]})};
 function selectQuestion(i){if(i<0||i>=tasks.length)return;index=i;state.selected=tasks[i].ID;draw();action('select',{id:tasks[i].ID})}
 $('previous').onclick=()=>selectQuestion(index-1);
@@ -199,7 +211,12 @@ function clearAttempt(){
   $('flag').checked=false;$('done').checked=false;
 }
 let refreshSequence=0;
-async function refresh(){const sequence=++refreshSequence;try{const next=await(await fetch('/api/status',{cache:'no-store'})).json();const nextTasks=['running','completed'].includes(next.phase)?await(await fetch('/api/tasks',{cache:'no-store'})).json():null;const log=['preparing','resetting','error'].includes(next.phase)?await(await fetch('/api/log',{cache:'no-store'})).text():'';if(sequence!==refreshSequence)return;let old=state.phase;state=next;if((state.phase==='idle'||state.phase==='resetting')&&old!==state.phase)clearAttempt();if(state.phase==='running'&&old!=='running'){clearAttempt()}$('phase').textContent=state.phase;$('message').textContent=state.message||'';$('prepare').hidden=state.phase!=='idle';$('start').hidden=state.phase!=='ready';$('retry').hidden=state.phase!=='error'||!['prepare','reset'].includes(state.failed_operation);$('reset').hidden=['running','preparing','grading','resetting'].includes(state.phase);$('submit').hidden=state.phase!=='running';$('home').hidden=['running','completed'].includes(state.phase);$('exam').hidden=state.phase!=='running';$('results').hidden=state.phase!=='completed';if(nextTasks){tasks=nextTasks;let selected=tasks.findIndex(t=>t.ID===state.selected);index=selected>=0?selected:0;if(state.phase==='running')draw()}updateLog(log);if(state.phase==='running'&&old!=='running')connect();if(old==='running'&&state.phase!=='running')disconnect();if(state.phase==='completed')renderResults();tick()}catch(e){if(sequence===refreshSequence)$('message').textContent='Cannot reach server: '+e}}
+async function refresh(){if(submitting)return;const sequence=++refreshSequence;try{const next=await(await fetch('/api/status',{cache:'no-store'})).json();const nextTasks=['running','completed'].includes(next.phase)?await(await fetch('/api/tasks',{cache:'no-store'})).json():null;const log=['preparing','resetting','error'].includes(next.phase)?await(await fetch('/api/log',{cache:'no-store'})).text():'';if(sequence!==refreshSequence)return;let old=state.phase;state=next;if((state.phase==='idle'||state.phase==='resetting')&&old!==state.phase)clearAttempt();if(state.phase==='running'&&old!=='running'){clearAttempt()}$('phase').textContent=state.phase;$('message').textContent=state.message||'';$('prepare').hidden=state.phase!=='idle';$('start').hidden=state.phase!=='ready';$('retry').hidden=state.phase!=='error'||!['prepare','reset'].includes(state.failed_operation);$('reset').hidden=['running','preparing','grading','resetting'].includes(state.phase);$('submit').hidden=state.phase!=='running';$('home').hidden=['running','grading','completed'].includes(state.phase);$('exam').hidden=state.phase!=='running';$('results').hidden=!['grading','completed'].includes(state.phase);if(nextTasks){tasks=nextTasks;let selected=tasks.findIndex(t=>t.ID===state.selected);index=selected>=0?selected:0;if(state.phase==='running')draw()}updateLog(log);if(state.phase==='running'&&old!=='running')connect();if(old==='running'&&state.phase!=='running')disconnect();if(state.phase==='grading')renderGrading();if(state.phase==='completed')renderResults();tick()}catch(e){if(sequence===refreshSequence)$('message').textContent='Cannot reach server: '+e}}
+function renderGrading(){
+  const status=document.createElement('div');status.className='grading-status';status.setAttribute('role','status');
+  const spinner=document.createElement('span');spinner.className='spinner';spinner.setAttribute('aria-hidden','true');
+  status.append(spinner,document.createTextNode('Grading your exam…'));$('results').replaceChildren(status);
+}
 function resultCode(parent,text,language='none'){
   const pre=document.createElement('pre'),code=document.createElement('code');
   code.className='language-'+language;code.textContent=text;

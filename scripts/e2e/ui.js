@@ -38,6 +38,7 @@ async function main() {
     tasks[0].Explanation = 'Inspect the running Pods with `kubectl get pods`. <script>window.unsafe=true</script><img src=x onerror="window.unsafe=true">';
     const state = {phase:'running',deadline:new Date(now.getTime()+90*60000).toISOString(),duration_seconds:7200,flags:{},done:{}};
     const actions = [];
+    let finishSubmit;
     await page.route('**/api/**', async route => {
       const name = new URL(route.request().url()).pathname.split('/').pop();
       if (name === 'status') return route.fulfill({json:state});
@@ -49,6 +50,11 @@ async function main() {
       if (name === 'log') return route.fulfill({body:''});
       const body = route.request().postDataJSON();
       actions.push(name);
+      if (name === 'submit') {
+        const accepted = await new Promise(resolve => { finishSubmit = resolve; });
+        if (!accepted) return route.fulfill({status:409,body:'Submission failed'});
+        state.phase = 'grading';
+      }
       if (name === 'prepare') { state.test_id = body.test_id; state.phase = 'preparing'; }
       if (name === 'select') state.selected = body.id;
       if (name === 'mark') { state.flags[body.id] = body.flag; state.done[body.id] = body.done; }
@@ -56,7 +62,7 @@ async function main() {
     });
     const base = `http://127.0.0.1:${server.address().port}`;
     await page.goto(base);
-    await page.waitForFunction(() => document.querySelector('#timer').textContent === '90 minutes');
+    await page.waitForFunction(() => document.querySelector('#timer').textContent === '90 minutes remaining');
     assert.equal(await page.locator('#previous').isDisabled(), true);
     assert.equal(await page.locator('#next').isDisabled(), false);
     assert.equal(await page.locator('#time-fill').evaluate(el => el.style.width), '75%');
@@ -157,7 +163,7 @@ async function main() {
       state.deadline = new Date(now.getTime()+seconds*1000).toISOString();
       state.duration_seconds = duration;
       await page.evaluate(() => refresh());
-      assert.equal(await page.locator('#timer').innerText(), text);
+      assert.equal(await page.locator('#timer').innerText(), text+' remaining');
       assert.equal(await page.locator('#time-progress').getAttribute('data-level'), level);
       const actual = await page.locator('#time-fill').evaluate(el => parseFloat(el.style.width));
       assert.ok(Math.abs(actual-width)<0.001, `bar width: ${actual} vs ${width}`);
@@ -192,6 +198,30 @@ async function main() {
       }
       assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
     }
+    // Submission switches immediately, even before the server responds.
+    page.once('dialog', dialog => dialog.accept());
+    await page.locator('#submit').click();
+    await page.waitForFunction(() => document.querySelector('.grading-status'));
+    assert.equal(await page.locator('#home').isHidden(), true);
+    assert.equal(await page.locator('#exam').isHidden(), true);
+    assert.equal(await page.locator('#submit').isHidden(), true);
+    assert.equal(await page.locator('#results [role=status]').innerText(), 'Grading your exam…');
+    await page.evaluate(() => refresh());
+    assert.equal(await page.locator('.spinner').isVisible(), true);
+    await page.waitForFunction(() => !document.querySelector('#submit').checkVisibility());
+    while (!finishSubmit) await new Promise(resolve => setImmediate(resolve));
+    page.once('dialog', dialog => dialog.accept());
+    finishSubmit(false);
+    await page.waitForFunction(() => !document.querySelector('#exam').hidden);
+    finishSubmit = null;
+    page.once('dialog', dialog => dialog.accept());
+    await page.locator('#submit').click();
+    while (!finishSubmit) await new Promise(resolve => setImmediate(resolve));
+    finishSubmit(true);
+    await page.waitForFunction(() => document.querySelector('#phase').textContent.startsWith('grading'));
+    await page.reload();
+    await page.waitForFunction(() => document.querySelector('.grading-status'));
+    assert.equal(await page.locator('#home').isHidden(), true);
     // Results: separate cards, partial scores, errors, safe formatting and reset controls.
     tasks.splice(0, tasks.length,
       {ID:'pass',Title:'Correct answer',Points:3,Explanation:instructions,Solution:'echo "<script>window.unsafe=true</script>"\n  kubectl get pods'},
@@ -259,7 +289,7 @@ async function main() {
     await page.locator('#test-select').selectOption('CKA-002');
     assert.equal(await page.locator('#test-description').innerText(), 'Another test (60 minutes)');
     await page.locator('#prepare').click();
-    await page.waitForFunction(() => document.querySelector('#phase').textContent === 'preparing');
+    await page.waitForFunction(() => document.querySelector('#phase').textContent.startsWith('preparing'));
     assert.equal(state.test_id, 'CKA-002');
     assert.equal(await page.locator('#test-select').isDisabled(), true);
     state.phase = 'ready';
