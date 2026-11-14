@@ -17,6 +17,7 @@ type examDefinition struct {
 	Title       string   `json:"title"`
 	Description string   `json:"description"`
 	Minutes     int      `json:"minutes"`
+	Categories  []string `json:"categories"`
 	Lab         *labSpec `json:"lab,omitempty"`
 	dir         string
 	tasks       []task
@@ -64,6 +65,9 @@ func loadExams(root string) ([]examDefinition, error) {
 		if err = validateTasks(exam.tasks); err != nil {
 			return nil, fmt.Errorf("%s: %w", dir, err)
 		}
+		if err = validateQuestionMetadata(exam); err != nil {
+			return nil, fmt.Errorf("%s: %w", dir, err)
+		}
 		exam.dir = dir
 		if _, err := trustedExamFile(exam, "check-ready.sh"); err != nil {
 			return nil, fmt.Errorf("%s: readiness check: %w", dir, err)
@@ -77,6 +81,28 @@ func loadExams(root string) ([]examDefinition, error) {
 		return nil, fmt.Errorf("%s: no tests found", root)
 	}
 	return exams, nil
+}
+
+func validateQuestionMetadata(exam examDefinition) error {
+	categories := map[string]bool{}
+	for _, category := range exam.Categories {
+		if category == "" || categories[category] {
+			return fmt.Errorf("invalid or duplicate category %q", category)
+		}
+		categories[category] = true
+	}
+	seen := map[string]bool{}
+	pattern := regexp.MustCompile("^" + regexp.QuoteMeta(exam.ID) + `-Q[1-9][0-9]*$`)
+	for _, t := range exam.tasks {
+		if !pattern.MatchString(t.QuestionID) || seen[t.QuestionID] {
+			return fmt.Errorf("invalid or duplicate question ID %q", t.QuestionID)
+		}
+		if !categories[t.Category] {
+			return fmt.Errorf("invalid category %q for %s", t.Category, t.QuestionID)
+		}
+		seen[t.QuestionID] = true
+	}
+	return nil
 }
 
 func (a *app) readinessPath() (string, error) {

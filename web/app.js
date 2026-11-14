@@ -150,13 +150,13 @@ function draw(){
   tasks.forEach((x,i)=>{
     let option=select.options[i];
     if(!option){option=document.createElement('option');option.value=i;select.append(option)}
-    const text=`Question ${i+1}: ${x.Title}${state.flags?.[x.ID]?' ⚑':''}${state.done?.[x.ID]?' ✓':''}`;
+    const text=`${x.QuestionID}: ${x.Title}${state.flags?.[x.ID]?' ⚑':''}${state.done?.[x.ID]?' ✓':''}`;
     if(option.textContent!==text)option.textContent=text;
   });
   while(select.options.length>tasks.length)select.remove(select.options.length-1);
   if(select.value!==String(index))select.value=index;
   $('previous').disabled=index===0;$('next').disabled=index===tasks.length-1;
-  $('title').textContent=`Question ${index+1}: ${t.Title} (${t.Points} points)`;
+  $('title').textContent=`${t.QuestionID}: ${t.Title} (${t.Points} points) — ${t.Category}`;
   if(renderedInstructions!==t.Instructions){
     renderMarkdown($('instructions'),t.Instructions);
     renderedInstructions=t.Instructions;
@@ -240,7 +240,7 @@ function renderResults(){
     const r=results.find(x=>x.id===t.ID),earned=r?.earned??(r?.passed?t.Points:0);
     const status=!r||r.error||r.checks?.some(c=>c.error)?'error':r.passed?'correct':'wrong';
     const card=document.createElement('li');card.className='result-card '+status;
-    const title=document.createElement('h2');title.textContent=`Question ${i+1}: ${t.Title}`;card.append(title);
+    const title=document.createElement('h2');title.textContent=`${t.QuestionID}: ${t.Title} — ${t.Category}`;card.append(title);
     const summary=document.createElement('p');summary.className='result-status';
     summary.textContent=`${status==='error'?'Grading error':status==='correct'?'Correct':earned>0?'Partially correct':'Wrong'} — ${earned} / ${t.Points} points`;card.append(summary);
     if(!r)resultCode(card,'No evaluation is available.');

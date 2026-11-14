@@ -2,6 +2,7 @@
   "id": "CKA-002",
   "title": "CKA practice exam — HA cluster",
   "description": "20 scenario-based tasks covering a highly available three-controller cluster: architecture, workloads and scheduling, services and networking, storage, and troubleshooting.",
+  "categories": ["Storage", "Troubleshooting", "Workloads & Scheduling", "Cluster Architecture, Installation & Configuration", "Services & Networking"],
   "minutes": 120,
   "lab": {
     "controllers": 3,

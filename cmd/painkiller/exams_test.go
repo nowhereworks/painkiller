@@ -19,8 +19,8 @@ func examFixture(t *testing.T) []examDefinition {
 			t.Fatal(err)
 		}
 		files := map[string]string{
-			"test.json": `{"id":"` + id + `","title":"` + id + `","description":"Fixture","minutes":60}`,
-			"tasks.json": `[{"id":"` + id + `-task","title":"Fixture","instructions":"Create a namespace",
+			"test.json": `{"id":"` + id + `","title":"` + id + `","description":"Fixture","minutes":60,"categories":["Fixture"]}`,
+			"tasks.json": `[{"id":"` + id + `-task","question_id":"` + id + `-Q1","category":"Fixture","title":"Fixture","instructions":"Create a namespace",
 				"solution":"kubectl create namespace fixture","points":100,"resource":"kubectl get namespace fixture -o json",
 				"checks":[{"description":"Namespace exists","points":100,"expression":".metadata.name == \"fixture\""}]}]`,
 			"setup.yaml":             "kind: List\nitems: []\n",
@@ -38,6 +38,50 @@ func examFixture(t *testing.T) []examDefinition {
 		t.Fatal(err)
 	}
 	return exams
+}
+
+func TestQuestionMetadata(t *testing.T) {
+	exam := examFixture(t)[0]
+	if err := validateQuestionMetadata(exam); err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		name string
+		edit func(*examDefinition)
+	}{
+		{"missing ID", func(e *examDefinition) { e.tasks[0].QuestionID = "" }},
+		{"wrong exam", func(e *examDefinition) { e.tasks[0].QuestionID = "CKA-002-Q1" }},
+		{"invalid number", func(e *examDefinition) { e.tasks[0].QuestionID = e.ID + "-Q0" }},
+		{"duplicate ID", func(e *examDefinition) { e.tasks = append(e.tasks, e.tasks[0]) }},
+		{"missing category", func(e *examDefinition) { e.tasks[0].Category = "" }},
+		{"unknown category", func(e *examDefinition) { e.tasks[0].Category = "Other" }},
+		{"duplicate category", func(e *examDefinition) { e.Categories = append(e.Categories, e.Categories[0]) }},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			copyExam := exam
+			copyExam.tasks = append([]task(nil), exam.tasks...)
+			copyExam.Categories = append([]string(nil), exam.Categories...)
+			tc.edit(&copyExam)
+			if err := validateQuestionMetadata(copyExam); err == nil {
+				t.Fatal("expected validation error")
+			}
+		})
+	}
+}
+
+func TestQuestionMetadataInTaskList(t *testing.T) {
+	a := testApp(t)
+	a.tasks = examFixture(t)[0].tasks
+	a.state.Phase = "completed"
+	w := httptest.NewRecorder()
+	a.taskList(w, httptest.NewRequest("GET", "/api/tasks", nil))
+	var tasks []struct{ ID, QuestionID, Category string }
+	if err := json.Unmarshal(w.Body.Bytes(), &tasks); err != nil || len(tasks) != 1 {
+		t.Fatalf("invalid tasks: %s %v", w.Body.String(), err)
+	}
+	if tasks[0].ID != "CKA-001-task" || tasks[0].QuestionID != "CKA-001-Q1" || tasks[0].Category != "Fixture" {
+		t.Fatalf("incorrect metadata: %+v", tasks[0])
+	}
 }
 
 func TestExamCatalogAndSelection(t *testing.T) {

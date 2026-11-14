@@ -27,6 +27,8 @@ import (
 
 type task struct {
 	ID, Title, Instructions, Check, Solution, Explanation string
+	QuestionID                                            string `json:"question_id"`
+	Category                                              string
 	Resource                                              string
 	Points                                                int
 	Checks                                                []check
@@ -968,6 +970,7 @@ func (a *app) taskList(w http.ResponseWriter, r *http.Request) {
 	a.expire()
 	type publicTask struct {
 		ID, Title, Instructions string
+		QuestionID, Category    string
 		Points                  int
 		Solution                string   `json:",omitempty"`
 		Explanation             string   `json:",omitempty"`
@@ -976,7 +979,7 @@ func (a *app) taskList(w http.ResponseWriter, r *http.Request) {
 	ts := []publicTask{}
 	if a.state.Phase == "running" || a.state.Phase == "completed" {
 		for _, t := range a.tasks {
-			ts = append(ts, publicTask{ID: t.ID, Title: t.Title, Instructions: t.Instructions, Points: t.Points, Solution: t.Solution, Explanation: t.Explanation, Steps: t.Steps})
+			ts = append(ts, publicTask{ID: t.ID, QuestionID: t.QuestionID, Category: t.Category, Title: t.Title, Instructions: t.Instructions, Points: t.Points, Solution: t.Solution, Explanation: t.Explanation, Steps: t.Steps})
 		}
 	}
 	w.Header().Set("Content-Type", "application/json")

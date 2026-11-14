@@ -9,7 +9,7 @@ Required files:
 
 | File | Purpose |
 | --- | --- |
-| `test.json` | `id`, `title`, `description`, and `minutes` (1–1440) |
+| `test.json` | `id`, `title`, `description`, `minutes` (1–1440), and allowed `categories` |
 | `tasks.json` | Questions, points, walkthroughs, solutions, capture commands, and checks |
 | `setup.yaml` | Kubernetes resources applied after provisioning |
 | `reference-solutions.sh` | Reference answers for validation on a disposable lab |
@@ -18,6 +18,12 @@ Required files:
 Use `CKA-001` as the starting example. The server discovers and validates
 folders at startup; adding a test requires no server or UI code changes.
 Restart after adding or editing definitions. Invalid definitions fail startup.
+Each question has a stable `question_id` such as `CKA-001-Q1` and a `category`
+from its exam's `categories`. IDs must use the owning exam ID followed by `-Q`
+and a positive integer, be unique within the exam, and never be renumbered or
+reused after removal. The existing `id` remains the internal grading and
+progress key. Assign CKA questions their primary official domain from
+`docs/cka-requirements.md`; other exam families own their category lists.
 Test files contain trusted code executed on the lab; do not accept untrusted
 uploads. Reference scripts should refuse to run on an unmarked cluster.
 
