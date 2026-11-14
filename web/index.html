@@ -2,7 +2,7 @@
 <html lang="en">
 <head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Painkiller</title><link rel="stylesheet" href="/vendor/xterm.css"><link rel="stylesheet" href="/vendor/prism.css"><link rel="stylesheet" href="style.css"></head>
 <body>
-<header><strong>Painkiller</strong><span id="phase"></span><button id="submit" hidden>Submit exam</button></header>
+<header><img src="painkiller-pill-left-40px-tall.png" alt="Painkiller" height="40"><span id="phase"></span><button id="submit" hidden>Submit exam</button></header>
 <main>
 <section id="home"><h1>Practice tests</h1><label for="test-select">Test</label><select id="test-select" disabled><option value="">Loading tests…</option></select><label for="mode-select">Mode</label><select id="mode-select"><option value="simulation">Simulation</option><option value="learning">Learning</option></select><p id="test-description"></p><p>Simulation ends at the time limit. Learning continues beyond it and allows question verification. Reset the lab to change mode or test.</p><p id="message"></p><div id="log" aria-label="Lab operation log" hidden></div><div class="lab-actions"><button id="prepare" disabled>Prepare lab</button> <button id="start">Start exam</button> <button id="retry">Retry operation</button> <button id="reset">Destroy lab / reset</button></div></section>
 <div id="exam" hidden>
