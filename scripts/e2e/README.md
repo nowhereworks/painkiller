@@ -1,5 +1,8 @@
 # End-to-end harness
 
+For the preferred browser-free exam validation and current safety procedures,
+see `docs/testing.md`. The scripts below are optional browser-specific checks.
+
 Reproducible browser/scoring checks against a **real** lab. Everything runs from
 the repository root; the local server must also be started there because the
 scripts and exam data are resolved relative to the working directory.

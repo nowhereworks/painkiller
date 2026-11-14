@@ -113,7 +113,8 @@ ansible-playbook --syntax-check -i localhost, playbooks/kubeadm-cluster/kubeadm-
 node --check web/app.js
 ```
 
-End-to-end checks on a real lab live in `scripts/e2e/` (see its README):
+For browser-free exam validation, see [the testing runbook](docs/testing.md).
+Optional browser checks on a real lab live in `scripts/e2e/` (see its README):
 `node scripts/e2e/live.js` prepares the lab, scores 0, applies the reference
 solutions (100), removes one answer (100 − that task), submits through the
 browser, verifies submission is final, and resets.

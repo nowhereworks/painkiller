@@ -8,6 +8,7 @@ This is the repository for Painkiller Shell: A Killer.sh clone that aims to mimi
 - Always commit and push after work
 - When making modifications, change as little as possible in order to achieve goals
 - Always persist any useful data for future sessions 
+- Before planning or running tests, read `docs/testing.md` and follow its current testing and lab-safety procedures. Update it whenever the testing workflow changes.
 - Ignore files in ./docs unless instructed otherwise
 - Scripts don't need to map 1:1 to `exams` and and in fact might be used to provision environments for more than one exam. When deciding about this topic, do the simplest thing: If a given `exam` asks too much of a given script and changing it might cause cascade changes and tests, create a custom copy for the `exam` in question.
 - Each exam owns what's unique to it; shared code stays minimal and mode-neutral.
