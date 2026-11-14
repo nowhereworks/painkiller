@@ -4,9 +4,50 @@ import (
 	"encoding/json"
 	"net/http/httptest"
 	"os"
+	"strings"
 	"testing"
 	"time"
 )
+
+func TestNodeReferences(t *testing.T) {
+	nodes := map[string]labNode{
+		"controller3": {IP: "192.0.2.3", Hostname: "k8s-3002"},
+		"worker2":     {IP: "192.0.2.5"},
+	}
+	got := renderNodeReferences("Join {{controller3}}; repair {{worker2}}.", nodes)
+	for _, want := range []string{"`k8s-3002`", "`192.0.2.3`", "`ssh 192.0.2.3`", "`ssh 192.0.2.5`"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("missing %q in %q", want, got)
+		}
+	}
+	fallback := renderNodeReferences("{{controller3}} {{worker2}}", nil)
+	if strings.Contains(fallback, "{{") || !strings.Contains(fallback, "painkiller_known_hosts") || !strings.Contains(fallback, "zone=east") {
+		t.Fatalf("bad legacy fallback: %s", fallback)
+	}
+	if strings.Contains(renderNodeReferences("{{worker2}}", map[string]labNode{"worker2": {IP: "bad;command"}}), "bad;command") {
+		t.Fatal("invalid address rendered")
+	}
+}
+
+func TestTaskListRendersNodeReferences(t *testing.T) {
+	a := testApp(t)
+	a.state = state{Phase: "running", Deadline: time.Now().Add(time.Hour), Nodes: map[string]labNode{
+		"controller3": {IP: "192.0.2.3", Hostname: "k8s-3002"},
+	}}
+	a.tasks = []task{{ID: "join", Instructions: "Connect to {{controller3}}", Steps: []string{"Use {{controller3}}"}}}
+	w := httptest.NewRecorder()
+	a.taskList(w, httptest.NewRequest("GET", "/api/tasks", nil))
+	var tasks []struct {
+		Instructions string
+		Steps        []string
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &tasks); err != nil {
+		t.Fatal(err)
+	}
+	if len(tasks) != 1 || len(tasks[0].Steps) != 1 || !strings.Contains(tasks[0].Instructions, "`ssh 192.0.2.3`") || !strings.Contains(tasks[0].Steps[0], "`k8s-3002`") {
+		t.Fatalf("node references not rendered: %+v", tasks)
+	}
+}
 
 func TestTaskListWalkthroughs(t *testing.T) {
 	for _, phase := range []string{"idle", "ready", "running", "completed"} {

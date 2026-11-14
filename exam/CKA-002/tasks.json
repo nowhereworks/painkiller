@@ -5,12 +5,12 @@
     "category": "Cluster Architecture, Installation & Configuration",
     "title": "Join the third control-plane node",
     "points": 6,
-    "instructions": "Two control-plane nodes are joined. On the unjoined third node, enable IPv4 forwarding immediately and persistently in /etc/sysctl.d/99-cka002.conf. Generate a fresh bootstrap token and certificate key, join that node with kubeadm, and verify three Ready controllers and three healthy etcd members. The shared API endpoint is cka002-api:8443; its single proxy is provided by the lab.",
+    "instructions": "Two control-plane nodes are joined. The unjoined third controller is {{controller3}}. On that node, enable IPv4 forwarding immediately and persistently in `/etc/sysctl.d/99-cka002.conf`. Generate a fresh bootstrap token and certificate key on the initial controller, join the third controller with kubeadm, and verify three Ready controllers and three healthy etcd members. The shared API endpoint is `cka002-api:8443`; its single proxy is provided by the lab. Run `exit` to return to the initial controller.",
     "steps": [
       "On the first control-plane node run `kubectl get nodes` and note there are two control-plane nodes and two workers.",
-      "On the unjoined node, set net.ipv4.ip_forward=1 in /etc/sysctl.d/99-cka002.conf and apply it with sudo sysctl -p /etc/sysctl.d/99-cka002.conf. Generate a certificate key on the first controller with `sudo kubeadm init phase upload-certs --upload-certs`.",
+      "Connect to {{controller3}}. Set `net.ipv4.ip_forward=1` in `/etc/sysctl.d/99-cka002.conf` and apply it with `sudo sysctl -p /etc/sysctl.d/99-cka002.conf`. Run `exit`, then generate a certificate key on the initial controller with `sudo kubeadm init phase upload-certs --upload-certs`.",
       "Create a join command with `sudo kubeadm token create --print-join-command`.",
-      "Find the unjoined controller's IP: it is the address in `~/.ssh/painkiller_known_hosts` that is not yet listed as a node. SSH there and run the join command, appending `--control-plane --certificate-key <key>`.",
+      "Connect to {{controller3}} and run the join command, appending `--control-plane --certificate-key <key>`. Run `exit` to return to the initial controller.",
       "Verify with `kubectl get nodes` (three control-plane Ready) and `kubectl get pods -n kube-system -l component=etcd` (three Running members)."
     ],
     "solution": "joined=$(kubectl get nodes -o json | jq -r '[.items[].status.addresses[] | select(.type==\"InternalIP\") | .address] | unique | .[]')\nall=$(awk '!/^#/ {print $1}' \"$HOME/.ssh/painkiller_known_hosts\")\nthird=$(comm -23 <(printf '%s\\n' \"$all\" | sort -u) <(printf '%s\\n' \"$joined\" | sort -u) | head -1)\nssh \"$third\" 'echo net.ipv4.ip_forward=1 | sudo -n tee /etc/sysctl.d/99-cka002.conf; sudo -n sysctl -p /etc/sysctl.d/99-cka002.conf'\nkey=$(sudo -n kubeadm init phase upload-certs --upload-certs 2>/dev/null | tail -1)\njoin=$(sudo -n kubeadm token create --print-join-command)\nssh \"$third\" \"sudo -n $join --control-plane --certificate-key $key\"",
@@ -35,12 +35,12 @@
     "category": "Cluster Architecture, Installation & Configuration",
     "title": "Drain a worker safely and back up etcd",
     "points": 5,
-    "instructions": "Complete the worker kubelet repair first. Cordon and drain the worker labeled topology.kubernetes.io/zone=east, respecting web-pdb in exam-workloads. Save successful drain output to /tmp/drain-evidence.txt, then uncordon it. Do not drain the west worker: it hosts shared fixtures and the API proxy. Create an etcd snapshot at /opt/backup/etcd.db on the first controller and confirm it is readable.",
+    "instructions": "Complete the worker kubelet repair (CKA-002-Q15) first. From the initial controller, cordon and drain the worker labeled `topology.kubernetes.io/zone=east`, respecting `web-pdb` in `exam-workloads`. Save successful drain output on the initial controller to `/tmp/drain-evidence.txt`, then uncordon it. Do not drain the west worker: it hosts shared fixtures and the API proxy. Create an etcd snapshot at `/opt/backup/etcd.db` on the initial controller and confirm it is readable.",
     "steps": [
       "After repairing the kubelet, select the east worker using `kubectl get nodes -l topology.kubernetes.io/zone=east` and cordon it.",
       "Drain it with `kubectl drain <worker> --ignore-daemonsets --delete-emptydir-data` so its Pods reschedule without violating the PDB, and record the output with `2>&1 | tee /tmp/drain-evidence.txt`.",
       "Confirm `kubectl get pods -n exam-workloads` still shows the `web` Pods running, then uncordon with `kubectl uncordon <worker>`.",
-      "On a control-plane node run `sudo -n mkdir -p /opt/backup` and `sudo -n env ETCDCTL_API=3 etcdctl snapshot save /opt/backup/etcd.db`.",
+      "On the initial controller, create `/opt/backup` and use `etcdctl` with the local etcd endpoint and certificates in `/etc/kubernetes/pki/etcd/` to save `/opt/backup/etcd.db`.",
       "Validate with `sudo -n env ETCDCTL_API=3 etcdctl snapshot status /opt/backup/etcd.db -w json` and confirm `totalKey` is greater than zero."
     ],
     "solution": "worker=$(kubectl get nodes -l topology.kubernetes.io/zone=east -o jsonpath='{.items[0].metadata.name}')\nkubectl cordon \"$worker\"\nkubectl drain \"$worker\" --ignore-daemonsets --delete-emptydir-data --timeout=180s 2>&1 | tee /tmp/drain-evidence.txt\nkubectl uncordon \"$worker\"\nsudo -n mkdir -p /opt/backup\nsudo -n env ETCDCTL_API=3 etcdctl --endpoints=https://127.0.0.1:2379 --cacert=/etc/kubernetes/pki/etcd/ca.crt --cert=/etc/kubernetes/pki/etcd/server.crt --key=/etc/kubernetes/pki/etcd/server.key snapshot save /opt/backup/etcd.db",
@@ -139,7 +139,7 @@
     "category": "Cluster Architecture, Installation & Configuration",
     "title": "Install a CRD and operator",
     "points": 4,
-    "instructions": "Install the supplied `Widget` CRD and its operator from `/opt/painkiller/cka002/operator/`, create a `Widget` custom resource in `exam-ops`, and verify the operator reconciles it into a ConfigMap.",
+    "instructions": "Install the supplied `Widget` CRD and its operator from `/opt/painkiller/cka002/operator/`. In `exam-ops`, create a `Widget` named `demo` with `spec.message: hello`, and verify the operator reconciles it into a ConfigMap.",
     "steps": [
       "Apply the CRD and operator with `kubectl apply -f /opt/painkiller/cka002/operator/`.",
       "Wait for the operator with `kubectl -n exam-ops rollout status deployment/widget-operator`.",
@@ -531,10 +531,10 @@
     "category": "Troubleshooting",
     "title": "Repair a worker kubelet",
     "points": 5,
-    "instructions": "One worker's kubelet configuration has been corrupted, so the node is NotReady. Repair `/var/lib/kubelet/config.yaml` on the affected worker and restart kubelet so the node becomes Ready again without losing its identity or workloads.",
+    "instructions": "The east worker {{worker2}} has a corrupted kubelet configuration and is NotReady. Repair `/var/lib/kubelet/config.yaml` on that worker and restart kubelet so the node becomes Ready again without losing its identity or workloads. Run `exit` to return to the initial controller.",
     "steps": [
       "Find the NotReady worker with `kubectl get nodes` and note its IP with `kubectl get nodes -o wide`.",
-      "SSH to the worker and inspect `sudo systemctl status kubelet` and `/var/lib/kubelet/config.yaml`.",
+      "Connect to {{worker2}} and inspect `sudo systemctl status kubelet` and `/var/lib/kubelet/config.yaml`.",
       "Remove the corrupted line and run `sudo systemctl restart kubelet`.",
       "Verify `kubectl get nodes` shows all workers Ready."
     ],
@@ -555,10 +555,10 @@
     "category": "Troubleshooting",
     "title": "Repair a broken scheduler static Pod",
     "points": 5,
-    "instructions": "One control-plane node's kube-scheduler static Pod manifest uses an invalid image, so its scheduler cannot start. Identify the node, repair `/etc/kubernetes/manifests/kube-scheduler.yaml` there, and confirm every scheduler is running again without resetting the cluster.",
+    "instructions": "The kube-scheduler static Pod manifest on the control-plane node {{controller2}} uses an invalid image, so its scheduler cannot start. Repair `/etc/kubernetes/manifests/kube-scheduler.yaml` there and confirm every scheduler is running again without resetting the cluster. Run `exit` to return to the initial controller.",
     "steps": [
       "Find the failing scheduler with `kubectl -n kube-system get pods -l component=kube-scheduler -o wide`.",
-      "SSH to the affected control-plane node and edit `/etc/kubernetes/manifests/kube-scheduler.yaml`.",
+      "Connect to {{controller2}} and edit `/etc/kubernetes/manifests/kube-scheduler.yaml`.",
       "Replace the invalid image with the correct `registry.k8s.io/kube-scheduler` tag matching the cluster version.",
       "The kubelet restarts the static Pod automatically; confirm all scheduler Pods are Running."
     ],

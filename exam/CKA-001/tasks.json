@@ -78,13 +78,13 @@
     "question_id": "CKA-001-Q4",
     "category": "Cluster Architecture, Installation & Configuration",
     "steps": [
-      "Choose a worker and find its InternalIP with `kubectl get nodes -o wide`.",
-      "SSH to the worker and write the Pod manifest shown below to `/etc/kubernetes/manifests/static-web.yaml` using sudo. The kubelet watches this directory; do not use kubectl apply for a static Pod.",
+      "Choose a worker; for example, {{worker1}}.",
+      "On the worker, write the Pod manifest shown below to `/etc/kubernetes/manifests/static-web.yaml` using sudo. The kubelet watches this directory; do not use kubectl apply for a static Pod. Run `exit` to return to the controller.",
       "On the controller, run `kubectl get pods -o wide`. Confirm a mirror Pod named `static-web-<node-name>` appears on the chosen worker."
     ],
     "title": "Run a static Pod",
     "points": 4,
-    "instructions": "On one of the worker nodes, create a static Pod manifest named `static-web` using image `nginx:1.27`. The kubelet must run a Pod named `static-web-<node-name>`. SSH access to the worker nodes is configured from the lab terminal; do not run it on the control-plane node.",
+    "instructions": "On any worker node, create a static Pod manifest named `static-web` using image `nginx:1.27`. For example, use {{worker1}}. Write the manifest to `/etc/kubernetes/manifests/static-web.yaml`. The kubelet must run a Pod named `static-web-<node-name>`. Do not run it on the control-plane node; run `exit` to return to the controller.",
     "solution": "worker=$(kubectl get nodes -o json | jq -r '[.items[] | select(.metadata.labels[\"node-role.kubernetes.io/control-plane\"] == null)][0].metadata.name')\nip=$(kubectl get node \"$worker\" -o jsonpath='{.status.addresses[?(@.type==\"InternalIP\")].address}')\nssh \"$ip\" 'sudo tee /etc/kubernetes/manifests/static-web.yaml >/dev/null' <<'YAML'\napiVersion: v1\nkind: Pod\nmetadata:\n  name: static-web\nspec:\n  containers:\n    - name: web\n      image: nginx:1.27\nYAML",
     "resource": "kubectl get pods --all-namespaces -o json",
     "checks": [

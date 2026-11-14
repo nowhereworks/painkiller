@@ -27,6 +27,18 @@ progress key. Assign CKA questions their primary official domain from
 Test files contain trusted code executed on the lab; do not accept untrusted
 uploads. Reference scripts should refuse to run on an unmarked cluster.
 
+Question instructions must state the required outcome, resource names,
+namespaces, file locations, and any prerequisite questions. Identify the host
+where local files and commands belong. When a task requires another machine,
+provide its connection command in the question and say how to return to the
+initial controller; do not rely on the walkthrough for essential information.
+For topology-specific questions, `{{controller2}}`, `{{controller3}}`,
+`{{worker1}}`, and `{{worker2}}` in instructions or steps render as the
+attempt's hostname (when available), IP, and an IP-based SSH command. These
+roles follow the ordered lab topology, so only use them when the exam owns that
+role assignment. Older attempts without a node snapshot show discovery
+instructions instead. Do not use these placeholders in grading commands.
+
 The first screen lists available tests. Preparing binds the selected test to
 the current attempt, including setup, questions, and grading. Only one lab and
 attempt are active at a time; reset before choosing another test. Restarts

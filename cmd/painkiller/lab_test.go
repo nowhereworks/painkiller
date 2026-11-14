@@ -216,7 +216,7 @@ echo "PHASE: $1"
 					t.Fatal(err)
 				}
 			}
-			stubCommand(t, "ssh", "#!/bin/sh\necho unexpected-setup >> \"$CALLS\"\nexit 1\n")
+			stubCommand(t, "ssh", "#!/bin/sh\nfor arg do [ \"$arg\" = hostname ] && { echo k8s-test; exit 0; }; done\necho unexpected-setup >> \"$CALLS\"\nexit 1\n")
 			stubCommand(t, "timeout", "#!/bin/sh\nif [ \"$1\" = 60s ] && [ \"$FAIL_PHASE\" = readiness-timeout ]; then echo readiness-timeout >> \"$CALLS\"; exit 124; fi\nexec /usr/bin/timeout \"$@\"\n")
 			config, err := resolveLab(*exam)
 			if err != nil {
@@ -248,6 +248,9 @@ echo "PHASE: $1"
 			}
 			if a.state.Phase != "ready" || a.state.Host != "192.0.2.1" {
 				t.Fatalf("preparation failed: %+v", a.state)
+			}
+			if got := a.state.Nodes["controller3"]; got.IP != "192.0.2.3" || got.Hostname != "k8s-test" {
+				t.Fatalf("node snapshot missing: %+v", got)
 			}
 			if strings.Index(string(calls), "fixtures") > strings.Index(string(calls), "readiness") {
 				t.Fatalf("readiness ran before fixtures: %s", calls)

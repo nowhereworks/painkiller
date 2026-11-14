@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -70,8 +71,14 @@ type state struct {
 	Message         string                    `json:"message,omitempty"`
 	FailedOperation string                    `json:"failed_operation,omitempty"`
 	Host            string                    `json:"host,omitempty"`
+	Nodes           map[string]labNode        `json:"nodes,omitempty"`
 	Selected        string                    `json:"selected,omitempty"`
 	Answers         map[string]answerSnapshot `json:"answers,omitempty"`
+}
+
+type labNode struct {
+	IP       string `json:"ip"`
+	Hostname string `json:"hostname,omitempty"`
 }
 type app struct {
 	exams     []examDefinition
@@ -139,6 +146,7 @@ func (a *app) status(w http.ResponseWriter, r *http.Request) {
 	}
 	public.Answers = nil // snapshots can contain secrets
 	public.Lab = nil     // operational configuration is server-only
+	public.Nodes = nil
 	json.NewEncoder(w).Encode(public)
 }
 func output(name string, args ...string) (string, error) {
@@ -239,9 +247,11 @@ func (a *app) prepareLab(create bool) {
 		out, err = a.run("scripts/configure-exam-access.sh")
 	}
 	var host string
+	nodes := map[string]labNode{}
 	if err == nil {
 		var s struct {
 			Controllers string `json:"controller_ips"`
+			Workers     string `json:"worker_ips"`
 		}
 		var b []byte
 		b, err = a.labCommand("scripts/create-lab.sh", "status").Output()
@@ -250,6 +260,23 @@ func (a *app) prepareLab(create bool) {
 			host = strings.Split(s.Controllers, ",")[0]
 			if host == "" {
 				err = errors.New("missing controller IP")
+			}
+			for _, group := range []struct{ name, addresses string }{{"controller", s.Controllers}, {"worker", s.Workers}} {
+				for i, ip := range strings.Split(group.addresses, ",") {
+					if net.ParseIP(ip) == nil {
+						continue
+					}
+					node := labNode{IP: ip}
+					args := append([]string{"10s", "ssh"}, a.labSSHArgs()...)
+					args = append(args, a.labValue("LAB_SSH_USER", "milkman")+"@"+ip, "hostname")
+					if b, e := exec.Command("timeout", args...).Output(); e == nil {
+						name := strings.TrimSpace(string(b))
+						if validEndpointHost(name) && net.ParseIP(name) == nil {
+							node.Hostname = name
+						}
+					}
+					nodes[fmt.Sprintf("%s%d", group.name, i+1)] = node
+				}
 			}
 		}
 	}
@@ -284,7 +311,7 @@ func (a *app) prepareLab(create bool) {
 		a.state.FailedOperation = "prepare"
 		a.state.Message = fmt.Sprintf("%v: %s", err, out)
 	} else {
-		a.state = state{Phase: "ready", Host: host, TestID: a.state.TestID, Mode: a.state.Mode, Lab: a.state.Lab}
+		a.state = state{Phase: "ready", Host: host, Nodes: nodes, TestID: a.state.TestID, Mode: a.state.Mode, Lab: a.state.Lab}
 	}
 	a.saveBackground()
 }
@@ -979,11 +1006,37 @@ func (a *app) taskList(w http.ResponseWriter, r *http.Request) {
 	ts := []publicTask{}
 	if a.state.Phase == "running" || a.state.Phase == "completed" {
 		for _, t := range a.tasks {
-			ts = append(ts, publicTask{ID: t.ID, QuestionID: t.QuestionID, Category: t.Category, Title: t.Title, Instructions: t.Instructions, Points: t.Points, Solution: t.Solution, Explanation: t.Explanation, Steps: t.Steps})
+			steps := make([]string, len(t.Steps))
+			for i, step := range t.Steps {
+				steps[i] = renderNodeReferences(step, a.state.Nodes)
+			}
+			ts = append(ts, publicTask{ID: t.ID, QuestionID: t.QuestionID, Category: t.Category, Title: t.Title, Instructions: renderNodeReferences(t.Instructions, a.state.Nodes), Points: t.Points, Solution: t.Solution, Explanation: t.Explanation, Steps: steps})
 		}
 	}
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(ts)
+}
+
+// Old attempts have no node snapshot; retain usable discovery commands for them.
+func renderNodeReferences(text string, nodes map[string]labNode) string {
+	fallbacks := map[string]string{
+		"controller2": "the second control-plane node (find its IP with `kubectl get nodes -o wide` and connect with `ssh <IP>`)",
+		"controller3": "the unjoined controller (find its IP in `~/.ssh/painkiller_known_hosts` that is absent from `kubectl get nodes -o wide`, then run `ssh <IP>`)",
+		"worker1":     "a worker (find its IP with `kubectl get nodes -o wide` and connect with `ssh <IP>`)",
+		"worker2":     "the east worker (find its IP with `kubectl get nodes -l topology.kubernetes.io/zone=east -o wide` and connect with `ssh <IP>`)",
+	}
+	for role, fallback := range fallbacks {
+		display := fallback
+		if node, ok := nodes[role]; ok && net.ParseIP(node.IP) != nil {
+			display = fmt.Sprintf("`%s`", node.IP)
+			if node.Hostname != "" && validEndpointHost(node.Hostname) {
+				display = fmt.Sprintf("`%s` (%s)", node.Hostname, display)
+			}
+			display += fmt.Sprintf("; connect from the initial controller with `ssh %s`", node.IP)
+		}
+		text = strings.ReplaceAll(text, "{{"+role+"}}", display)
+	}
+	return text
 }
 
 func normalizeLegacyScores(s *state, tasks []task) bool {
