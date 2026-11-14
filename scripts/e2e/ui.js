@@ -84,8 +84,9 @@ async function main() {
     }), true, 'learning actions should share a row with a 5px gap');
     assert.equal(await page.locator('.question-marks').evaluate(el => {
       const [flag,done]=Array.from(el.children, child=>child.getBoundingClientRect());
-      return done.left-flag.right===5 && done.top===flag.top;
-    }), true, 'question marks should share a row with a 5px gap');
+      return done.left-flag.right===24 && done.top===flag.top;
+    }), true, 'question marks should share a row with a 24px gap');
+    assert.equal(await page.locator('#done-label').innerText(), 'Mark complete & next');
     await page.locator('#verify').click();
     await page.waitForFunction(() => document.querySelector('#verification').textContent.includes('Done: Fixture check'));
     state.mode = 'simulation';
@@ -155,6 +156,7 @@ async function main() {
     await page.waitForFunction(() => document.querySelector('#question-select option[value="1"]').textContent.includes('⚑'));
     await page.locator('#done').check();
     await page.waitForFunction(() => document.querySelector('#question-select').value === '2');
+    assert.equal(await page.locator('#done-label').innerText(), 'Mark complete');
     await page.waitForFunction(() => document.querySelector('#question-select option[value="1"]').textContent.includes('✓'));
     await page.locator('#done').check();
     await page.waitForFunction(() => document.querySelector('#question-select option[value="2"]').textContent.includes('✓'));

@@ -178,6 +178,7 @@ function draw(){
     renderedInstructions=t.Instructions;
   }
   $('flag').checked=!!state.flags?.[t.ID];$('done').checked=!!state.done?.[t.ID];
+  $('done-label').textContent=index===tasks.length-1?'Mark complete':'Mark complete & next';
   $('verify').hidden=state.mode!=='learning';
   tick();
 }
