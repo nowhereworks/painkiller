@@ -1,0 +1,19 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Release.Name }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      app: {{ .Release.Name }}
+  template:
+    metadata:
+      labels:
+        app: incorrect-selector
+    spec:
+      containers:
+        - name: web
+          image: "{{ .Values.image.repository }}:{{ .Chart.AppVersion }}"
+          ports:
+            - containerPort: 80

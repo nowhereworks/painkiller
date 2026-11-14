@@ -1,0 +1,85 @@
+{
+  "baseline": 0,
+  "mutations": [
+    {
+      "task": "hpa",
+      "remove": "kubectl -n default patch hpa frontend-deployment --type=merge -p '{\"spec\":{\"maxReplicas\":9}}'",
+      "restore": "kubectl -n default patch hpa frontend-deployment --type=merge -p '{\"spec\":{\"maxReplicas\":10}}'"
+    },
+    {
+      "task": "restrict-rbac",
+      "remove": "kubectl patch clusterrole green-role-cka22-arch --type=json -p '[{\"op\":\"add\",\"path\":\"/rules/0/verbs/-\",\"value\":\"list\"}]'",
+      "restore": "kubectl patch clusterrole green-role-cka22-arch --type=merge -p '{\"rules\":[{\"apiGroups\":[\"\"],\"resources\":[\"namespaces\"],\"verbs\":[\"get\"]}]}'"
+    },
+    {
+      "task": "pink-replicas",
+      "remove": "kubectl -n pink-troubleshooting scale deployment pink-depl-cka14-trb --replicas=0",
+      "restore": "kubectl -n pink-troubleshooting scale deployment pink-depl-cka14-trb --replicas=2; kubectl -n pink-troubleshooting rollout status deployment/pink-depl-cka14-trb --timeout=180s"
+    },
+    {
+      "task": "pvc-resize",
+      "remove": "kubectl patch storageclass papaya-stc-cka09-str --type=merge -p '{\"allowVolumeExpansion\":false}'",
+      "restore": "kubectl patch storageclass papaya-stc-cka09-str --type=merge -p '{\"allowVolumeExpansion\":true}'"
+    },
+    {
+      "task": "helm-chart",
+      "remove": "kubectl -n frontend-apd patch service webapp-color-apd --type=merge -p '{\"spec\":{\"type\":\"ClusterIP\"}}'",
+      "restore": "kubectl -n frontend-apd patch service webapp-color-apd --type=merge -p '{\"spec\":{\"type\":\"NodePort\"}}'"
+    },
+    {
+      "task": "http-route",
+      "remove": "kubectl -n nginx-gateway patch httproute web-route --type=merge -p '{\"spec\":{\"hostnames\":[\"wrong.cka003.test\"]}}'",
+      "restore": "kubectl -n nginx-gateway patch httproute web-route --type=merge -p '{\"spec\":{\"hostnames\":[\"cka003-controlplane\"]}}'; for i in {1..30}; do bash /opt/painkiller/cka003/capture.sh q6 | jq -e '.ok' >/dev/null && exit 0; sleep 2; done; exit 1"
+    },
+    {
+      "task": "create-rbac",
+      "remove": "kubectl patch clusterrole deploy-role-cka20-arch --type=json -p '[{\"op\":\"add\",\"path\":\"/rules/0/verbs/-\",\"value\":\"delete\"}]'",
+      "restore": "kubectl patch clusterrole deploy-role-cka20-arch --type=merge -p '{\"rules\":[{\"apiGroups\":[\"apps\"],\"resources\":[\"deployments\"],\"verbs\":[\"get\"]}]}'"
+    },
+    {
+      "task": "dns-evidence",
+      "remove": "sudo -n cp /root/CKA/nginx.pod.cka06.svcn /root/CKA/nginx.pod.cka06.svcn.saved; sudo -n truncate -s 0 /root/CKA/nginx.pod.cka06.svcn",
+      "restore": "sudo -n cp /root/CKA/nginx.pod.cka06.svcn.saved /root/CKA/nginx.pod.cka06.svcn"
+    },
+    {
+      "task": "pending-pod",
+      "remove": "kubectl -n default get pod grey-cka21-trb -o json | jq 'del(.metadata.uid,.metadata.resourceVersion,.metadata.creationTimestamp,.metadata.managedFields,.status)' > /tmp/cka003-grey.json; kubectl -n default delete pod grey-cka21-trb --wait=true",
+      "restore": "kubectl apply -f /tmp/cka003-grey.json; kubectl -n default wait pod/grey-cka21-trb --for=condition=Ready --timeout=180s"
+    },
+    {
+      "task": "rollback",
+      "remove": "sudo -n cp /root/rolling-back-record.txt /root/rolling-back-record.saved; sudo -n truncate -s 0 /root/rolling-back-record.txt",
+      "restore": "sudo -n cp /root/rolling-back-record.saved /root/rolling-back-record.txt"
+    },
+    {
+      "task": "secret-repair",
+      "remove": "kubectl -n default patch deployment db-deployment-cka05-trb --type=json -p '[{\"op\":\"replace\",\"path\":\"/spec/template/spec/containers/0/env/0/valueFrom/secretKeyRef/key\",\"value\":\"wrong-root\"}]'",
+      "restore": "kubectl -n default patch deployment db-deployment-cka05-trb --type=json -p '[{\"op\":\"replace\",\"path\":\"/spec/template/spec/containers/0/env/0/valueFrom/secretKeyRef/key\",\"value\":\"root-password\"}]'; kubectl -n default rollout status deployment/db-deployment-cka05-trb --timeout=180s"
+    },
+    {
+      "task": "rolling-update",
+      "remove": "sudo -n cp /opt/revision-count.txt /opt/revision-count.saved; sudo -n truncate -s 0 /opt/revision-count.txt",
+      "restore": "sudo -n cp /opt/revision-count.saved /opt/revision-count.txt"
+    },
+    {
+      "task": "ingress",
+      "remove": "kubectl -n default annotate ingress nginx-ingress-cka04-svcn nginx.ingress.kubernetes.io/ssl-redirect=true --overwrite",
+      "restore": "kubectl -n default annotate ingress nginx-ingress-cka04-svcn nginx.ingress.kubernetes.io/ssl-redirect=false --overwrite"
+    },
+    {
+      "task": "paused-rollout",
+      "remove": "kubectl -n default rollout pause deployment/black-cka25-trb",
+      "restore": "kubectl -n default rollout resume deployment/black-cka25-trb; kubectl -n default rollout status deployment/black-cka25-trb --timeout=180s"
+    },
+    {
+      "task": "service-repair",
+      "remove": "kubectl -n default patch service purple-svc-cka27-trb --type=merge -p '{\"spec\":{\"ports\":[{\"port\":80,\"targetPort\":81}]}}'",
+      "restore": "kubectl -n default patch service purple-svc-cka27-trb --type=merge -p '{\"spec\":{\"ports\":[{\"port\":80,\"targetPort\":80}]}}'; for i in {1..30}; do bash /opt/painkiller/cka003/capture.sh q15 | jq -e '.ok' >/dev/null && exit 0; sleep 2; done; exit 1"
+    },
+    {
+      "task": "storage-class",
+      "remove": "kubectl patch storageclass banana-sc-cka08-str --type=merge -p '{\"allowVolumeExpansion\":false}'",
+      "restore": "kubectl patch storageclass banana-sc-cka08-str --type=merge -p '{\"allowVolumeExpansion\":true}'"
+    }
+  ]
+}

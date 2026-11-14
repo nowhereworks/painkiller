@@ -1,0 +1,17 @@
+{
+  "id": "CKA-003",
+  "title": "CKA practice exam — mock 01",
+  "description": "16 tasks adapted from cka-mock-01: autoscaling, RBAC, Helm, routing, DNS, storage expansion, rollouts, and isolated troubleshooting.",
+  "minutes": 120,
+  "categories": ["Storage", "Troubleshooting", "Workloads & Scheduling", "Cluster Architecture, Installation & Configuration", "Services & Networking"],
+  "lab": {
+    "controllers": 1,
+    "workers": 2,
+    "initial_controllers": 1,
+    "provision_mode": "prebaked",
+    "cni": "flannel",
+    "memory_mb": 4096,
+    "template_id": "9100",
+    "prepare": "prepare.sh"
+  }
+}

@@ -1,0 +1,199 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: cka003-system
+  labels: {painkiller-shell/exam: CKA-003}
+---
+apiVersion: v1
+kind: Namespace
+metadata: {name: nginx-gateway}
+---
+apiVersion: v1
+kind: Namespace
+metadata: {name: dev-wl07}
+---
+apiVersion: v1
+kind: Namespace
+metadata: {name: pink-troubleshooting}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata: {name: green-sa-cka22-arch, namespace: default}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata: {name: green-role-cka22-arch}
+rules:
+  - apiGroups: [""]
+    resources: ["namespaces"]
+    verbs: ["get", "list", "watch", "delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata: {name: green-role-binding-cka22-arch}
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: green-role-cka22-arch}
+subjects:
+  - {kind: ServiceAccount, name: green-sa-cka22-arch, namespace: default}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: frontend-deployment, namespace: default}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: frontend}}
+  template:
+    metadata: {labels: {app: frontend}}
+    spec:
+      containers:
+        - name: web
+          image: nginx:1.27
+          resources: {requests: {cpu: 10m, memory: 16Mi}}
+---
+apiVersion: v1
+kind: ResourceQuota
+metadata: {name: pink-quota, namespace: pink-troubleshooting}
+spec: {hard: {pods: "1"}}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: pink-depl-cka14-trb, namespace: pink-troubleshooting}
+spec:
+  replicas: 2
+  selector: {matchLabels: {app: pink}}
+  template:
+    metadata: {labels: {app: pink}}
+    spec:
+      containers: [{name: web, image: "nginx:1.27"}]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: web-backend, namespace: nginx-gateway}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: web-backend}}
+  template:
+    metadata: {labels: {app: web-backend}}
+    spec:
+      containers: [{name: web, image: "nginx:1.27", ports: [{containerPort: 80}]}]
+---
+apiVersion: v1
+kind: Service
+metadata: {name: web-service, namespace: nginx-gateway}
+spec:
+  selector: {app: web-backend}
+  ports: [{port: 80, targetPort: 80}]
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata: {name: web-gateway, namespace: nginx-gateway}
+spec:
+  gatewayClassName: cka003
+  listeners:
+    - name: web
+      protocol: HTTP
+      port: 80
+      hostname: cka003-controlplane
+      allowedRoutes: {namespaces: {from: Same}}
+---
+apiVersion: v1
+kind: Pod
+metadata: {name: grey-cka21-trb, namespace: default}
+spec:
+  nodeSelector: {cka003/controlplane: misspelled}
+  tolerations:
+    - {key: node-role.kubernetes.io/control-plane, operator: Exists, effect: NoSchedule}
+  containers: [{name: web, image: "nginx:1.27"}]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: rollback-app, namespace: dev-wl07}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: rollback-app}}
+  template:
+    metadata: {labels: {app: rollback-app}}
+    spec:
+      containers: [{name: web, image: "nginx:1.27"}]
+---
+apiVersion: v1
+kind: Secret
+metadata: {name: db-credentials-cka05-trb, namespace: default}
+type: Opaque
+stringData:
+  root-password: practice-root
+  database: practice
+  username: practice-user
+  password: practice-password
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: db-deployment-cka05-trb, namespace: default}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: db-cka05}}
+  template:
+    metadata: {labels: {app: db-cka05}}
+    spec:
+      containers:
+        - name: db
+          image: busybox:1.37
+          command: [sh, -c]
+          args:
+            - 'test "$DB_ROOT_PASSWORD" = practice-root && test "$DB_DATABASE" = practice && test "$DB_USER" = practice-user && test "$DB_PASSWORD" = practice-password && exec sleep 2147483647'
+          env:
+            - {name: DB_ROOT_PASSWORD, valueFrom: {secretKeyRef: {name: db-credentials-cka05-trb, key: wrong-root}}}
+            - {name: DB_DATABASE, valueFrom: {secretKeyRef: {name: db-credentials-cka05-trb, key: wrong-database}}}
+            - {name: DB_USER, valueFrom: {secretKeyRef: {name: db-credentials-cka05-trb, key: wrong-user}}}
+            - {name: DB_PASSWORD, valueFrom: {secretKeyRef: {name: db-credentials-cka05-trb, key: wrong-password}}}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: nginx-deployment-cka04-svcn, namespace: default}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: ingress-backend}}
+  template:
+    metadata: {labels: {app: ingress-backend}}
+    spec:
+      containers: [{name: web, image: "nginx:1.27"}]
+---
+apiVersion: v1
+kind: Service
+metadata: {name: nginx-service-cka04-svcn, namespace: default}
+spec:
+  selector: {app: ingress-backend}
+  ports: [{port: 80, targetPort: 80}]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: black-cka25-trb, namespace: default}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: black}}
+  template:
+    metadata: {labels: {app: black}}
+    spec:
+      containers: [{name: web, image: "nginx:1.27"}]
+---
+apiVersion: v1
+kind: Pod
+metadata: {name: purple-app-cka27-trb, namespace: default, labels: {app: purple}}
+spec:
+  containers: [{name: web, image: "nginx:1.27", ports: [{containerPort: 80}]}]
+---
+apiVersion: v1
+kind: Service
+metadata: {name: purple-svc-cka27-trb, namespace: default}
+spec:
+  selector: {app: purple}
+  ports: [{port: 80, targetPort: 81}]
+---
+apiVersion: v1
+kind: Pod
+metadata: {name: purple-curl-cka27-trb, namespace: default}
+spec:
+  containers:
+    - name: monitor
+      image: curlimages/curl:8.12.1
+      command: [sh, -c]
+      args: ["while true; do curl --connect-timeout 2 --max-time 3 -fsS http://purple-svc-cka27-trb && echo OK || echo ERROR; sleep 5; done"]

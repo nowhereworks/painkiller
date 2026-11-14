@@ -1,0 +1,6 @@
+replicaCount: 1
+image:
+  repository: nginx
+service:
+  type: ClusterIP
+  port: 80

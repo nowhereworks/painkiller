@@ -23,8 +23,10 @@ simulator. It currently requires a Proxmox host and includes:
   storage, troubleshooting, and RBAC; one controller and two workers.
 - **CKA-002:** 20 scenario-based tasks on a high-availability cluster; three
   controllers and two workers, with two controllers initially joined.
+- **CKA-003:** 16 mock-exam tasks covering autoscaling, RBAC, Helm, routing,
+  DNS, CSI expansion, rollouts, and troubleshooting; one controller and two workers.
 
-Both exams default to 120 minutes. Exam-specific requirements and lab settings
+All exams default to 120 minutes. Exam-specific requirements and lab settings
 live in `exam/<ID>/`. Only one attempt and lab can be active at a time.
 
 **Security:** Run only on a trusted management host and network. There is no
@@ -45,7 +47,7 @@ You need:
 - A Proxmox host reachable by passwordless SSH, with its host key verified on
   the management host. The SSH account must be able to manage VMs and use the
   guest agent.
-- A compatible prebaked template: `9100` for CKA-001 or `9198` for CKA-002.
+- A compatible prebaked template: `9100` for CKA-001/CKA-003 or `9198` for CKA-002.
   The template must provide DHCP, DNS, a running QEMU guest agent, and
   passwordless SSH access for the configured lab user. Clones must be reachable
   from the management host and have network access for provisioning.

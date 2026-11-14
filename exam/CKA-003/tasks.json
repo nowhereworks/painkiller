@@ -1,0 +1,162 @@
+[
+  {
+    "id": "hpa", "question_id": "CKA-003-Q1", "category": "Workloads & Scheduling",
+    "title": "Autoscale the frontend", "points": 6,
+    "instructions": "On the initial controller, create HPA `frontend-deployment` in `default`, targeting Deployment `frontend-deployment`. Use average CPU utilization 70%, minimum 2 replicas, maximum 10. Metrics Server and CPU requests are already configured.",
+    "steps": ["Inspect the Deployment and Metrics API.", "Create an autoscaling/v2 HPA with the requested CPU target and replica limits.", "Inspect its scale target and metrics."],
+    "solution": "kubectl -n default autoscale deployment frontend-deployment --cpu=70% --min=2 --max=10",
+    "resource": "bash /opt/painkiller/cka003/capture.sh q1",
+    "checks": [{"description": "Correct HPA target, CPU utilization, and limits", "points": 6, "expression": ".ok == true"}],
+    "explanation": "HPA CPU utilization is measured against container CPU requests."
+  },
+  {
+    "id": "restrict-rbac", "question_id": "CKA-003-Q2", "category": "Cluster Architecture, Installation & Configuration",
+    "title": "Restrict service account permissions", "points": 8,
+    "instructions": "On the initial controller, update existing ClusterRole `green-role-cka22-arch` and ClusterRoleBinding `green-role-binding-cka22-arch` so ServiceAccount `default/green-sa-cka22-arch` has only the `get` verb on core API `namespaces`, cluster-wide. Do not grant list, watch, or write access. Test with `kubectl auth can-i get namespaces --as=system:serviceaccount:default:green-sa-cka22-arch`.",
+    "steps": ["Inspect the existing ClusterRole and binding.", "Reduce the role to one rule: core API, namespaces, get.", "Test get is allowed and list/delete are denied using the full service account identity."],
+    "solution": "kubectl patch clusterrole green-role-cka22-arch --type=merge -p '{\"rules\":[{\"apiGroups\":[\"\"],\"resources\":[\"namespaces\"],\"verbs\":[\"get\"]}]}'\nkubectl auth can-i get namespaces --as=system:serviceaccount:default:green-sa-cka22-arch",
+    "resource": "bash /opt/painkiller/cka003/capture.sh q2",
+    "checks": [{"description": "Existing service account has only the specified role and binding", "points": 8, "expression": ".ok == true"}],
+    "explanation": "Namespaces are cluster-scoped. The get verb does not imply list or watch."
+  },
+  {
+    "id": "pink-replicas", "question_id": "CKA-003-Q3", "category": "Troubleshooting",
+    "title": "Restore the missing replica", "points": 8,
+    "instructions": "On the initial controller, troubleshoot Deployment `pink-depl-cka14-trb` in `pink-troubleshooting`. It requests 2 replicas but has only 1. Fix the cause so desired, current, updated, ready, and available replicas are all 2. Do not reduce the desired replica count.",
+    "steps": ["Inspect Deployment, ReplicaSet, and namespace events.", "Identify the namespace resource restriction preventing another Pod.", "Correct the quota and annotate the ReplicaSet to requeue it if admission failures have backed off; wait for two ready replicas."],
+    "solution": "kubectl -n pink-troubleshooting patch resourcequota pink-quota --type=merge -p '{\"spec\":{\"hard\":{\"pods\":\"2\"}}}'\nkubectl -n pink-troubleshooting wait resourcequota/pink-quota --for=jsonpath='{.status.hard.pods}'=2 --timeout=60s\nkubectl -n pink-troubleshooting annotate replicaset -l app=pink cka003/retry=\"$(date +%s)\" --overwrite\nkubectl -n pink-troubleshooting wait deployment/pink-depl-cka14-trb --for=jsonpath='{.status.readyReplicas}'=2 --timeout=180s",
+    "resource": "bash /opt/painkiller/cka003/capture.sh q3",
+    "checks": [{"description": "Two updated, ready, available replicas", "points": 8, "expression": ".ok == true"}],
+    "explanation": "ReplicaSet events expose admission failures such as an exhausted Pod quota."
+  },
+  {
+    "id": "pvc-resize", "question_id": "CKA-003-Q4", "category": "Storage",
+    "title": "Expand a persistent volume claim", "points": 8,
+    "instructions": "On the initial controller, expand `default/papaya-pvc-cka09-str` from 50Mi to 80Mi. Keep it Bound to `papaya-pv-cka09-str`; keep `papaya-consumer` healthy and the StorageClass expandable. This adaptation uses an NFS CSI PV initially sized 50Mi, not the source's 150Mi local PV. Wait for both PVC status capacity and PV capacity to reach 80Mi. Do not edit PV capacity or delete/recreate the claim. NFS CSI updates advertised capacity; it does not impose a disk quota.",
+    "steps": ["Inspect the claim, volume, and StorageClass expansion capability.", "Patch only the claim's storage request to 80Mi.", "Wait for the CSI resizer to update PV and PVC capacity."],
+    "solution": "kubectl -n default patch pvc papaya-pvc-cka09-str --type=merge -p '{\"spec\":{\"resources\":{\"requests\":{\"storage\":\"80Mi\"}}}}'\nkubectl -n default wait pvc/papaya-pvc-cka09-str --for=jsonpath='{.status.capacity.storage}'=80Mi --timeout=180s",
+    "resource": "bash /opt/painkiller/cka003/capture.sh q4",
+    "checks": [{"description": "Bound CSI claim expanded to 80Mi with healthy consumer", "points": 8, "expression": ".ok == true"}],
+    "explanation": "An expandable CSI driver and its external resizer implement the standard PVC expansion workflow."
+  },
+  {
+    "id": "helm-chart", "question_id": "CKA-003-Q5", "category": "Cluster Architecture, Installation & Configuration",
+    "title": "Repair and deploy a Helm chart", "points": 6,
+    "instructions": "On the initial controller, repair the chart in `/opt/webapp-color-apd`. Set `replicaCount: 3` and Service type `NodePort` in `values.yaml`; set `appVersion: \"1.20.0\"` in `Chart.yaml`. Fix the Deployment and Service template selectors. Install release `webapp-color-apd` into namespace `frontend-apd`. The chart uses nginx; its image must be `nginx:1.20.0`. Ensure all 3 replicas are ready and the Service selects them.",
+    "steps": ["Inspect Chart.yaml, values.yaml, and rendered templates.", "Fix the app labels/selectors and requested values.", "Create the namespace, install the release, and wait for readiness."],
+    "solution": "sed -i 's/replicaCount: 1/replicaCount: 3/; s/type: ClusterIP/type: NodePort/' /opt/webapp-color-apd/values.yaml\nsed -i 's/appVersion: \"broken\"/appVersion: \"1.20.0\"/' /opt/webapp-color-apd/Chart.yaml\nsed -i 's/app: incorrect-selector/app: {{ .Release.Name }}/' /opt/webapp-color-apd/templates/*.yaml\nhelm upgrade --install webapp-color-apd /opt/webapp-color-apd -n frontend-apd --create-namespace --wait --timeout 180s",
+    "resource": "bash /opt/painkiller/cka003/capture.sh q5",
+    "checks": [{"description": "Correct chart files, release, NodePort Service, image, and three ready replicas", "points": 6, "expression": ".ok == true"}],
+    "explanation": "A Deployment selector must match its Pod template; a Service must select the resulting Pods."
+  },
+  {
+    "id": "http-route", "question_id": "CKA-003-Q6", "category": "Services & Networking",
+    "title": "Expose a backend using Gateway API", "points": 6,
+    "instructions": "On the initial controller, create HTTPRoute `web-route` in `nginx-gateway`, attached to existing Gateway `web-gateway`. Route only hostname `cka003-controlplane` to Service `web-service`, port 80, in the same namespace. Test with `curl http://cka003-controlplane:30080`. This single-cluster adaptation uses a preinstalled Traefik Gateway controller instead of NGINX Gateway Fabric; do not install another controller.",
+    "steps": ["Inspect the existing Gateway and backend Service.", "Create an HTTPRoute with the hostname, parent reference, and backend reference.", "Verify Accepted and ResolvedRefs conditions and an HTTP response."],
+    "solution": "printf '%s\\n' 'apiVersion: gateway.networking.k8s.io/v1' 'kind: HTTPRoute' 'metadata: {name: web-route, namespace: nginx-gateway}' 'spec:' '  parentRefs: [{name: web-gateway}]' '  hostnames: [cka003-controlplane]' '  rules:' '    - backendRefs: [{name: web-service, port: 80}]' | kubectl apply -f -",
+    "resource": "bash /opt/painkiller/cka003/capture.sh q6",
+    "checks": [{"description": "Accepted hostname-specific route with working HTTP backend", "points": 6, "expression": ".ok == true"}],
+    "explanation": "Gateway API routes bind to a parent Gateway and forward matched requests to backend Services."
+  },
+  {
+    "id": "create-rbac", "question_id": "CKA-003-Q7", "category": "Cluster Architecture, Installation & Configuration",
+    "title": "Grant read access to Deployments", "points": 8,
+    "instructions": "On the initial controller, create ServiceAccount `deploy-cka20-arch` in `default`, ClusterRole `deploy-role-cka20-arch` granting only `get` on `apps/deployments` cluster-wide, and ClusterRoleBinding `deploy-role-binding-cka20-arch` binding that role to that account.",
+    "steps": ["Create the ServiceAccount in default.", "Create a ClusterRole for get on deployments.apps.", "Bind the role and verify the fully qualified service account's access."],
+    "solution": "kubectl -n default create serviceaccount deploy-cka20-arch\nkubectl create clusterrole deploy-role-cka20-arch --verb=get --resource=deployments.apps\nkubectl create clusterrolebinding deploy-role-binding-cka20-arch --clusterrole=deploy-role-cka20-arch --serviceaccount=default:deploy-cka20-arch",
+    "resource": "bash /opt/painkiller/cka003/capture.sh q7",
+    "checks": [{"description": "Service account, exact Deployment get rule, and correct binding", "points": 8, "expression": ".ok == true"}],
+    "explanation": "Deployment RBAC rules use the apps API group."
+  },
+  {
+    "id": "dns-evidence", "question_id": "CKA-003-Q8", "category": "Services & Networking",
+    "title": "Resolve Service and Pod DNS names", "points": 4,
+    "instructions": "On the initial controller, create Pod `nginx-resolver-cka06-svcn` using `nginx` in `default`. Expose it with ClusterIP Service `nginx-resolver-service-cka06-svcn`, port 80. Run lookup Pods using `busybox:1.28`. Save the Service nslookup output to `/root/CKA/nginx.svc.cka06.svcn` and the Pod nslookup output to `/root/CKA/nginx.pod.cka06.svcn` on this controller. Use the Pod's IP-based DNS name, e.g. `10-244-1-5.default.pod.cluster.local`. Use `sudo mkdir` and `sudo tee` to write under `/root`; a shell redirect alone is not elevated.",
+    "steps": ["Create and expose nginx, then wait for Pod readiness.", "Get its Pod IP and replace dots with dashes for the Pod DNS name.", "Run busybox:1.28 nslookup for both names and pipe outputs into sudo tee."],
+    "solution": "kubectl -n default run nginx-resolver-cka06-svcn --image=nginx\nkubectl -n default expose pod nginx-resolver-cka06-svcn --name=nginx-resolver-service-cka06-svcn --port=80\nkubectl -n default wait pod/nginx-resolver-cka06-svcn --for=condition=Ready --timeout=180s\nsudo -n mkdir -p /root/CKA\nkubectl -n default run lookup-service --image=busybox:1.28 --rm -i --restart=Never -- nslookup nginx-resolver-service-cka06-svcn.default.svc.cluster.local | sudo -n tee /root/CKA/nginx.svc.cka06.svcn\nip=$(kubectl -n default get pod nginx-resolver-cka06-svcn -o jsonpath='{.status.podIP}')\nkubectl -n default run lookup-pod --image=busybox:1.28 --rm -i --restart=Never -- nslookup \"${ip//./-}.default.pod.cluster.local\" | sudo -n tee /root/CKA/nginx.pod.cka06.svcn",
+    "resource": "bash /opt/painkiller/cka003/capture.sh q8",
+    "checks": [{"description": "Running exposed nginx with both matching DNS evidence files", "points": 4, "expression": ".ok == true"}],
+    "explanation": "CoreDNS provides Service records and IP-based Pod DNS records."
+  },
+  {
+    "id": "pending-pod", "question_id": "CKA-003-Q9", "category": "Troubleshooting",
+    "title": "Repair Pod scheduling", "points": 8,
+    "instructions": "On the initial controller, troubleshoot `default/grey-cka21-trb`, which is Pending. It must run on the control-plane node. Preserve its nginx container and control-plane toleration. You may recreate this Pod to fix immutable scheduling fields. Do not disable or modify the shared scheduler, and do not change node labels to fit a broken selector.",
+    "steps": ["Describe the Pod and compare its node selector with control-plane labels.", "Correct the selector to cka003/controlplane=true while preserving the toleration.", "Recreate the Pod and verify it is ready on the control-plane."],
+    "solution": "kubectl -n default get pod grey-cka21-trb -o json | jq 'del(.metadata.uid,.metadata.resourceVersion,.metadata.creationTimestamp,.metadata.managedFields,.status,.spec.nodeName) | .spec.nodeSelector={\"cka003/controlplane\":\"true\"}' > /tmp/grey-fixed.json\nkubectl -n default delete pod grey-cka21-trb --wait=true\nkubectl apply -f /tmp/grey-fixed.json\nkubectl -n default wait pod/grey-cka21-trb --for=condition=Ready --timeout=180s",
+    "resource": "bash /opt/painkiller/cka003/capture.sh q9",
+    "checks": [{"description": "Pod ready on the control-plane node", "points": 8, "expression": ".ok == true"}],
+    "explanation": "A node selector with no matching node leaves a Pod Pending even when its tolerations are correct."
+  },
+  {
+    "id": "rollback", "question_id": "CKA-003-Q10", "category": "Workloads & Scheduling",
+    "title": "Roll back a failed update", "points": 8,
+    "instructions": "On the initial controller, roll back Deployment `rollback-app` in `dev-wl07` to its preceding working revision. Save the restored container image, as a single image reference, to `/root/rolling-back-record.txt` on this controller, using sudo tee. Scale to 5 replicas and ensure all are ready. Keep rollout history.",
+    "steps": ["Inspect rollout history and the failed image.", "Undo the update and wait for readiness.", "Save the active image and scale to five ready replicas."],
+    "solution": "kubectl -n dev-wl07 rollout undo deployment/rollback-app\nkubectl -n dev-wl07 rollout status deployment/rollback-app --timeout=180s\nkubectl -n dev-wl07 get deployment rollback-app -o jsonpath='{.spec.template.spec.containers[0].image}' | sudo -n tee /root/rolling-back-record.txt\nkubectl -n dev-wl07 scale deployment rollback-app --replicas=5\nkubectl -n dev-wl07 rollout status deployment/rollback-app --timeout=180s",
+    "resource": "bash /opt/painkiller/cka003/capture.sh q10",
+    "checks": [{"description": "Previous image restored and recorded, five ready replicas, history retained", "points": 8, "expression": ".ok == true"}],
+    "explanation": "rollout undo restores the preceding Pod template; replica count is managed separately."
+  },
+  {
+    "id": "secret-repair", "question_id": "CKA-003-Q11", "category": "Troubleshooting",
+    "title": "Repair Secret references", "points": 4,
+    "instructions": "On the initial controller, fix `default/db-deployment-cka05-trb`, currently 0/1 ready. Keep environment variable names `DB_ROOT_PASSWORD`, `DB_DATABASE`, `DB_USER`, `DB_PASSWORD`; fix their `valueFrom.secretKeyRef` references using the provided Secret. Do not modify any existing Secret contents or keys. This lightweight database configuration fixture validates the credentials without running a database server.",
+    "steps": ["Inspect Pod events and Secret key names.", "Point each environment variable at the corresponding existing key.", "Wait for the Deployment to become ready without changing the Secret."],
+    "solution": "kubectl -n default get deployment db-deployment-cka05-trb -o json | jq '.spec.template.spec.containers[0].env |= map(.valueFrom.secretKeyRef.key = ({DB_ROOT_PASSWORD:\"root-password\",DB_DATABASE:\"database\",DB_USER:\"username\",DB_PASSWORD:\"password\"}[.name]))' | kubectl apply -f -\nkubectl -n default rollout status deployment/db-deployment-cka05-trb --timeout=180s",
+    "resource": "bash /opt/painkiller/cka003/capture.sh q11",
+    "checks": [{"description": "Ready Deployment with correct Secret references and unchanged credentials", "points": 4, "expression": ".ok == true"}],
+    "explanation": "A missing Secret key prevents container creation; fixing references does not require altering the Secret."
+  },
+  {
+    "id": "rolling-update", "question_id": "CKA-003-Q12", "category": "Workloads & Scheduling",
+    "title": "Perform and undo a rolling update", "points": 8,
+    "instructions": "On the initial controller, create Deployment `ocean-tv-wl09` in `default`, image `kodekloud/webapp-color:v1`, 3 replicas, RollingUpdate maxUnavailable `40%`, maxSurge `55%`. Wait until ready, upgrade to `kodekloud/webapp-color:v2`, and wait for rollout completion. Save its current Deployment revision number (not the number of history entries) to `/opt/revision-count.txt` on this controller using sudo tee. Finally roll back to v1 and ensure 3 replicas are ready. Keep rollout history; a fresh deployment's recorded revision is 2.",
+    "steps": ["Create the v1 Deployment and set the rolling update percentages.", "Wait for v1, upgrade to v2, and wait again.", "Record deployment.kubernetes.io/revision before undoing the update.", "Roll back and check all three replicas are ready."],
+    "solution": "kubectl -n default create deployment ocean-tv-wl09 --image=kodekloud/webapp-color:v1 --replicas=3\nkubectl -n default patch deployment ocean-tv-wl09 --type=merge -p '{\"spec\":{\"strategy\":{\"type\":\"RollingUpdate\",\"rollingUpdate\":{\"maxUnavailable\":\"40%\",\"maxSurge\":\"55%\"}}}}'\nkubectl -n default rollout status deployment/ocean-tv-wl09 --timeout=180s\nkubectl -n default set image deployment/ocean-tv-wl09 webapp-color=kodekloud/webapp-color:v2\nkubectl -n default rollout status deployment/ocean-tv-wl09 --timeout=180s\nkubectl -n default get deployment ocean-tv-wl09 -o json | jq -r '.metadata.annotations[\"deployment.kubernetes.io/revision\"]' | sudo -n tee /opt/revision-count.txt\nkubectl -n default rollout undo deployment/ocean-tv-wl09\nkubectl -n default rollout status deployment/ocean-tv-wl09 --timeout=180s",
+    "resource": "bash /opt/painkiller/cka003/capture.sh q12",
+    "checks": [{"description": "Correct strategy, revision evidence, retained v2 history, and three ready v1 replicas", "points": 8, "expression": ".ok == true"}],
+    "explanation": "Rolling back creates a new Deployment revision even when it reuses an older ReplicaSet."
+  },
+  {
+    "id": "ingress", "question_id": "CKA-003-Q13", "category": "Services & Networking",
+    "title": "Expose a Service using Ingress", "points": 8,
+    "instructions": "On the initial controller, create `default/nginx-ingress-cka04-svcn`: ingressClassName `nginx-cka04`, path `/`, pathType `Prefix`, backend Service `nginx-service-cka04-svcn` port 80, and annotation `nginx.ingress.kubernetes.io/ssl-redirect: \"false\"`. Omit the host so any host matches. Test with `curl -H 'Host: ingress.cka003.test' http://cka003-controlplane:30080`. The supplied class uses Traefik with HTTP and no redirect; the nginx annotation is retained for source compatibility but is not interpreted by Traefik.",
+    "steps": ["Inspect the existing Service and supplied IngressClass.", "Create a hostless Prefix route to port 80 and retain the requested annotation.", "Probe NodePort 30080 with an arbitrary hostname distinct from Q6."],
+    "solution": "printf '%s\\n' 'apiVersion: networking.k8s.io/v1' 'kind: Ingress' 'metadata:' '  name: nginx-ingress-cka04-svcn' '  namespace: default' '  annotations: {nginx.ingress.kubernetes.io/ssl-redirect: \"false\"}' 'spec:' '  ingressClassName: nginx-cka04' '  rules:' '    - http:' '        paths:' '          - path: /' '            pathType: Prefix' '            backend:' '              service: {name: nginx-service-cka04-svcn, port: {number: 80}}' | kubectl apply -f -",
+    "resource": "bash /opt/painkiller/cka003/capture.sh q13",
+    "checks": [{"description": "Correct hostless Ingress and working HTTP response", "points": 8, "expression": ".ok == true"}],
+    "explanation": "A hostless Ingress rule matches arbitrary HTTP Host headers."
+  },
+  {
+    "id": "paused-rollout", "question_id": "CKA-003-Q14", "category": "Troubleshooting",
+    "title": "Restore an up-to-date Deployment", "points": 4,
+    "instructions": "On the initial controller, troubleshoot `default/black-cka25-trb`, showing 0 UP-TO-DATE replicas. Complete its pending update so desired, updated, ready, and available replicas are 1. Preserve the intended Pod template, including annotation `cka003/revision: pending`; do not undo the update.",
+    "steps": ["Inspect Deployment state and rollout conditions.", "Identify why a changed template has not produced an updated replica.", "Resume the rollout and wait for completion."],
+    "solution": "kubectl -n default rollout resume deployment/black-cka25-trb\nkubectl -n default rollout status deployment/black-cka25-trb --timeout=180s",
+    "resource": "bash /opt/painkiller/cka003/capture.sh q14",
+    "checks": [{"description": "Pending rollout completed with one updated, ready replica", "points": 4, "expression": ".ok == true"}],
+    "explanation": "A paused Deployment does not reconcile a new Pod template until resumed."
+  },
+  {
+    "id": "service-repair", "question_id": "CKA-003-Q15", "category": "Troubleshooting",
+    "title": "Repair application connectivity", "points": 4,
+    "instructions": "On the initial controller, inspect logs from `default/purple-curl-cka27-trb`. It monitors nginx Pod `purple-app-cka27-trb` through ClusterIP Service `purple-svc-cka27-trb`. The app listens on port 80. Fix the cause of failed HTTP requests while keeping the app and monitoring Pod. The Service must remain ClusterIP, expose port 80, and route to application port 80.",
+    "steps": ["Read monitoring Pod logs.", "Compare the Service selector and targetPort with the application.", "Correct the Service and confirm successful HTTP from the monitoring Pod."],
+    "solution": "kubectl -n default logs purple-curl-cka27-trb --tail=10\nkubectl -n default patch service purple-svc-cka27-trb --type=merge -p '{\"spec\":{\"ports\":[{\"port\":80,\"targetPort\":80}]}}'\nkubectl -n default exec purple-curl-cka27-trb -- curl --max-time 5 -fsS http://purple-svc-cka27-trb",
+    "resource": "bash /opt/painkiller/cka003/capture.sh q15",
+    "checks": [{"description": "Correct Service port mapping and successful monitored HTTP request", "points": 4, "expression": ".ok == true"}],
+    "explanation": "Service targetPort must match the port on which the selected application is listening."
+  },
+  {
+    "id": "storage-class", "question_id": "CKA-003-Q16", "category": "Storage",
+    "title": "Create a local StorageClass", "points": 2,
+    "instructions": "On the initial controller, create StorageClass `banana-sc-cka08-str` with provisioner `kubernetes.io/no-provisioner`, volumeBindingMode `WaitForFirstConsumer`, and allowVolumeExpansion `true`. This task assesses the StorageClass specification only; enabling the flag does not make local volumes capable of expansion.",
+    "steps": ["Create the StorageClass with all three requested fields.", "Verify its provisioner, binding mode, and expansion flag."],
+    "solution": "printf '%s\\n' 'apiVersion: storage.k8s.io/v1' 'kind: StorageClass' 'metadata: {name: banana-sc-cka08-str}' 'provisioner: kubernetes.io/no-provisioner' 'volumeBindingMode: WaitForFirstConsumer' 'allowVolumeExpansion: true' | kubectl apply -f -",
+    "resource": "bash /opt/painkiller/cka003/capture.sh q16",
+    "checks": [{"description": "StorageClass has all requested properties", "points": 2, "expression": ".ok == true"}],
+    "explanation": "WaitForFirstConsumer defers volume binding until the scheduler knows the consumer's placement."
+  }
+]

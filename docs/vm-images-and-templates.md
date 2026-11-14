@@ -77,7 +77,7 @@ alter an image. Verify current allocations and consumers before acting.
 | ID | Usage | Owning or consuming exam(s) |
 | --- | --- | --- |
 | `9010` | Current legacy-mode default; transitional, ancestry unverified | Legacy-mode consumers; specific exams not established |
-| `9100` | Current default prebaked Kubernetes image; ancestry unverified | Default for exams without an explicit lab template, including CKA-001 |
+| `9100` | Current default prebaked Kubernetes image; ancestry unverified | Default for exams without an explicit lab template, including CKA-001; explicit CKA-003 default |
 | `9198` | Prebaked HA Kubernetes/Calico image; ancestry unverified | CKA-002 |
 | `9199` | Generic VM foundation and sole approved base | Shared—all exams |
 | `9200` | Existing HA image; current consumer and ancestry unverified | Not established |

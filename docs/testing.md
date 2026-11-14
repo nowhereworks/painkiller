@@ -13,6 +13,8 @@ go test -race ./...
 go vet ./...
 node --check web/app.js
 shellcheck -x scripts/test-exam.sh scripts/create-lab.sh scripts/build-template.sh scripts/playbooks.sh scripts/validate-image.sh scripts/configure-exam-access.sh exam/*/reference-solutions.sh exam/*/check-ready.sh
+shellcheck exam/CKA-003/prepare.sh exam/CKA-003/assets/capture.sh
+(cd exam/CKA-003/assets && sha256sum --check --quiet SHA256SUMS)
 ansible-playbook --syntax-check -i localhost, playbooks/kubeadm-cluster/kubeadm-cluster.yml -e controller_ips=192.0.2.1
 ```
 
@@ -43,7 +45,8 @@ Do not build or replace a template as part of this test.
 
    ```sh
    LAB_VM_START=3100 scripts/test-exam.sh CKA-001
-   LAB_VM_START=3100 scripts/test-exam.sh CKA-002
+    LAB_VM_START=3100 scripts/test-exam.sh CKA-002
+    LAB_VM_START=3100 scripts/test-exam.sh CKA-003
    ```
 
    Run exams sequentially and verify the range is free before each run. The
@@ -77,6 +80,12 @@ To use the normal destroy command after verifying ownership, set the same
 `LAB_MARKER` used for the run; review `scripts/create-lab.sh` first. The
 destructive command is `scripts/create-lab.sh destroy`. Coordinate with any
 other lab operator and preserve the shared operation lock.
+
+CKA-003 uses three VMs and no reserved LAN addresses. Its preparation installs
+exam-owned NFS CSI, routing, and metrics dependencies; it needs package/image
+downloads and a working NFS server on the first worker. Validate all 16 scoring
+mutations, including the PVC expansion-capability check. See its exam-owned
+README for source adaptations and evidence limitations.
 
 ## Browser coverage
 
