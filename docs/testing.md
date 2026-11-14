@@ -15,6 +15,9 @@ node --check web/app.js
 shellcheck -x scripts/test-exam.sh scripts/create-lab.sh scripts/build-template.sh scripts/playbooks.sh scripts/validate-image.sh scripts/configure-exam-access.sh exam/*/reference-solutions.sh exam/*/check-ready.sh
 shellcheck exam/CKA-003/prepare.sh exam/CKA-003/assets/capture.sh
 shellcheck exam/CKAD-001/*.sh exam/CKAD-001/assets/*.sh
+shellcheck exam/OPA-001/*.sh exam/OPA-001/assets/*.sh
+(cd exam/OPA-001/assets && sha256sum --check --quiet SHA256SUMS)
+python3 -B exam/OPA-001/tests/test_capture.py -v
 (cd exam/CKAD-001/assets && sha256sum --check --quiet SHA256SUMS)
 (cd exam/CKA-003/assets && sha256sum --check --quiet SHA256SUMS)
 ansible-playbook --syntax-check -i localhost, playbooks/kubeadm-cluster/kubeadm-cluster.yml -e controller_ips=192.0.2.1
@@ -60,6 +63,7 @@ Do not build or replace a template as part of this test.
    LAB_VM_START=3100 scripts/test-exam.sh CKA-002
    LAB_VM_START=3100 scripts/test-exam.sh CKA-003
    LAB_VM_START=3100 scripts/test-exam.sh CKAD-001
+   LAB_VM_START=3100 scripts/test-exam.sh OPA-001
    ```
 
    Run exams sequentially and verify the range is free before each run. The
@@ -105,6 +109,15 @@ and Calico, not the default prebaked Flannel image. Its readiness check verifies
 real ingress/egress isolation with separate canaries. It needs package/image
 downloads and its host HTTP fixture on port 9998. Validate all 21 loss/restore
 mutations; see `exam/CKAD-001/README.md` for source corrections and boundaries.
+
+OPA-001 uses **one** linked clone of base 9199, 6144 MB minimum, full-install
+Kubernetes/Flannel, and a schedulable control plane; there are no workers or
+reserved LAN addresses. Preparation installs checksum-pinned OPA, Conftest,
+Regal, and Gatekeeper dependencies. Local Python real-CLI cases require the
+exam's pinned tools on PATH and explicitly skip without them. Live grading
+observes real bundle activation, newly masked decision logs, dry-run admission,
+and existing audit violations. Require all 16 loss/restore mutations. See
+`exam/OPA-001/README.md` for source mappings and assessed/unassessed boundaries.
 
 ## Browser coverage
 

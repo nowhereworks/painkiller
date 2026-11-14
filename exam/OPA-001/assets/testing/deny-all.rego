@@ -1,0 +1,3 @@
+package tenant
+
+allow := false

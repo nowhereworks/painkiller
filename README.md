@@ -28,9 +28,13 @@ simulator. It currently requires a Proxmox host and includes:
 - **CKAD-001:** 21 application-development tasks covering Pods, CronJobs, Helm,
   Services, NetworkPolicies, configuration, Secrets, and probes; one controller
   and two workers with Calico.
+- **OPA-001:** 16 unofficial practical tasks covering Rego, authorization,
+  testing, bundles, decision logs, Gatekeeper, Conftest, and Regal; one
+  schedulable controller, zero workers, 150 minutes.
 
-All exams default to 120 minutes. Exam-specific requirements and lab settings
-live in `exam/<ID>/`. Only one attempt and lab can be active at a time.
+Kubernetes exams default to 120 minutes; OPA-001 uses 150. Exam-specific
+requirements and lab settings live in `exam/<ID>/`. Only one attempt and lab
+can be active at a time.
 
 **Security:** Run only on a trusted management host and network. There is no
 authentication or multi-user isolation, and the environment is not tamper-proof.
@@ -55,7 +59,7 @@ You need:
   the management host. The SSH account must be able to manage VMs and use the
   guest agent.
 - A compatible template: prebaked `9100` for CKA-001/CKA-003, prebaked `9198`
-  for CKA-002, or generic base `9199` for CKAD-001's full-install provisioning.
+  for CKA-002, or generic base `9199` for CKAD-001/OPA-001 full-install provisioning.
   The template must provide DHCP, DNS, a running QEMU guest agent, and
   passwordless SSH access for the configured lab user. Clones must be reachable
   from the management host and have network access for provisioning.

@@ -1,0 +1,20 @@
+apiVersion: constraints.gatekeeper.sh/v1beta1
+kind: OPAAuditLabels
+metadata: {name: audit-env}
+spec:
+  enforcementAction: deny
+  match:
+    kinds: [{apiGroups: [""], kinds: [ConfigMap]}]
+    namespaces: [opa-audit]
+    excludedNamespaces: [opa-audit]
+  parameters:
+    labels: [env]
+---
+apiVersion: constraints.gatekeeper.sh/v1beta1
+kind: OPANamespaceTeam
+metadata: {name: namespace-team}
+spec:
+  enforcementAction: deny
+  match:
+    kinds: [{apiGroups: [""], kinds: [ConfigMap]}]
+    namespaces: [opa-inventory-blue, opa-inventory-green]

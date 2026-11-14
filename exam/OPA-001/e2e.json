@@ -1,0 +1,21 @@
+{
+  "baseline": 0,
+  "mutations": [
+    {"task":"decision-contract","remove":"bash /opt/painkiller/opa001/mutate.sh remove q1","restore":"bash /opt/painkiller/opa001/mutate.sh restore q1"},
+    {"task":"tenant-rbac","remove":"bash /opt/painkiller/opa001/mutate.sh remove q2","restore":"bash /opt/painkiller/opa001/mutate.sh restore q2"},
+    {"task":"abac-deny","remove":"bash /opt/painkiller/opa001/mutate.sh remove q3","restore":"bash /opt/painkiller/opa001/mutate.sh restore q3"},
+    {"task":"violations-set","remove":"bash /opt/painkiller/opa001/mutate.sh remove q4","restore":"bash /opt/painkiller/opa001/mutate.sh restore q4"},
+    {"task":"approval-boundaries","remove":"bash /opt/painkiller/opa001/mutate.sh remove q5","restore":"bash /opt/painkiller/opa001/mutate.sh restore q5"},
+    {"task":"regression-tests","remove":"bash /opt/painkiller/opa001/mutate.sh remove q6","restore":"bash /opt/painkiller/opa001/mutate.sh restore q6"},
+    {"task":"enforcement-adapter","remove":"bash /opt/painkiller/opa001/mutate.sh remove q7","restore":"bash /opt/painkiller/opa001/mutate.sh restore q7"},
+    {"task":"relationship-access","remove":"bash /opt/painkiller/opa001/mutate.sh remove q8","restore":"bash /opt/painkiller/opa001/mutate.sh restore q8"},
+    {"task":"bundle-release","remove":"bash /opt/painkiller/opa001/mutate.sh remove q9","restore":"bash /opt/painkiller/opa001/mutate.sh restore q9"},
+    {"task":"bundle-recovery","remove":"bash /opt/painkiller/opa001/mutate.sh remove q10","restore":"bash /opt/painkiller/opa001/mutate.sh restore q10"},
+    {"task":"decision-log-mask","remove":"bash /opt/painkiller/opa001/mutate.sh remove q11","restore":"bash /opt/painkiller/opa001/mutate.sh restore q11"},
+    {"task":"gatekeeper-template","remove":"bash /opt/painkiller/opa001/mutate.sh remove q12","restore":"bash /opt/painkiller/opa001/mutate.sh restore q12"},
+    {"task":"gatekeeper-audit","remove":"bash /opt/painkiller/opa001/mutate.sh remove q13","restore":"bash /opt/painkiller/opa001/mutate.sh restore q13"},
+    {"task":"gatekeeper-inventory","remove":"bash /opt/painkiller/opa001/mutate.sh remove q14","restore":"bash /opt/painkiller/opa001/mutate.sh restore q14"},
+    {"task":"configuration-tooling","remove":"bash /opt/painkiller/opa001/mutate.sh remove q15","restore":"bash /opt/painkiller/opa001/mutate.sh restore q15"},
+    {"task":"profile-optimization","remove":"bash /opt/painkiller/opa001/mutate.sh remove q16","restore":"bash /opt/painkiller/opa001/mutate.sh restore q16"}
+  ]
+}

@@ -1,0 +1,17 @@
+{
+  "id": "OPA-001",
+  "title": "OPA practical exam — mock 01 (unofficial)",
+  "description": "16 hands-on tasks covering Rego v1, authorization, testing, application enforcement, bundles, decision logs, Gatekeeper, Conftest, Regal, and performance.",
+  "minutes": 150,
+  "categories": ["Rego", "Authorization", "Testing", "Integration", "Operations", "Gatekeeper", "Ecosystem", "Security and performance"],
+  "lab": {
+    "controllers": 1,
+    "workers": 0,
+    "initial_controllers": 1,
+    "provision_mode": "legacy",
+    "cni": "flannel",
+    "memory_mb": 6144,
+    "template_id": "9199",
+    "prepare": "prepare.sh"
+  }
+}
