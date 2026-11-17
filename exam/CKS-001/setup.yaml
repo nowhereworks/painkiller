@@ -1,0 +1,1016 @@
+{
+  "apiVersion": "v1",
+  "kind": "List",
+  "items": [
+    {
+      "apiVersion": "v1",
+      "kind": "Namespace",
+      "metadata": {
+        "name": "cks001-system",
+        "labels": {
+          "painkiller-shell/exam": "CKS-001"
+        }
+      }
+    },
+    {
+      "apiVersion": "v1",
+      "kind": "Namespace",
+      "metadata": {
+        "name": "helix",
+        "labels": {
+          "painkiller-shell/exam": "CKS-001"
+        }
+      }
+    },
+    {
+      "apiVersion": "v1",
+      "kind": "Namespace",
+      "metadata": {
+        "name": "relay",
+        "labels": {
+          "painkiller-shell/exam": "CKS-001"
+        }
+      }
+    },
+    {
+      "apiVersion": "v1",
+      "kind": "Namespace",
+      "metadata": {
+        "name": "runtime-watch",
+        "labels": {
+          "painkiller-shell/exam": "CKS-001"
+        }
+      }
+    },
+    {
+      "apiVersion": "v1",
+      "kind": "Namespace",
+      "metadata": {
+        "name": "inventory",
+        "labels": {
+          "painkiller-shell/exam": "CKS-001"
+        }
+      }
+    },
+    {
+      "apiVersion": "v1",
+      "kind": "Namespace",
+      "metadata": {
+        "name": "batch-ops",
+        "labels": {
+          "painkiller-shell/exam": "CKS-001"
+        }
+      }
+    },
+    {
+      "apiVersion": "v1",
+      "kind": "Namespace",
+      "metadata": {
+        "name": "locked-down",
+        "labels": {
+          "painkiller-shell/exam": "CKS-001",
+          "pod-security.kubernetes.io/enforce": "restricted",
+          "pod-security.kubernetes.io/enforce-version": "latest"
+        }
+      }
+    },
+    {
+      "apiVersion": "v1",
+      "kind": "Namespace",
+      "metadata": {
+        "name": "catalog",
+        "labels": {
+          "painkiller-shell/exam": "CKS-001"
+        }
+      }
+    },
+    {
+      "apiVersion": "v1",
+      "kind": "Namespace",
+      "metadata": {
+        "name": "storage",
+        "labels": {
+          "painkiller-shell/exam": "CKS-001"
+        }
+      }
+    },
+    {
+      "apiVersion": "v1",
+      "kind": "Namespace",
+      "metadata": {
+        "name": "billing",
+        "labels": {
+          "painkiller-shell/exam": "CKS-001"
+        }
+      }
+    },
+    {
+      "apiVersion": "v1",
+      "kind": "Namespace",
+      "metadata": {
+        "name": "observatory",
+        "labels": {
+          "painkiller-shell/exam": "CKS-001"
+        }
+      }
+    },
+    {
+      "apiVersion": "v1",
+      "kind": "Namespace",
+      "metadata": {
+        "name": "launch",
+        "labels": {
+          "painkiller-shell/exam": "CKS-001"
+        }
+      }
+    },
+    {
+      "apiVersion": "v1",
+      "kind": "Namespace",
+      "metadata": {
+        "name": "team-a",
+        "labels": {
+          "painkiller-shell/exam": "CKS-001"
+        }
+      }
+    },
+    {
+      "apiVersion": "v1",
+      "kind": "Namespace",
+      "metadata": {
+        "name": "team-b",
+        "labels": {
+          "painkiller-shell/exam": "CKS-001"
+        }
+      }
+    },
+    {
+      "apiVersion": "v1",
+      "kind": "Namespace",
+      "metadata": {
+        "name": "team-c",
+        "labels": {
+          "painkiller-shell/exam": "CKS-001"
+        }
+      }
+    },
+    {
+      "apiVersion": "v1",
+      "kind": "Namespace",
+      "metadata": {
+        "name": "harbor",
+        "labels": {
+          "painkiller-shell/exam": "CKS-001"
+        }
+      }
+    },
+    {
+      "apiVersion": "v1",
+      "kind": "Namespace",
+      "metadata": {
+        "name": "cks001-canary",
+        "labels": {
+          "painkiller-shell/exam": "CKS-001"
+        }
+      }
+    },
+    {
+      "apiVersion": "v1",
+      "kind": "Pod",
+      "metadata": {
+        "name": "open-web",
+        "namespace": "cks001-canary",
+        "labels": {
+          "app": "open-web"
+        }
+      },
+      "spec": {
+        "containers": [
+          {
+            "name": "open-web",
+            "image": "nginx:1.28-alpine",
+            "imagePullPolicy": "IfNotPresent"
+          }
+        ]
+      }
+    },
+    {
+      "apiVersion": "v1",
+      "kind": "Pod",
+      "metadata": {
+        "name": "blocked-web",
+        "namespace": "cks001-canary",
+        "labels": {
+          "app": "blocked-web"
+        }
+      },
+      "spec": {
+        "containers": [
+          {
+            "name": "blocked-web",
+            "image": "nginx:1.28-alpine",
+            "imagePullPolicy": "IfNotPresent"
+          }
+        ]
+      }
+    },
+    {
+      "apiVersion": "networking.k8s.io/v1",
+      "kind": "NetworkPolicy",
+      "metadata": {
+        "name": "canary-deny",
+        "namespace": "cks001-canary"
+      },
+      "spec": {
+        "podSelector": {
+          "matchLabels": {
+            "app": "blocked-web"
+          }
+        },
+        "policyTypes": [
+          "Ingress"
+        ],
+        "ingress": []
+      }
+    },
+    {
+      "apiVersion": "v1",
+      "kind": "ServiceAccount",
+      "metadata": {
+        "name": "site-reader",
+        "namespace": "helix"
+      }
+    },
+    {
+      "apiVersion": "rbac.authorization.k8s.io/v1",
+      "kind": "Role",
+      "metadata": {
+        "name": "site-reader",
+        "namespace": "helix"
+      },
+      "rules": [
+        {
+          "apiGroups": [
+            ""
+          ],
+          "resources": [
+            "configmaps"
+          ],
+          "verbs": [
+            "get"
+          ]
+        }
+      ]
+    },
+    {
+      "apiVersion": "rbac.authorization.k8s.io/v1",
+      "kind": "RoleBinding",
+      "metadata": {
+        "name": "site-reader",
+        "namespace": "helix"
+      },
+      "roleRef": {
+        "apiGroup": "rbac.authorization.k8s.io",
+        "kind": "Role",
+        "name": "site-reader"
+      },
+      "subjects": [
+        {
+          "kind": "ServiceAccount",
+          "name": "site-reader",
+          "namespace": "helix"
+        }
+      ]
+    },
+    {
+      "apiVersion": "v1",
+      "kind": "ServiceAccount",
+      "metadata": {
+        "name": "site-editor",
+        "namespace": "helix"
+      }
+    },
+    {
+      "apiVersion": "rbac.authorization.k8s.io/v1",
+      "kind": "Role",
+      "metadata": {
+        "name": "site-editor",
+        "namespace": "helix"
+      },
+      "rules": [
+        {
+          "apiGroups": [
+            ""
+          ],
+          "resources": [
+            "configmaps"
+          ],
+          "verbs": [
+            "*"
+          ]
+        }
+      ]
+    },
+    {
+      "apiVersion": "rbac.authorization.k8s.io/v1",
+      "kind": "RoleBinding",
+      "metadata": {
+        "name": "site-editor",
+        "namespace": "helix"
+      },
+      "roleRef": {
+        "apiGroup": "rbac.authorization.k8s.io",
+        "kind": "Role",
+        "name": "site-editor"
+      },
+      "subjects": [
+        {
+          "kind": "ServiceAccount",
+          "name": "site-editor",
+          "namespace": "helix"
+        }
+      ]
+    },
+    {
+      "apiVersion": "v1",
+      "kind": "ServiceAccount",
+      "metadata": {
+        "name": "site-admin",
+        "namespace": "helix"
+      }
+    },
+    {
+      "apiVersion": "rbac.authorization.k8s.io/v1",
+      "kind": "Role",
+      "metadata": {
+        "name": "site-admin",
+        "namespace": "helix"
+      },
+      "rules": [
+        {
+          "apiGroups": [
+            ""
+          ],
+          "resources": [
+            "*"
+          ],
+          "verbs": [
+            "*"
+          ]
+        }
+      ]
+    },
+    {
+      "apiVersion": "rbac.authorization.k8s.io/v1",
+      "kind": "RoleBinding",
+      "metadata": {
+        "name": "site-admin",
+        "namespace": "helix"
+      },
+      "roleRef": {
+        "apiGroup": "rbac.authorization.k8s.io",
+        "kind": "Role",
+        "name": "site-admin"
+      },
+      "subjects": [
+        {
+          "kind": "ServiceAccount",
+          "name": "site-admin",
+          "namespace": "helix"
+        }
+      ]
+    },
+    {
+      "apiVersion": "v1",
+      "kind": "ConfigMap",
+      "metadata": {
+        "name": "site-content",
+        "namespace": "helix"
+      },
+      "data": {
+        "public": "helix-public\n",
+        "private": "helix-private\n"
+      }
+    },
+    {
+      "apiVersion": "v1",
+      "kind": "Pod",
+      "metadata": {
+        "name": "frontend",
+        "namespace": "helix",
+        "labels": {
+          "app": "frontend"
+        }
+      },
+      "spec": {
+        "containers": [
+          {
+            "name": "frontend",
+            "image": "nginx:1.28-alpine",
+            "imagePullPolicy": "IfNotPresent",
+            "volumeMounts": [
+              {
+                "name": "html",
+                "mountPath": "/usr/share/nginx/html",
+                "readOnly": true
+              }
+            ]
+          }
+        ],
+        "serviceAccountName": "site-admin",
+        "volumes": [
+          {
+            "name": "html",
+            "configMap": {
+              "name": "site-content",
+              "items": [
+                {
+                  "key": "public",
+                  "path": "index.html"
+                },
+                {
+                  "key": "private",
+                  "path": "staff/index.html"
+                }
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "apiVersion": "v1",
+      "kind": "Secret",
+      "metadata": {
+        "name": "broker-auth",
+        "namespace": "relay"
+      },
+      "stringData": {
+        "BROKER_PASSWORD": "relay-test-key-73"
+      }
+    },
+    {
+      "apiVersion": "v1",
+      "kind": "Pod",
+      "metadata": {
+        "name": "connector",
+        "namespace": "relay",
+        "labels": {
+          "app": "connector"
+        }
+      },
+      "spec": {
+        "containers": [
+          {
+            "name": "connector",
+            "image": "busybox:1.37.0",
+            "imagePullPolicy": "IfNotPresent",
+            "command": [
+              "sh",
+              "-c",
+              "sleep 2147483647"
+            ],
+            "env": [
+              {
+                "name": "BROKER_PASSWORD",
+                "valueFrom": {
+                  "secretKeyRef": {
+                    "name": "broker-auth",
+                    "key": "BROKER_PASSWORD"
+                  }
+                }
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "apiVersion": "apps/v1",
+      "kind": "Deployment",
+      "metadata": {
+        "name": "toolkit",
+        "namespace": "inventory",
+        "labels": {
+          "app": "toolkit"
+        }
+      },
+      "spec": {
+        "replicas": 1,
+        "selector": {
+          "matchLabels": {
+            "app": "toolkit"
+          }
+        },
+        "template": {
+          "metadata": {
+            "labels": {
+              "app": "toolkit"
+            }
+          },
+          "spec": {
+            "containers": [
+              {
+                "name": "cedar",
+                "image": "busybox:1.37.0",
+                "command": [
+                  "sleep",
+                  "2147483647"
+                ]
+              },
+              {
+                "name": "maple",
+                "image": "alpine/curl:8.12.1",
+                "command": [
+                  "sleep",
+                  "2147483647"
+                ]
+              },
+              {
+                "name": "birch",
+                "image": "alpine:3.21.3",
+                "command": [
+                  "sleep",
+                  "2147483647"
+                ]
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "apiVersion": "apps/v1",
+      "kind": "Deployment",
+      "metadata": {
+        "name": "janitor",
+        "namespace": "batch-ops",
+        "labels": {
+          "app": "janitor"
+        }
+      },
+      "spec": {
+        "replicas": 1,
+        "selector": {
+          "matchLabels": {
+            "app": "janitor"
+          }
+        },
+        "template": {
+          "metadata": {
+            "labels": {
+              "app": "janitor"
+            }
+          },
+          "spec": {
+            "containers": [
+              {
+                "name": "janitor",
+                "image": "busybox:1.37.0",
+                "imagePullPolicy": "IfNotPresent",
+                "command": [
+                  "sleep",
+                  "2147483647"
+                ]
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "apiVersion": "apps/v1",
+      "kind": "Deployment",
+      "metadata": {
+        "name": "portal",
+        "namespace": "locked-down",
+        "labels": {
+          "app": "portal"
+        }
+      },
+      "spec": {
+        "replicas": 1,
+        "selector": {
+          "matchLabels": {
+            "app": "portal"
+          }
+        },
+        "template": {
+          "metadata": {
+            "labels": {
+              "app": "portal"
+            }
+          },
+          "spec": {
+            "containers": [
+              {
+                "name": "portal",
+                "image": "nginxinc/nginx-unprivileged:1.28-alpine",
+                "imagePullPolicy": "IfNotPresent"
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "apiVersion": "apps/v1",
+      "kind": "Deployment",
+      "metadata": {
+        "name": "catalog-web",
+        "namespace": "catalog",
+        "labels": {
+          "app": "catalog-web"
+        }
+      },
+      "spec": {
+        "replicas": 1,
+        "selector": {
+          "matchLabels": {
+            "app": "catalog-web"
+          }
+        },
+        "template": {
+          "metadata": {
+            "labels": {
+              "app": "catalog-web"
+            }
+          },
+          "spec": {
+            "containers": [
+              {
+                "name": "catalog-web",
+                "image": "nginx:1.28-alpine",
+                "imagePullPolicy": "IfNotPresent"
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "apiVersion": "v1",
+      "kind": "Pod",
+      "metadata": {
+        "name": "catalog-db",
+        "namespace": "storage",
+        "labels": {
+          "app": "catalog-db"
+        }
+      },
+      "spec": {
+        "containers": [
+          {
+            "name": "catalog-db",
+            "image": "busybox:1.37.0",
+            "imagePullPolicy": "IfNotPresent",
+            "command": [
+              "sleep",
+              "2147483647"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "apiVersion": "v1",
+      "kind": "Pod",
+      "metadata": {
+        "name": "other-client",
+        "namespace": "storage",
+        "labels": {
+          "app": "other-client"
+        }
+      },
+      "spec": {
+        "containers": [
+          {
+            "name": "other-client",
+            "image": "busybox:1.37.0",
+            "imagePullPolicy": "IfNotPresent",
+            "command": [
+              "sleep",
+              "2147483647"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "apiVersion": "v1",
+      "kind": "Pod",
+      "metadata": {
+        "name": "billing-client",
+        "namespace": "billing",
+        "labels": {
+          "app": "billing-client"
+        }
+      },
+      "spec": {
+        "containers": [
+          {
+            "name": "billing-client",
+            "image": "busybox:1.37.0",
+            "imagePullPolicy": "IfNotPresent",
+            "command": [
+              "sleep",
+              "2147483647"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "apiVersion": "v1",
+      "kind": "Pod",
+      "metadata": {
+        "name": "outsider",
+        "namespace": "default",
+        "labels": {
+          "app": "outsider"
+        }
+      },
+      "spec": {
+        "containers": [
+          {
+            "name": "outsider",
+            "image": "busybox:1.37.0",
+            "imagePullPolicy": "IfNotPresent",
+            "command": [
+              "sleep",
+              "2147483647"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "apiVersion": "v1",
+      "kind": "Pod",
+      "metadata": {
+        "name": "observer",
+        "namespace": "cks001-system",
+        "labels": {
+          "app": "observer"
+        }
+      },
+      "spec": {
+        "containers": [
+          {
+            "name": "observer",
+            "image": "busybox:1.37.0",
+            "imagePullPolicy": "IfNotPresent",
+            "command": [
+              "sleep",
+              "2147483647"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "apiVersion": "apps/v1",
+      "kind": "Deployment",
+      "metadata": {
+        "name": "delta",
+        "namespace": "observatory",
+        "labels": {
+          "app": "delta"
+        }
+      },
+      "spec": {
+        "replicas": 1,
+        "selector": {
+          "matchLabels": {
+            "app": "delta"
+          }
+        },
+        "template": {
+          "metadata": {
+            "labels": {
+              "app": "delta"
+            }
+          },
+          "spec": {
+            "containers": [
+              {
+                "name": "delta",
+                "image": "busybox:1.37.0",
+                "imagePullPolicy": "IfNotPresent",
+                "command": [
+                  "sleep",
+                  "2147483647"
+                ]
+              },
+              {
+                "name": "helper",
+                "image": "busybox:1.37.0",
+                "command": [
+                  "sleep",
+                  "2147483647"
+                ]
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "apiVersion": "apps/v1",
+      "kind": "Deployment",
+      "metadata": {
+        "name": "shuttle",
+        "namespace": "launch",
+        "labels": {
+          "app": "shuttle"
+        }
+      },
+      "spec": {
+        "replicas": 1,
+        "selector": {
+          "matchLabels": {
+            "app": "shuttle"
+          }
+        },
+        "template": {
+          "metadata": {
+            "labels": {
+              "app": "shuttle"
+            }
+          },
+          "spec": {
+            "containers": [
+              {
+                "name": "shuttle",
+                "image": "nginx:1.28-alpine",
+                "imagePullPolicy": "IfNotPresent"
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "apiVersion": "v1",
+      "kind": "Service",
+      "metadata": {
+        "name": "shuttle",
+        "namespace": "launch"
+      },
+      "spec": {
+        "selector": {
+          "app": "shuttle"
+        },
+        "ports": [
+          {
+            "port": 80,
+            "targetPort": 80
+          }
+        ]
+      }
+    },
+    {
+      "apiVersion": "rbac.authorization.k8s.io/v1",
+      "kind": "Role",
+      "metadata": {
+        "name": "alex-pods",
+        "namespace": "team-a"
+      },
+      "rules": [
+        {
+          "apiGroups": [
+            ""
+          ],
+          "resources": [
+            "*"
+          ],
+          "verbs": [
+            "*"
+          ]
+        }
+      ]
+    },
+    {
+      "apiVersion": "rbac.authorization.k8s.io/v1",
+      "kind": "RoleBinding",
+      "metadata": {
+        "name": "alex-access",
+        "namespace": "team-a"
+      },
+      "roleRef": {
+        "apiGroup": "rbac.authorization.k8s.io",
+        "kind": "Role",
+        "name": "alex-pods"
+      },
+      "subjects": [
+        {
+          "kind": "User",
+          "name": "alex",
+          "apiGroup": "rbac.authorization.k8s.io"
+        }
+      ]
+    },
+    {
+      "apiVersion": "rbac.authorization.k8s.io/v1",
+      "kind": "Role",
+      "metadata": {
+        "name": "alex-pods",
+        "namespace": "team-b"
+      },
+      "rules": [
+        {
+          "apiGroups": [
+            ""
+          ],
+          "resources": [
+            "*"
+          ],
+          "verbs": [
+            "*"
+          ]
+        }
+      ]
+    },
+    {
+      "apiVersion": "rbac.authorization.k8s.io/v1",
+      "kind": "RoleBinding",
+      "metadata": {
+        "name": "alex-access",
+        "namespace": "team-b"
+      },
+      "roleRef": {
+        "apiGroup": "rbac.authorization.k8s.io",
+        "kind": "Role",
+        "name": "alex-pods"
+      },
+      "subjects": [
+        {
+          "kind": "User",
+          "name": "alex",
+          "apiGroup": "rbac.authorization.k8s.io"
+        }
+      ]
+    },
+    {
+      "apiVersion": "rbac.authorization.k8s.io/v1",
+      "kind": "Role",
+      "metadata": {
+        "name": "alex-pods",
+        "namespace": "team-c"
+      },
+      "rules": [
+        {
+          "apiGroups": [
+            ""
+          ],
+          "resources": [
+            "*"
+          ],
+          "verbs": [
+            "*"
+          ]
+        }
+      ]
+    },
+    {
+      "apiVersion": "rbac.authorization.k8s.io/v1",
+      "kind": "RoleBinding",
+      "metadata": {
+        "name": "alex-access",
+        "namespace": "team-c"
+      },
+      "roleRef": {
+        "apiGroup": "rbac.authorization.k8s.io",
+        "kind": "Role",
+        "name": "alex-pods"
+      },
+      "subjects": [
+        {
+          "kind": "User",
+          "name": "alex",
+          "apiGroup": "rbac.authorization.k8s.io"
+        }
+      ]
+    },
+    {
+      "apiVersion": "v1",
+      "kind": "Pod",
+      "metadata": {
+        "name": "harbor-web",
+        "namespace": "harbor",
+        "labels": {
+          "app": "harbor-web"
+        }
+      },
+      "spec": {
+        "containers": [
+          {
+            "name": "harbor-web",
+            "image": "nginx:latest",
+            "imagePullPolicy": "IfNotPresent"
+          }
+        ]
+      }
+    }
+  ]
+}

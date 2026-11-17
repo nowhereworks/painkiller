@@ -1,0 +1,80 @@
+{
+  "baseline": 0,
+  "mutations": [
+    {
+      "task": "apparmor-identity",
+      "remove": "sudo -n env KUBECONFIG=/etc/kubernetes/admin.conf python3 -B /opt/painkiller/cks001/mutate.py remove q1",
+      "restore": "sudo -n env KUBECONFIG=/etc/kubernetes/admin.conf python3 -B /opt/painkiller/cks001/mutate.py restore q1"
+    },
+    {
+      "task": "secret-volume",
+      "remove": "sudo -n env KUBECONFIG=/etc/kubernetes/admin.conf python3 -B /opt/painkiller/cks001/mutate.py remove q2",
+      "restore": "sudo -n env KUBECONFIG=/etc/kubernetes/admin.conf python3 -B /opt/painkiller/cks001/mutate.py restore q2"
+    },
+    {
+      "task": "credential-review",
+      "remove": "sudo -n env KUBECONFIG=/etc/kubernetes/admin.conf python3 -B /opt/painkiller/cks001/mutate.py remove q3",
+      "restore": "sudo -n env KUBECONFIG=/etc/kubernetes/admin.conf python3 -B /opt/painkiller/cks001/mutate.py restore q3"
+    },
+    {
+      "task": "seccomp",
+      "remove": "sudo -n env KUBECONFIG=/etc/kubernetes/admin.conf python3 -B /opt/painkiller/cks001/mutate.py remove q4",
+      "restore": "sudo -n env KUBECONFIG=/etc/kubernetes/admin.conf python3 -B /opt/painkiller/cks001/mutate.py restore q4"
+    },
+    {
+      "task": "cis-hardening",
+      "remove": "sudo -n env KUBECONFIG=/etc/kubernetes/admin.conf python3 -B /opt/painkiller/cks001/mutate.py remove q5",
+      "restore": "sudo -n env KUBECONFIG=/etc/kubernetes/admin.conf python3 -B /opt/painkiller/cks001/mutate.py restore q5"
+    },
+    {
+      "task": "falco-alerts",
+      "remove": "sudo -n env KUBECONFIG=/etc/kubernetes/admin.conf python3 -B /opt/painkiller/cks001/mutate.py remove q6",
+      "restore": "sudo -n env KUBECONFIG=/etc/kubernetes/admin.conf python3 -B /opt/painkiller/cks001/mutate.py restore q6"
+    },
+    {
+      "task": "image-sbom",
+      "remove": "sudo -n env KUBECONFIG=/etc/kubernetes/admin.conf python3 -B /opt/painkiller/cks001/mutate.py remove q7",
+      "restore": "sudo -n env KUBECONFIG=/etc/kubernetes/admin.conf python3 -B /opt/painkiller/cks001/mutate.py restore q7"
+    },
+    {
+      "task": "projected-identity",
+      "remove": "sudo -n env KUBECONFIG=/etc/kubernetes/admin.conf python3 -B /opt/painkiller/cks001/mutate.py remove q8",
+      "restore": "sudo -n env KUBECONFIG=/etc/kubernetes/admin.conf python3 -B /opt/painkiller/cks001/mutate.py restore q8"
+    },
+    {
+      "task": "restricted-repair",
+      "remove": "sudo -n env KUBECONFIG=/etc/kubernetes/admin.conf python3 -B /opt/painkiller/cks001/mutate.py remove q9",
+      "restore": "sudo -n env KUBECONFIG=/etc/kubernetes/admin.conf python3 -B /opt/painkiller/cks001/mutate.py restore q9"
+    },
+    {
+      "task": "network-isolation",
+      "remove": "sudo -n env KUBECONFIG=/etc/kubernetes/admin.conf python3 -B /opt/painkiller/cks001/mutate.py remove q10",
+      "restore": "sudo -n env KUBECONFIG=/etc/kubernetes/admin.conf python3 -B /opt/painkiller/cks001/mutate.py restore q10"
+    },
+    {
+      "task": "container-hardening",
+      "remove": "sudo -n env KUBECONFIG=/etc/kubernetes/admin.conf python3 -B /opt/painkiller/cks001/mutate.py remove q11",
+      "restore": "sudo -n env KUBECONFIG=/etc/kubernetes/admin.conf python3 -B /opt/painkiller/cks001/mutate.py restore q11"
+    },
+    {
+      "task": "tls-ingress",
+      "remove": "sudo -n env KUBECONFIG=/etc/kubernetes/admin.conf python3 -B /opt/painkiller/cks001/mutate.py remove q12",
+      "restore": "sudo -n env KUBECONFIG=/etc/kubernetes/admin.conf python3 -B /opt/painkiller/cks001/mutate.py restore q12"
+    },
+    {
+      "task": "rbac-scope",
+      "remove": "sudo -n env KUBECONFIG=/etc/kubernetes/admin.conf python3 -B /opt/painkiller/cks001/mutate.py remove q13",
+      "restore": "sudo -n env KUBECONFIG=/etc/kubernetes/admin.conf python3 -B /opt/painkiller/cks001/mutate.py restore q13"
+    },
+    {
+      "task": "audit-policy",
+      "remove": "sudo -n env KUBECONFIG=/etc/kubernetes/admin.conf python3 -B /opt/painkiller/cks001/mutate.py remove q14",
+      "restore": "sudo -n env KUBECONFIG=/etc/kubernetes/admin.conf python3 -B /opt/painkiller/cks001/mutate.py restore q14"
+    },
+    {
+      "task": "image-admission",
+      "remove": "sudo -n env KUBECONFIG=/etc/kubernetes/admin.conf python3 -B /opt/painkiller/cks001/mutate.py remove q15",
+      "restore": "sudo -n env KUBECONFIG=/etc/kubernetes/admin.conf python3 -B /opt/painkiller/cks001/mutate.py restore q15"
+    }
+  ]
+}

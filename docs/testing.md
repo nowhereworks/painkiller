@@ -18,6 +18,10 @@ shellcheck exam/CKAD-001/*.sh exam/CKAD-001/assets/*.sh
 shellcheck exam/OPA-001/*.sh exam/OPA-001/assets/*.sh
 (cd exam/OPA-001/assets && sha256sum --check --quiet SHA256SUMS)
 python3 -B exam/OPA-001/tests/test_capture.py -v
+python3 -B exam/CKS-001/build.py --check
+python3 -B -m unittest discover -s exam/CKS-001/tests -v
+shellcheck exam/CKS-001/*.sh exam/CKS-001/assets/*.sh
+(cd exam/CKS-001/assets && sha256sum --check --quiet SHA256SUMS)
 (cd exam/CKAD-001/assets && sha256sum --check --quiet SHA256SUMS)
 (cd exam/CKA-003/assets && sha256sum --check --quiet SHA256SUMS)
 ansible-playbook --syntax-check -i localhost, playbooks/kubeadm-cluster/kubeadm-cluster.yml -e controller_ips=192.0.2.1
@@ -63,7 +67,8 @@ Do not build or replace a template as part of this test.
    LAB_VM_START=3100 scripts/test-exam.sh CKA-002
    LAB_VM_START=3100 scripts/test-exam.sh CKA-003
    LAB_VM_START=3100 scripts/test-exam.sh CKAD-001
-   LAB_VM_START=3100 scripts/test-exam.sh OPA-001
+    LAB_VM_START=3100 scripts/test-exam.sh OPA-001
+    LAB_VM_START=3100 scripts/test-exam.sh CKS-001
    ```
 
    Run exams sequentially and verify the range is free before each run. The
@@ -118,6 +123,17 @@ exam's pinned tools on PATH and explicitly skip without them. Live grading
 observes real bundle activation, newly masked decision logs, dry-run admission,
 and existing audit violations. Require all 16 loss/restore mutations. See
 `exam/OPA-001/README.md` for source mappings and assessed/unassessed boundaries.
+
+CKS-001 uses **one** schedulable control-plane clone of base 9199, no workers,
+8192 MB minimum, full-install Kubernetes/Calico, and no reserved LAN addresses.
+Preparation requires AppArmor and kernel BTF for real Falco modern-eBPF capture,
+plus package/image downloads for exam-owned tools, ingress, image archives and
+the TLS ImageReview server. Require all 15 task-level loss/restore mutations.
+Its short API-server termination grace and disabled controller leader election
+are disposable single-node exam tuning, not shared or production defaults.
+Its independent witness generates audit events and admission dry runs; grading
+does not mutate workloads or stop the webhook. See `exam/CKS-001/README.md`
+for compatibility pins, source adaptations and evidence boundaries.
 
 ## Browser coverage
 

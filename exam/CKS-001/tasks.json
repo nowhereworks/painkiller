@@ -1,0 +1,479 @@
+[
+  {
+    "id": "apparmor-identity",
+    "question_id": "CKS-001-Q1",
+    "title": "Constrain a frontend and its identity",
+    "category": "System Hardening",
+    "points": 3,
+    "instructions": "All commands and files belong on the initial controller. Use the supplied kubeconfig and `sudo` for root-owned paths. This exam has one node, no workers, and no context switching.\n\nPod `frontend` in `helix` exposes `/usr/share/nginx/html/staff/`. Load the supplied AppArmor profile `/etc/apparmor.d/site-guard` and recreate the Pod using it so the private directory cannot be read. Keep the public site serving HTTP. Inspect the existing service accounts and select the non-default account with the least privileges. Delete the other unused non-default service accounts; do not create accounts or use `default`. Preserve the existing image and content volume. You can test locally with `kubectl -n helix exec frontend -- wget -qO- http://127.0.0.1/staff/`.",
+    "steps": [
+      "Compare RoleBindings and Role rules for the existing accounts.",
+      "Load the profile on the only node.",
+      "Recreate the Pod with the Localhost profile and selected account; remove unused accounts.",
+      "Verify public HTTP succeeds and private-file reads fail."
+    ],
+    "solution": "sudo apparmor_parser -r /etc/apparmor.d/site-guard\nkubectl -n helix delete pod frontend --ignore-not-found --wait=true\nkubectl apply -f - <<'YAML'\n{\n  \"apiVersion\": \"v1\",\n  \"kind\": \"Pod\",\n  \"metadata\": {\n    \"name\": \"frontend\",\n    \"namespace\": \"helix\",\n    \"labels\": {\n      \"app\": \"frontend\"\n    }\n  },\n  \"spec\": {\n    \"containers\": [\n      {\n        \"name\": \"frontend\",\n        \"image\": \"nginx:1.28-alpine\",\n        \"imagePullPolicy\": \"IfNotPresent\",\n        \"volumeMounts\": [\n          {\n            \"name\": \"html\",\n            \"mountPath\": \"/usr/share/nginx/html\",\n            \"readOnly\": true\n          }\n        ],\n        \"securityContext\": {\n          \"appArmorProfile\": {\n            \"type\": \"Localhost\",\n            \"localhostProfile\": \"site-guard\"\n          }\n        }\n      }\n    ],\n    \"serviceAccountName\": \"site-reader\",\n    \"volumes\": [\n      {\n        \"name\": \"html\",\n        \"configMap\": {\n          \"name\": \"site-content\",\n          \"items\": [\n            {\n              \"key\": \"public\",\n              \"path\": \"index.html\"\n            },\n            {\n              \"key\": \"private\",\n              \"path\": \"staff/index.html\"\n            }\n          ]\n        }\n      }\n    ]\n  }\n}\nYAML\nkubectl -n helix wait pod/frontend --for=condition=Ready --timeout=90s\nkubectl -n helix delete serviceaccount site-editor site-admin --ignore-not-found",
+    "resource": "sudo -n env KUBECONFIG=/etc/kubernetes/admin.conf timeout 25s python3 -B /opt/painkiller/cks001/capture.py q1",
+    "checks": [
+      {
+        "description": "Least-privilege existing account and no unused accounts",
+        "points": 1,
+        "expression": ".identity == true",
+        "diagnostics": ".failures // []"
+      },
+      {
+        "description": "Running frontend enforces AppArmor while public HTTP remains available",
+        "points": 2,
+        "expression": ".confinement == true",
+        "diagnostics": ".failures // []"
+      }
+    ],
+    "explanation": "AppArmor restricts host-kernel file access; Kubernetes RBAC independently limits the workload identity."
+  },
+  {
+    "id": "secret-volume",
+    "question_id": "CKS-001-Q2",
+    "title": "Move credentials out of the environment",
+    "category": "Minimize Microservice Vulnerabilities",
+    "points": 3,
+    "instructions": "Pod `connector` in `relay` receives `BROKER_PASSWORD` from Secret `broker-auth`. Write the decoded existing value, without extra whitespace, to `/root/CKS/secrets/BROKER_PASSWORD`. Recreate the Pod so it no longer receives any Secret through environment variables or envFrom. Mount that existing Secret as a read-only volume at directory `/mnt/broker/password` (the key becomes a file in that directory). Keep its image and running command.",
+    "steps": [
+      "Decode the Secret key into the root-owned answer file.",
+      "Replace the env reference with a Secret volume and readOnly volumeMount.",
+      "Recreate the Pod and compare its mounted bytes with the original."
+    ],
+    "solution": "sudo mkdir -p /root/CKS/secrets\nkubectl -n relay get secret broker-auth -o jsonpath='{.data.BROKER_PASSWORD}' | base64 -d | sudo tee /root/CKS/secrets/BROKER_PASSWORD >/dev/null\nkubectl -n relay delete pod connector --ignore-not-found --wait=true\nkubectl apply -f - <<'YAML'\n{\n  \"apiVersion\": \"v1\",\n  \"kind\": \"Pod\",\n  \"metadata\": {\n    \"name\": \"connector\",\n    \"namespace\": \"relay\",\n    \"labels\": {\n      \"app\": \"connector\"\n    }\n  },\n  \"spec\": {\n    \"containers\": [\n      {\n        \"name\": \"connector\",\n        \"image\": \"busybox:1.37.0\",\n        \"imagePullPolicy\": \"IfNotPresent\",\n        \"command\": [\n          \"sh\",\n          \"-c\",\n          \"sleep 2147483647\"\n        ],\n        \"volumeMounts\": [\n          {\n            \"name\": \"auth\",\n            \"mountPath\": \"/mnt/broker/password\",\n            \"readOnly\": true\n          }\n        ]\n      }\n    ],\n    \"volumes\": [\n      {\n        \"name\": \"auth\",\n        \"secret\": {\n          \"secretName\": \"broker-auth\"\n        }\n      }\n    ]\n  }\n}\nYAML\nkubectl -n relay wait pod/connector --for=condition=Ready --timeout=90s",
+    "resource": "sudo -n env KUBECONFIG=/etc/kubernetes/admin.conf timeout 25s python3 -B /opt/painkiller/cks001/capture.py q2",
+    "checks": [
+      {
+        "description": "Existing secret decoded to the requested file",
+        "points": 1,
+        "expression": ".extracted == true",
+        "diagnostics": ".failures // []"
+      },
+      {
+        "description": "Running Pod uses a read-only Secret volume instead of environment exposure",
+        "points": 2,
+        "expression": ".mounted == true",
+        "diagnostics": ".failures // []"
+      }
+    ],
+    "explanation": "A Secret volume avoids exposing credentials through process environment inspection; it does not replace access control."
+  },
+  {
+    "id": "credential-review",
+    "question_id": "CKS-001-Q3",
+    "title": "Review build and workload credential exposure",
+    "category": "Supply Chain Security",
+    "points": 8,
+    "instructions": "Review the Dockerfiles and workload manifests under `/opt/security-review/`. Identify files exposing credentials through embedded values, image layers, command arguments, or logs. Write only their basenames, one per line, to `/opt/security-review/findings.txt`. Running as root is outside this review. Assume referenced files, Secrets and mounts exist; ignore syntax and application logic errors. Do not modify the supplied review files.",
+    "steps": [
+      "Inspect how each file obtains credentials and where they end up.",
+      "Distinguish build-secret mounts and mounted runtime Secrets from persistent layers or output.",
+      "Write the four affected basenames, with no safe files."
+    ],
+    "solution": "printf '%s\\n' Dockerfile.backup Dockerfile.release job-debug.yaml pod-client.yaml | sudo tee /opt/security-review/findings.txt >/dev/null",
+    "resource": "sudo -n env KUBECONFIG=/etc/kubernetes/admin.conf timeout 25s python3 -B /opt/painkiller/cks001/capture.py q3",
+    "checks": [
+      {
+        "description": "Report identifies exactly the credential-exposing files",
+        "points": 8,
+        "expression": ".review == true",
+        "diagnostics": ".failures // []"
+      }
+    ],
+    "explanation": "Deleting a copied credential in a later layer does not remove it from earlier image layers; build-secret mounts avoid that persistence."
+  },
+  {
+    "id": "seccomp",
+    "question_id": "CKS-001-Q4",
+    "title": "Attach a local syscall profile",
+    "category": "System Hardening",
+    "points": 4,
+    "instructions": "Create Pod `guard-nginx` in `default`, using `nginx:alpine`. Move the supplied `/root/CKS/web-guard.json` into `profiles/` beneath kubelet's default seccomp directory. Apply it through the Pod security context. Leave the Pod running with nginx serving HTTP.",
+    "steps": [
+      "Move the JSON file beneath /var/lib/kubelet/seccomp/profiles.",
+      "Set Pod securityContext.seccompProfile to Localhost with the relative path.",
+      "Create the Pod and verify nginx responds."
+    ],
+    "solution": "sudo mkdir -p /var/lib/kubelet/seccomp/profiles\nsudo mv /root/CKS/web-guard.json /var/lib/kubelet/seccomp/profiles/web-guard.json\nkubectl apply -f - <<'YAML'\n{\n  \"apiVersion\": \"v1\",\n  \"kind\": \"Pod\",\n  \"metadata\": {\n    \"name\": \"guard-nginx\",\n    \"namespace\": \"default\",\n    \"labels\": {\n      \"app\": \"guard-nginx\"\n    }\n  },\n  \"spec\": {\n    \"containers\": [\n      {\n        \"name\": \"guard-nginx\",\n        \"image\": \"nginx:alpine\",\n        \"imagePullPolicy\": \"IfNotPresent\"\n      }\n    ],\n    \"securityContext\": {\n      \"seccompProfile\": {\n        \"type\": \"Localhost\",\n        \"localhostProfile\": \"profiles/web-guard.json\"\n      }\n    }\n  }\n}\nYAML\nkubectl wait pod/guard-nginx --for=condition=Ready --timeout=90s",
+    "resource": "sudo -n env KUBECONFIG=/etc/kubernetes/admin.conf timeout 25s python3 -B /opt/painkiller/cks001/capture.py q4",
+    "checks": [
+      {
+        "description": "Supplied profile moved and referenced in Pod security context",
+        "points": 2,
+        "expression": ".profile == true",
+        "diagnostics": ".failures // []"
+      },
+      {
+        "description": "Correct nginx image runs with seccomp filtering and serves HTTP",
+        "points": 2,
+        "expression": ".running == true",
+        "diagnostics": ".failures // []"
+      }
+    ],
+    "explanation": "Localhost seccomp paths are relative to kubelet's seccomp directory, not an arbitrary container mount."
+  },
+  {
+    "id": "cis-hardening",
+    "question_id": "CKS-001-Q5",
+    "title": "Repair selected CIS failures",
+    "category": "Cluster Setup",
+    "points": 5,
+    "instructions": "Use installed `kube-bench` with `--config-dir /opt/kube-bench/cfg --benchmark cis-1.10`. Repair only these seeded FAILs: kubelet service unit permissions (`/usr/lib/systemd/system/kubelet.service`, 4.1.1), kubelet configuration permissions (`/var/lib/kubelet/config.yaml`, 4.1.9), etcd data-directory ownership (`/var/lib/etcd`, 1.1.12), and profiling for kube-controller-manager (1.3.2) and kube-scheduler (1.4.1). Use the benchmark's recommended values; create system user/group `etcd` if needed. Other benchmark findings, including API-server and policy findings, are out of scope. Keep the API server and control-plane components healthy.",
+    "steps": [
+      "Run kube-bench with the specified benchmark and inspect only the five requested checks.",
+      "Apply restrictive file modes and the etcd ownership.",
+      "Set --profiling=false in the two static Pod manifests.",
+      "Wait for the components to restart and rerun the selected checks."
+    ],
+    "solution": "sudo python3 - <<'PY'\nimport yaml\nfrom pathlib import Path\nimport os, pwd, grp, subprocess\nfor p in ['/usr/lib/systemd/system/kubelet.service','/var/lib/kubelet/config.yaml']:\n    os.chmod(p, 0o600)\nsubprocess.run(['groupadd','--system','etcd'], check=False)\nsubprocess.run(['useradd','--system','--gid','etcd','--no-create-home','etcd'], check=False)\nos.chown('/var/lib/etcd', pwd.getpwnam('etcd').pw_uid, grp.getgrnam('etcd').gr_gid)\nfor name in ['kube-controller-manager','kube-scheduler']:\n    p=Path('/etc/kubernetes/manifests')/(name+'.yaml')\n    obj=yaml.safe_load(p.read_text())\n    cmd=obj['spec']['containers'][0]['command']\n    cmd[:]=[a for a in cmd if not a.startswith('--profiling=')]+['--profiling=false']\n    tmp=p.with_name('.'+p.name+'.tmp')\n    text=yaml.safe_dump(obj)\n    if text!=p.read_text():\n        tmp.write_text(text); tmp.replace(p)\nPY\nsudo python3 - <<'PY'\nimport yaml\nfrom pathlib import Path\nimport json, subprocess, time\nfrom datetime import datetime\nnames=['kube-controller-manager', 'kube-scheduler']\nexpected={name:yaml.safe_load(Path('/etc/kubernetes/manifests/'+name+'.yaml').read_text())['spec']['containers'][0]['command'] for name in names}\nwritten={name:int(Path('/etc/kubernetes/manifests/'+name+'.yaml').stat().st_mtime) for name in names}\ndeadline=time.monotonic()+100\nwhile time.monotonic()<deadline:\n    result=subprocess.run(['kubectl','--kubeconfig=/etc/kubernetes/admin.conf','--request-timeout=2s','-n','kube-system','get','pods','-o','json'],capture_output=True,text=True,timeout=5)\n    if result.returncode==0:\n        pods=json.loads(result.stdout)['items']\n        if all(any(p['metadata']['name'].startswith(name+'-') and\n                   p['spec']['containers'][0]['command']==expected[name] and\n                   any(c['type']=='Ready' and c['status']=='True' for c in p.get('status',{}).get('conditions',[])) and\n                   bool(p.get('status',{}).get('containerStatuses')) and\n                   all(datetime.fromisoformat(c.get('state',{}).get('running',{}).get('startedAt','1970-01-01T00:00:00Z')).timestamp()>=written[name]\n                       for c in p['status']['containerStatuses'])\n                   for p in pods) for name in names):\n            break\n    time.sleep(1)\nelse:\n    raise RuntimeError('Updated static Pods did not become Ready')\n\nPY",
+    "resource": "sudo -n env KUBECONFIG=/etc/kubernetes/admin.conf timeout 25s python3 -B /opt/painkiller/cks001/capture.py q5",
+    "checks": [
+      {
+        "description": "Kubelet service unit permissions are 0600 or stricter",
+        "points": 1,
+        "expression": ".unit == true",
+        "diagnostics": ".failures // []"
+      },
+      {
+        "description": "Kubelet config permissions are 0600 or stricter",
+        "points": 1,
+        "expression": ".config == true",
+        "diagnostics": ".failures // []"
+      },
+      {
+        "description": "Etcd data directory belongs to etcd:etcd",
+        "points": 1,
+        "expression": ".etcd == true",
+        "diagnostics": ".failures // []"
+      },
+      {
+        "description": "Both running control-plane components disable profiling and API is healthy",
+        "points": 2,
+        "expression": ".profiling == true",
+        "diagnostics": ".failures // []"
+      }
+    ],
+    "explanation": "The explicit scope avoids turning unrelated or manually assessed benchmark findings into hidden exam requirements."
+  },
+  {
+    "id": "falco-alerts",
+    "question_id": "CKS-001-Q6",
+    "title": "Customize runtime threat alerts",
+    "category": "Monitoring, Logging and Runtime Security",
+    "points": 14,
+    "instructions": "A Pod using `httpd:2.4-alpine` in `runtime-watch` repeatedly writes below a binary directory. Falco reports alerts beginning `File below a known binary directory opened for writing`. Identify the responsible rule and override it using `/etc/falco/falco_rules.local.yaml`, not the default rules file. Set priority `CRITICAL` and output exactly:\n\n`File below a known binary directory opened for writing (user_id=%user.uid file_updated=%fd.name command=%proc.cmdline)`\n\nConfigure Falco to write text alerts to `/opt/runtime-incidents/events.log`, then restart service `falco`. Keep monitoring and the suspicious workload running. New alerts may take up to 30 seconds.",
+    "steps": [
+      "Search the default rules for the alert message and identify Write below binary dir.",
+      "Use the override replace syntax for output and priority in the local rules file.",
+      "Enable file output, restart Falco, and inspect newly emitted alerts."
+    ],
+    "solution": "sudo python3 - <<'PY'\nimport yaml\nfrom pathlib import Path\np=Path('/etc/falco/falco_rules.local.yaml')\np.write_text(yaml.safe_dump([{'rule':'Write below binary dir','priority':'CRITICAL',\n    'output':'File below a known binary directory opened for writing (user_id=%user.uid file_updated=%fd.name command=%proc.cmdline)', 'override':{'priority':'replace','output':'replace'}}]))\np=Path('/etc/falco/falco.yaml')\nobj=yaml.safe_load(p.read_text())\nobj['file_output']={'enabled':True,'keep_alive':False,'filename':'/opt/runtime-incidents/events.log'}\np.write_text(yaml.safe_dump(obj))\nPath('/opt/runtime-incidents').mkdir(exist_ok=True)\nPY\nsudo systemctl restart falco\nfor i in $(seq 1 30); do sudo grep -q 'Critical File below a known binary directory' /opt/runtime-incidents/events.log 2>/dev/null && break; sleep 1; done",
+    "resource": "sudo -n env KUBECONFIG=/etc/kubernetes/admin.conf timeout 25s python3 -B /opt/painkiller/cks001/capture.py q6",
+    "checks": [
+      {
+        "description": "Local rule override has exact priority/output and default rules are unchanged",
+        "points": 6,
+        "expression": ".override == true",
+        "diagnostics": ".failures // []"
+      },
+      {
+        "description": "Active Falco configuration writes matching real alerts to the requested text log",
+        "points": 8,
+        "expression": ".logging == true",
+        "diagnostics": ".failures // []"
+      }
+    ],
+    "explanation": "Local overrides preserve packaged rules while changing selected rule fields; actual syscall events must reach the configured output."
+  },
+  {
+    "id": "image-sbom",
+    "question_id": "CKS-001-Q7",
+    "title": "Identify a package and inventory its image",
+    "category": "Supply Chain Security",
+    "points": 12,
+    "instructions": "Deployment `toolkit` in `inventory` has containers `cedar`, `maple`, and `birch`. Inspect the running containers to find the one containing the curl package. Write its container name to `~/selected-container.txt`. Using installed `bom` and that image's archive under `/root/ImageTarballs/` (filenames replace `/` and `:` in image names with `_`), generate an SPDX JSON SBOM at `~/selected-image.spdx.json`. The SBOM must describe the selected image and its curl package, not merely the outer tar file.",
+    "steps": [
+      "Exec into each named container and inspect installed curl.",
+      "Find the archive matching that container's image.",
+      "Use bom generate --image-archive with JSON format and inspect the package inventory."
+    ],
+    "solution": "kubectl -n inventory exec deployment/toolkit -c maple -- curl --version\nprintf 'maple\\n' > ~/selected-container.txt\nsudo bom generate --image-archive /root/ImageTarballs/alpine_curl_8.12.1.tar --format json --output \"$(printf '%s' \"$HOME\")/selected-image.spdx.json\"\nsudo chown \"$(id -u):$(id -g)\" ~/selected-image.spdx.json",
+    "resource": "sudo -n env KUBECONFIG=/etc/kubernetes/admin.conf timeout 25s python3 -B /opt/painkiller/cks001/capture.py q7",
+    "checks": [
+      {
+        "description": "Correct running container identified",
+        "points": 2,
+        "expression": ".container == true",
+        "diagnostics": ".failures // []"
+      },
+      {
+        "description": "SPDX JSON identifies the selected image, its digest, and the curl package",
+        "points": 10,
+        "expression": ".sbom == true",
+        "diagnostics": ".failures // []"
+      }
+    ],
+    "explanation": "An image SBOM links an image identity with its package inventory; checksums alone on the archive are not an image inventory."
+  },
+  {
+    "id": "projected-identity",
+    "question_id": "CKS-001-Q8",
+    "title": "Opt in to a projected workload token",
+    "category": "Cluster Hardening",
+    "points": 5,
+    "instructions": "Create ServiceAccount `job-agent` in `batch-ops` with automatic token mounting disabled. Set existing Deployment `janitor` to use it and explicitly mount a projected service-account token as a read-only file beneath `/var/run/job-identity/`. Disable the Pod's automatic token mount too. Change only the service-account/token-related fields; preserve all other Deployment fields and leave it healthy.",
+    "steps": [
+      "Create the ServiceAccount with automountServiceAccountToken false.",
+      "Patch the Pod template to select it and disable Pod automount.",
+      "Add a serviceAccountToken projected volume and read-only mount; verify its token file."
+    ],
+    "solution": "kubectl apply -f - <<'YAML'\n{\n  \"apiVersion\": \"v1\",\n  \"kind\": \"ServiceAccount\",\n  \"metadata\": {\n    \"name\": \"job-agent\",\n    \"namespace\": \"batch-ops\"\n  },\n  \"automountServiceAccountToken\": false\n}\nYAML\nkubectl -n batch-ops patch deployment janitor --type=strategic -p '{\"spec\": {\"template\": {\"spec\": {\"serviceAccountName\": \"job-agent\", \"automountServiceAccountToken\": false, \"containers\": [{\"name\": \"janitor\", \"volumeMounts\": [{\"name\": \"identity\", \"mountPath\": \"/var/run/job-identity\", \"readOnly\": true}]}], \"volumes\": [{\"name\": \"identity\", \"projected\": {\"sources\": [{\"serviceAccountToken\": {\"path\": \"token\", \"expirationSeconds\": 3600}}]}}]}}}}'\nkubectl -n batch-ops rollout status deployment/janitor --timeout=90s",
+    "resource": "sudo -n env KUBECONFIG=/etc/kubernetes/admin.conf timeout 25s python3 -B /opt/painkiller/cks001/capture.py q8",
+    "checks": [
+      {
+        "description": "New account disables automount",
+        "points": 2,
+        "expression": ".account == true",
+        "diagnostics": ".failures // []"
+      },
+      {
+        "description": "Healthy deployment uses only the explicit projected token and preserves unrelated fields",
+        "points": 3,
+        "expression": ".projection == true",
+        "diagnostics": ".failures // []"
+      }
+    ],
+    "explanation": "Disabling automatic mounting does not prevent explicitly projecting a short-lived, rotating token."
+  },
+  {
+    "id": "restricted-repair",
+    "question_id": "CKS-001-Q9",
+    "title": "Repair a workload under restricted admission",
+    "category": "Minimize Microservice Vulnerabilities",
+    "points": 5,
+    "instructions": "Deployment `portal` in `locked-down` cannot obtain a running Pod. Diagnose and fix it while preserving its existing image and every namespace label. The namespace must continue to enforce the restricted Pod Security Standard. Leave the existing web application serving HTTP on port 8080; do not replace it with a sleep process.",
+    "steps": [
+      "Read Deployment/ReplicaSet events for admission failures.",
+      "Supply the missing restricted-policy container settings.",
+      "Wait for rollout and verify the original nginx application responds."
+    ],
+    "solution": "kubectl -n locked-down patch deployment portal --type=strategic -p '{\"spec\": {\"template\": {\"spec\": {\"containers\": [{\"name\": \"portal\", \"securityContext\": {\"runAsUser\": 1002, \"runAsNonRoot\": true, \"allowPrivilegeEscalation\": false, \"capabilities\": {\"drop\": [\"ALL\"]}, \"seccompProfile\": {\"type\": \"RuntimeDefault\"}}}]}}}}'\nkubectl -n locked-down rollout status deployment/portal --timeout=90s",
+    "resource": "sudo -n env KUBECONFIG=/etc/kubernetes/admin.conf timeout 25s python3 -B /opt/painkiller/cks001/capture.py q9",
+    "checks": [
+      {
+        "description": "Existing application serves HTTP under unchanged restricted namespace enforcement",
+        "points": 5,
+        "expression": ".restricted == true",
+        "diagnostics": ".failures // []"
+      }
+    ],
+    "explanation": "Pod Security Admission rejects the Pod request; relaxing namespace policy would bypass rather than repair the workload."
+  },
+  {
+    "id": "network-isolation",
+    "question_id": "CKS-001-Q10",
+    "title": "Restrict incoming application traffic",
+    "category": "Cluster Setup",
+    "points": 8,
+    "instructions": "Deployment `catalog-web` runs in `catalog`. Create NetworkPolicy `catalog-ingress`, selecting that workload, to allow inbound traffic from Pod `catalog-db` in `storage` and from every Pod in `billing`. Use existing labels. Other sources, including `storage/other-client` and `default/outsider`, must not reach the application. Do not change workload/namespace labels, delete fixtures, or add unrelated policy exceptions.",
+    "steps": [
+      "Combine the storage namespaceSelector and database podSelector in a single from entry.",
+      "Use a separate namespaceSelector entry for billing.",
+      "Probe both allowed and disallowed sources."
+    ],
+    "solution": "kubectl apply -f - <<'YAML'\n{\n  \"apiVersion\": \"networking.k8s.io/v1\",\n  \"kind\": \"NetworkPolicy\",\n  \"metadata\": {\n    \"name\": \"catalog-ingress\",\n    \"namespace\": \"catalog\"\n  },\n  \"spec\": {\n    \"podSelector\": {\n      \"matchLabels\": {\n        \"app\": \"catalog-web\"\n      }\n    },\n    \"policyTypes\": [\n      \"Ingress\"\n    ],\n    \"ingress\": [\n      {\n        \"from\": [\n          {\n            \"namespaceSelector\": {\n              \"matchLabels\": {\n                \"kubernetes.io/metadata.name\": \"storage\"\n              }\n            },\n            \"podSelector\": {\n              \"matchLabels\": {\n                \"app\": \"catalog-db\"\n              }\n            }\n          },\n          {\n            \"namespaceSelector\": {\n              \"matchLabels\": {\n                \"kubernetes.io/metadata.name\": \"billing\"\n              }\n            }\n          }\n        ]\n      }\n    ]\n  }\n}\nYAML",
+    "resource": "sudo -n env KUBECONFIG=/etc/kubernetes/admin.conf timeout 25s python3 -B /opt/painkiller/cks001/capture.py q10",
+    "checks": [
+      {
+        "description": "Named policy selects the existing workload without altering labels",
+        "points": 2,
+        "expression": ".policy == true",
+        "diagnostics": ".failures // []"
+      },
+      {
+        "description": "Database and billing traffic reaches the application",
+        "points": 3,
+        "expression": ".allowed == true",
+        "diagnostics": ".failures // []"
+      },
+      {
+        "description": "Other storage and default clients cannot reach the healthy application",
+        "points": 3,
+        "expression": ".denied == true",
+        "diagnostics": ".failures // []"
+      }
+    ],
+    "explanation": "Selectors in one peer are ANDed; separate peer entries are ORed. Namespace-only peers include all Pods in that namespace."
+  },
+  {
+    "id": "container-hardening",
+    "question_id": "CKS-001-Q11",
+    "title": "Harden both containers",
+    "category": "Minimize Microservice Vulnerabilities",
+    "points": 4,
+    "instructions": "Update both containers of Deployment `delta` in `observatory`: run as UID `1002`, disable privilege escalation, and make their root filesystems read-only. Keep both existing containers, images, and long-running commands healthy.",
+    "steps": [
+      "Set container security contexts on both containers.",
+      "Wait for the rollout.",
+      "Inspect effective UIDs, NoNewPrivs, and root mount options."
+    ],
+    "solution": "kubectl -n observatory patch deployment delta --type=strategic -p '{\"spec\": {\"template\": {\"spec\": {\"containers\": [{\"name\": \"delta\", \"securityContext\": {\"runAsUser\": 1002, \"allowPrivilegeEscalation\": false, \"readOnlyRootFilesystem\": true}}, {\"name\": \"helper\", \"securityContext\": {\"runAsUser\": 1002, \"allowPrivilegeEscalation\": false, \"readOnlyRootFilesystem\": true}}]}}}}'\nkubectl -n observatory rollout status deployment/delta --timeout=90s",
+    "resource": "sudo -n env KUBECONFIG=/etc/kubernetes/admin.conf timeout 25s python3 -B /opt/painkiller/cks001/capture.py q11",
+    "checks": [
+      {
+        "description": "Both running containers use UID 1002",
+        "points": 1,
+        "expression": ".uid == true",
+        "diagnostics": ".failures // []"
+      },
+      {
+        "description": "Both containers disallow privilege escalation",
+        "points": 1,
+        "expression": ".escalation == true",
+        "diagnostics": ".failures // []"
+      },
+      {
+        "description": "Both container root filesystems are mounted read-only",
+        "points": 2,
+        "expression": ".readonly == true",
+        "diagnostics": ".failures // []"
+      }
+    ],
+    "explanation": "runAsUser controls identity, allowPrivilegeEscalation sets no_new_privs, and readOnlyRootFilesystem changes root mount access."
+  },
+  {
+    "id": "tls-ingress",
+    "question_id": "CKS-001-Q12",
+    "title": "Expose a web service over TLS",
+    "category": "Cluster Setup",
+    "points": 5,
+    "instructions": "Deployment `shuttle` is exposed by Service `shuttle` on port 80 in `launch`. Create Ingress `shuttle-entry` routing host `shuttle.lab`, path `/`, to that Service. Use existing TLS Secret `shuttle-tls` and IngressClass `nginx` (served by the installed Traefik controller). Add a controller Service ClusterIP mapping for `shuttle.lab` to the controller's `/etc/hosts`; discover it using `kubectl -n traefik get svc`. Verify HTTPS using supplied CA `/root/CKS/ingress-ca.crt`, without skipping certificate verification.",
+    "steps": [
+      "Inspect Service and IngressClass resources.",
+      "Create the TLS Ingress with the existing Secret.",
+      "Map the controller ClusterIP in /etc/hosts and curl using the supplied CA."
+    ],
+    "solution": "kubectl apply -f - <<'YAML'\n{\n  \"apiVersion\": \"networking.k8s.io/v1\",\n  \"kind\": \"Ingress\",\n  \"metadata\": {\n    \"name\": \"shuttle-entry\",\n    \"namespace\": \"launch\"\n  },\n  \"spec\": {\n    \"ingressClassName\": \"nginx\",\n    \"tls\": [\n      {\n        \"hosts\": [\n          \"shuttle.lab\"\n        ],\n        \"secretName\": \"shuttle-tls\"\n      }\n    ],\n    \"rules\": [\n      {\n        \"host\": \"shuttle.lab\",\n        \"http\": {\n          \"paths\": [\n            {\n              \"path\": \"/\",\n              \"pathType\": \"Prefix\",\n              \"backend\": {\n                \"service\": {\n                  \"name\": \"shuttle\",\n                  \"port\": {\n                    \"number\": 80\n                  }\n                }\n              }\n            }\n          ]\n        }\n      }\n    ]\n  }\n}\nYAML\nip=$(kubectl -n traefik get svc traefik -o jsonpath='{.spec.clusterIP}')\nprintf '%s shuttle.lab\\n' \"$ip\" | sudo tee -a /etc/hosts >/dev/null\nfor i in $(seq 1 20); do sudo curl --noproxy '*' --cacert /root/CKS/ingress-ca.crt -fsS https://shuttle.lab/ && break; sleep 1; done",
+    "resource": "sudo -n env KUBECONFIG=/etc/kubernetes/admin.conf timeout 25s python3 -B /opt/painkiller/cks001/capture.py q12",
+    "checks": [
+      {
+        "description": "Ingress has the required class, host, TLS Secret, path and backend",
+        "points": 3,
+        "expression": ".ingress == true",
+        "diagnostics": ".failures // []"
+      },
+      {
+        "description": "Hosts mapping and certificate-verified HTTPS reach the application",
+        "points": 2,
+        "expression": ".https == true",
+        "diagnostics": ".failures // []"
+      }
+    ],
+    "explanation": "The ingress class name is an administrator-chosen name, not necessarily the controller's product name."
+  },
+  {
+    "id": "rbac-scope",
+    "question_id": "CKS-001-Q13",
+    "title": "Reduce a developer's effective permissions",
+    "category": "Cluster Hardening",
+    "points": 6,
+    "instructions": "User `alex` needs all operations on core `pods` in `team-a` and `team-b`, but only get/list on core `pods` in `team-c`. Remove the current excess permissions, including access to other resource types. Pod subresources such as exec/log are not required. Retain the existing Role names `alex-pods` and RoleBinding names `alex-access` in all three namespaces; you may recreate objects with those same names. Do not grant new cluster-wide access.",
+    "steps": [
+      "Inspect alex's effective permissions and the existing RoleBindings.",
+      "Replace wildcard resources with pods in all three Roles; restrict team-c verbs to get/list.",
+      "Use kubectl auth can-i --as=alex to test allowed and denied actions."
+    ],
+    "solution": "kubectl apply -f - <<'YAML'\n{\n  \"apiVersion\": \"rbac.authorization.k8s.io/v1\",\n  \"kind\": \"Role\",\n  \"metadata\": {\n    \"name\": \"alex-pods\",\n    \"namespace\": \"team-a\"\n  },\n  \"rules\": [\n    {\n      \"apiGroups\": [\n        \"\"\n      ],\n      \"resources\": [\n        \"pods\"\n      ],\n      \"verbs\": [\n        \"*\"\n      ]\n    }\n  ]\n}\nYAML\nkubectl apply -f - <<'YAML'\n{\n  \"apiVersion\": \"rbac.authorization.k8s.io/v1\",\n  \"kind\": \"Role\",\n  \"metadata\": {\n    \"name\": \"alex-pods\",\n    \"namespace\": \"team-b\"\n  },\n  \"rules\": [\n    {\n      \"apiGroups\": [\n        \"\"\n      ],\n      \"resources\": [\n        \"pods\"\n      ],\n      \"verbs\": [\n        \"*\"\n      ]\n    }\n  ]\n}\nYAML\nkubectl apply -f - <<'YAML'\n{\n  \"apiVersion\": \"rbac.authorization.k8s.io/v1\",\n  \"kind\": \"Role\",\n  \"metadata\": {\n    \"name\": \"alex-pods\",\n    \"namespace\": \"team-c\"\n  },\n  \"rules\": [\n    {\n      \"apiGroups\": [\n        \"\"\n      ],\n      \"resources\": [\n        \"pods\"\n      ],\n      \"verbs\": [\n        \"get\",\n        \"list\"\n      ]\n    }\n  ]\n}\nYAML",
+    "resource": "sudo -n env KUBECONFIG=/etc/kubernetes/admin.conf timeout 25s python3 -B /opt/painkiller/cks001/capture.py q13",
+    "checks": [
+      {
+        "description": "Full Pod-only access in team-a/team-b with original object names",
+        "points": 4,
+        "expression": ".write == true",
+        "diagnostics": ".failures // []"
+      },
+      {
+        "description": "Only get/list Pods in team-c, no cluster-wide access",
+        "points": 2,
+        "expression": ".read == true",
+        "diagnostics": ".failures // []"
+      }
+    ],
+    "explanation": "Namespaced RoleBindings contain access within namespaces; wildcard resource grants exceed a Pod-only requirement."
+  },
+  {
+    "id": "audit-policy",
+    "question_id": "CKS-001-Q14",
+    "title": "Enable and scope API audit logging",
+    "category": "Monitoring, Logging and Runtime Security",
+    "points": 10,
+    "instructions": "Enable API-server auditing using `/etc/kubernetes/security-policy.yaml`. Write logs to `/var/log/security-audit.log`, with retention 7 days, maximum size 12 MB, and maximum 4 backup files. Update the supplied policy to record secret deletions (including collection deletion) in `kube-system` at Metadata level; Deployment changes (create/update/patch/delete/deletecollection) in `default` at Request level; and every other request at Metadata level. Ensure the running API server uses the policy and keep it healthy. A recovery manifest is at `/root/backup/kube-apiserver.yaml`: restore it to `/etc/kubernetes/manifests/kube-apiserver.yaml` if necessary. Q14 and Q15 both edit this manifest; preserve each other's settings.",
+    "steps": [
+      "Edit the policy with specific rules before the catch-all.",
+      "Add API-server flags and hostPath mounts for policy and logs.",
+      "Wait for API recovery; inspect real events for each scope."
+    ],
+    "solution": "sudo python3 - <<'PY'\nimport yaml\nfrom pathlib import Path\npolicy={'apiVersion': 'audit.k8s.io/v1', 'kind': 'Policy', 'rules': [{'level': 'Metadata', 'verbs': ['delete', 'deletecollection'], 'namespaces': ['kube-system'], 'resources': [{'group': '', 'resources': ['secrets']}]}, {'level': 'Request', 'verbs': ['create', 'update', 'patch', 'delete', 'deletecollection'], 'namespaces': ['default'], 'resources': [{'group': 'apps', 'resources': ['deployments']}]}, {'level': 'Metadata'}]}\nPath('/etc/kubernetes/security-policy.yaml').write_text(yaml.safe_dump(policy))\np=Path('/etc/kubernetes/manifests/kube-apiserver.yaml')\nobj=yaml.safe_load(p.read_text())\nc=obj['spec']['containers'][0]\nvalues={'audit-policy-file':'/etc/kubernetes/security-policy.yaml','audit-log-path':'/var/log/security-audit.log',\n        'audit-log-maxage':'7','audit-log-maxsize':'12','audit-log-maxbackup':'4'}\nc['command']=[a for a in c['command'] if not any(a.startswith('--'+key+'=') for key in values)]\nc['command'] += ['--'+key+'='+value for key,value in values.items()]\nfor name,host,mount,ro,typ in [('audit-policy','/etc/kubernetes/security-policy.yaml','/etc/kubernetes/security-policy.yaml',True,'File'),\n                              ('audit-log','/var/log','/var/log',False,'Directory')]:\n    obj['spec']['volumes']=[v for v in obj['spec']['volumes'] if v['name']!=name]\n    obj['spec']['volumes'].append({'name':name,'hostPath':{'path':host,'type':typ}})\n    c['volumeMounts']=[v for v in c['volumeMounts'] if v['name']!=name]\n    c['volumeMounts'].append({'name':name,'mountPath':mount,'readOnly':ro})\ntmp=p.with_name('.'+p.name+'.tmp'); text=yaml.safe_dump(obj)\nif text!=p.read_text():\n    tmp.write_text(text); tmp.replace(p)\nPY\nsudo python3 - <<'PY'\nimport yaml\nfrom pathlib import Path\nimport json, subprocess, time\nfrom datetime import datetime\nnames=['kube-apiserver', 'kube-controller-manager', 'kube-scheduler']\nexpected={name:yaml.safe_load(Path('/etc/kubernetes/manifests/'+name+'.yaml').read_text())['spec']['containers'][0]['command'] for name in names}\nwritten={name:int(Path('/etc/kubernetes/manifests/'+name+'.yaml').stat().st_mtime) for name in names}\ndeadline=time.monotonic()+100\nwhile time.monotonic()<deadline:\n    result=subprocess.run(['kubectl','--kubeconfig=/etc/kubernetes/admin.conf','--request-timeout=2s','-n','kube-system','get','pods','-o','json'],capture_output=True,text=True,timeout=5)\n    if result.returncode==0:\n        pods=json.loads(result.stdout)['items']\n        if all(any(p['metadata']['name'].startswith(name+'-') and\n                   p['spec']['containers'][0]['command']==expected[name] and\n                   any(c['type']=='Ready' and c['status']=='True' for c in p.get('status',{}).get('conditions',[])) and\n                   bool(p.get('status',{}).get('containerStatuses')) and\n                   all(datetime.fromisoformat(c.get('state',{}).get('running',{}).get('startedAt','1970-01-01T00:00:00Z')).timestamp()>=written[name]\n                       for c in p['status']['containerStatuses'])\n                   for p in pods) for name in names):\n            break\n    time.sleep(1)\nelse:\n    raise RuntimeError('Updated static Pods did not become Ready')\n\nPY\nkubectl --request-timeout=5s get --raw=/readyz",
+    "resource": "sudo -n env KUBECONFIG=/etc/kubernetes/admin.conf timeout 25s python3 -B /opt/painkiller/cks001/capture.py q14",
+    "checks": [
+      {
+        "description": "Running API server uses the requested audit paths and rotation settings",
+        "points": 3,
+        "expression": ".settings == true",
+        "diagnostics": ".failures // []"
+      },
+      {
+        "description": "Policy applies the three requested levels and scopes",
+        "points": 4,
+        "expression": ".policy == true",
+        "diagnostics": ".failures // []"
+      },
+      {
+        "description": "Real audit events demonstrate the required rules are active",
+        "points": 3,
+        "expression": ".events == true",
+        "diagnostics": ".failures // []"
+      }
+    ],
+    "explanation": "Audit rules use first-match semantics. A policy edit must be loaded by the API server, not merely left on the host."
+  },
+  {
+    "id": "image-admission",
+    "question_id": "CKS-001-Q15",
+    "title": "Integrate fail-closed image admission",
+    "category": "Supply Chain Security",
+    "points": 8,
+    "instructions": "A TLS ImageReview server is already available through Service `image-gate` in `cks001-system`. Integrate it using the API server's **ImagePolicyWebhook** admission plugin (not a ValidatingWebhookConfiguration). Create `/root/CKS/ImageGate/admission-configuration.yaml`. That directory is already mounted in the API server at `/etc/admission-controllers`; reference the supplied kubeconfig there as `/etc/admission-controllers/admission-kubeconfig.yaml`. Reject `latest` images from any repository and fail closed if the webhook is unavailable; do not permit cached approvals to bypass this requirement. Enable the admission controller, preserving existing admission and audit settings. Delete `harbor/harbor-web` and recreate it with the same nginx repository and tag `1.28`, leaving it running. Recovery backup: `/root/backup/kube-apiserver.yaml`; restore it if the API becomes unavailable.",
+    "steps": [
+      "Inspect the supplied webhook kubeconfig and directory mount.",
+      "Write AdmissionConfiguration with defaultAllow false and allowTTL -1 (0 selects the default cache TTL).",
+      "Enable ImagePolicyWebhook without removing other plugins, and wait for the API.",
+      "Try a server-side dry run with latest to observe rejection, then recreate harbor-web with tag 1.28."
+    ],
+    "solution": "sudo python3 - <<'PY'\nimport yaml\nfrom pathlib import Path\nfolder=Path('/root/CKS/ImageGate')\nconfig={'apiVersion':'apiserver.config.k8s.io/v1','kind':'AdmissionConfiguration','plugins':[\n {'name':'ImagePolicyWebhook','configuration':{'imagePolicy':{\n 'kubeConfigFile':'/etc/admission-controllers/admission-kubeconfig.yaml',\n 'allowTTL':-1,'denyTTL':-1,'retryBackoff':100,'defaultAllow':False}}}]}\n(folder/'admission-configuration.yaml').write_text(yaml.safe_dump(config))\np=Path('/etc/kubernetes/manifests/kube-apiserver.yaml'); obj=yaml.safe_load(p.read_text())\ncmd=obj['spec']['containers'][0]['command']\nenabled=next((a.split('=',1)[1].split(',') for a in cmd if a.startswith('--enable-admission-plugins=')),[])\nif 'ImagePolicyWebhook' not in enabled: enabled.append('ImagePolicyWebhook')\ncmd[:]=[a for a in cmd if not a.startswith('--enable-admission-plugins=') and not a.startswith('--admission-control-config-file=')]\ncmd += ['--enable-admission-plugins='+','.join(enabled),\n        '--admission-control-config-file=/etc/admission-controllers/admission-configuration.yaml']\ntmp=p.with_name('.'+p.name+'.tmp'); text=yaml.safe_dump(obj)\nif text!=p.read_text():\n    tmp.write_text(text); tmp.replace(p)\nPY\nsudo python3 - <<'PY'\nimport yaml\nfrom pathlib import Path\nimport json, subprocess, time\nfrom datetime import datetime\nnames=['kube-apiserver', 'kube-controller-manager', 'kube-scheduler']\nexpected={name:yaml.safe_load(Path('/etc/kubernetes/manifests/'+name+'.yaml').read_text())['spec']['containers'][0]['command'] for name in names}\nwritten={name:int(Path('/etc/kubernetes/manifests/'+name+'.yaml').stat().st_mtime) for name in names}\ndeadline=time.monotonic()+100\nwhile time.monotonic()<deadline:\n    result=subprocess.run(['kubectl','--kubeconfig=/etc/kubernetes/admin.conf','--request-timeout=2s','-n','kube-system','get','pods','-o','json'],capture_output=True,text=True,timeout=5)\n    if result.returncode==0:\n        pods=json.loads(result.stdout)['items']\n        if all(any(p['metadata']['name'].startswith(name+'-') and\n                   p['spec']['containers'][0]['command']==expected[name] and\n                   any(c['type']=='Ready' and c['status']=='True' for c in p.get('status',{}).get('conditions',[])) and\n                   bool(p.get('status',{}).get('containerStatuses')) and\n                   all(datetime.fromisoformat(c.get('state',{}).get('running',{}).get('startedAt','1970-01-01T00:00:00Z')).timestamp()>=written[name]\n                       for c in p['status']['containerStatuses'])\n                   for p in pods) for name in names):\n            break\n    time.sleep(1)\nelse:\n    raise RuntimeError('Updated static Pods did not become Ready')\n\nPY\nkubectl --request-timeout=5s get --raw=/readyz\nkubectl -n harbor delete pod harbor-web --ignore-not-found --wait=true\nkubectl apply -f - <<'YAML'\n{\n  \"apiVersion\": \"v1\",\n  \"kind\": \"Pod\",\n  \"metadata\": {\n    \"name\": \"harbor-web\",\n    \"namespace\": \"harbor\",\n    \"labels\": {\n      \"app\": \"harbor-web\"\n    }\n  },\n  \"spec\": {\n    \"containers\": [\n      {\n        \"name\": \"harbor-web\",\n        \"image\": \"nginx:1.28\",\n        \"imagePullPolicy\": \"IfNotPresent\"\n      }\n    ]\n  }\n}\nYAML\nkubectl -n harbor wait pod/harbor-web --for=condition=Ready --timeout=90s",
+    "resource": "sudo -n env KUBECONFIG=/etc/kubernetes/admin.conf timeout 25s python3 -B /opt/painkiller/cks001/capture.py q15",
+    "checks": [
+      {
+        "description": "Running API server enables ImagePolicyWebhook with fail-closed uncached configuration",
+        "points": 4,
+        "expression": ".admission == true",
+        "diagnostics": ".failures // []"
+      },
+      {
+        "description": "Existing admission evidence shows latest images rejected while tagged images pass",
+        "points": 2,
+        "expression": ".rejected == true",
+        "diagnostics": ".failures // []"
+      },
+      {
+        "description": "Original violating Pod was replaced by running nginx:1.28",
+        "points": 2,
+        "expression": ".pod == true",
+        "diagnostics": ".failures // []"
+      }
+    ],
+    "explanation": "ImagePolicyWebhook speaks ImageReview over TLS. Fail-closed behavior and disabled approval caching keep backend failures from silently admitting workloads."
+  }
+]
