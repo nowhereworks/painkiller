@@ -1,0 +1,24 @@
+{
+  "id": "CKS-001B",
+  "title": "CKS practice exam — mock 01B (unofficial)",
+  "description": "16 hands-on security tasks covering runtime detection, network isolation, least privilege, supply chain, mTLS and host hardening.",
+  "minutes": 120,
+  "categories": [
+    "Cluster Setup",
+    "Cluster Hardening",
+    "System Hardening",
+    "Minimize Microservice Vulnerabilities",
+    "Supply Chain Security",
+    "Monitoring, Logging and Runtime Security"
+  ],
+  "lab": {
+    "controllers": 1,
+    "workers": 0,
+    "initial_controllers": 1,
+    "provision_mode": "legacy",
+    "cni": "calico",
+    "memory_mb": 12288,
+    "template_id": "9199",
+    "prepare": "prepare.sh"
+  }
+}
