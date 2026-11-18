@@ -10,6 +10,23 @@ questions and source weights. The latter is authoring input, **not** the
 server's `tasks.json` schema: solutions, walkthroughs, captures, checks,
 fixtures and explanations still need to be implemented.
 
+`assets/fixture_objects.py` generates the static Kubernetes starting objects;
+`assets/core_ready.py` checks only this subset of the lab. Neither is complete
+preparation or full exam readiness: host tools, ingress, Istio, TLS material,
+image archives, network test endpoints, node faults, and their readiness checks
+are not yet implemented.
+
+Dependency investigation (2026-11-18): upstream
+[ingress-nginx is retired](https://github.com/kubernetes/ingress-nginx#ingress-nginx-retirement)
+and its published v1.15.1 compatibility table ends at Kubernetes 1.35, whereas
+the shared bootstrap currently defaults to 1.36.1. Do not assume that either a
+retired ingress-nginx controller or Traefik enforces Q12's nginx annotations;
+the final lab needs a verified compatible implementation and real HTTP redirect
+and HTTPS probes. For Istio, upstream publishes an
+[amd64 1.32.0 release](https://github.com/istio/istio/releases/tag/1.32.0);
+its compatibility, download pin, installation and real sidecar behavior have
+not yet been validated in this lab.
+
 `assets/network_policy.py` provides a bounded model for the specific
 NetworkPolicy probe cases in questions 2, 4 and 13. It is supplementary to real
 Calico connectivity tests, not proof that a policy is enforced by the CNI.
