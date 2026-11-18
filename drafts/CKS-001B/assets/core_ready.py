@@ -33,7 +33,7 @@ def check(items):
         require(obj.get("metadata", {}).get("labels", {}).get("painkiller-shell/exam") == "CKS-001B",
                 f"missing exam-owned namespace {ns}")
     for ns, name in [
-        ("compute-watch", "suspect"), ("outbound-guard", "client"), ("outbound-guard", "net-observer"),
+        ("cks001b-system", "net-control"), ("compute-watch", "suspect"), ("outbound-guard", "client"), ("outbound-guard", "net-observer"),
         ("workload-identity", "web-gate"), ("storefront", "shop-web"),
         ("storefront", "shop-api"), ("storefront", "untrusted"),
         ("telemetry", "observer"), ("runtime-shield", "runtime-web"),

@@ -61,6 +61,7 @@ def objects():
     ]
     # All candidates start without the answers the question asks them to create.
     result.extend([
+        pod("net-control", "cks001b-system", PYTHON, SLEEP),
         pod("suspect", "compute-watch", BUSYBOX, SLEEP),
         pod("client", "outbound-guard", BUSYBOX, SLEEP),
         pod("net-observer", "outbound-guard", PYTHON, SLEEP),

@@ -47,8 +47,8 @@ print(json.dumps(out))
 """
 
 
-def pod_probe(namespace, dns):
-    result = command(["kubectl", "--request-timeout=25s", "-n", namespace, "exec", "net-observer",
+def pod_probe(namespace, dns, pod="net-observer"):
+    result = command(["kubectl", "--request-timeout=25s", "-n", namespace, "exec", pod,
                       "--", "python3", "-c", POD_PROBE, json.dumps(ADDRESSES), dns], timeout=28)
     return json.loads(result.stdout)
 
@@ -69,8 +69,9 @@ def inspect(root):
         failures.append("network fixture addresses missing from guest loopback")
     dns = json.loads(k("-n", "kube-system", "get", "service", "kube-dns", "-o", "json").stdout)
     dns_ip = dns["spec"]["clusterIP"]
-    for namespace in ("outbound-guard", "api-clients"):
-        result = pod_probe(namespace, dns_ip)
+    for namespace, pod in (("cks001b-system", "net-control"), ("outbound-guard", "net-observer"),
+                           ("api-clients", "net-observer")):
+        result = pod_probe(namespace, dns_ip, pod)
         for address in ADDRESSES:
             for port in (8081, 443, 9443):
                 if result.get(f"{address}:{port}") is not True:

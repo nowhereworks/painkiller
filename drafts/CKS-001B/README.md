@@ -59,4 +59,9 @@ namespace, plus frontend access from the three initial source Pods.
 `assets/network_policy.py` provides a bounded model for the specific
 NetworkPolicy probe cases in questions 2, 4 and 13. It is supplementary to real
 Calico connectivity tests, not proof that a policy is enforced by the CNI.
+`assets/network_capture.py` combines that model with actual observer probes and
+an independent control Pod. It evaluates IPv4 CIDR and numeric-port partitions
+across additive egress policies; named ports or unusually complex policies
+produce a capture error rather than an unsupported correctness claim. The model
+does not establish CNI behavior for every possible Pod/Service or IPv6 path.
 Run `python3 -B -m unittest discover -s drafts/CKS-001B/tests -v`.
