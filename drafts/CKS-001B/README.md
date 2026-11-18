@@ -10,11 +10,15 @@ questions and source weights. The latter is authoring input, **not** the
 server's `tasks.json` schema: solutions, walkthroughs, captures, checks,
 fixtures and explanations still need to be implemented.
 
-`assets/fixture_objects.py` generates the static Kubernetes starting objects;
-`assets/core_ready.py` checks only this subset of the lab. Neither is complete
-preparation or full exam readiness: host tools, ingress, Istio, TLS material,
-image archives, network test endpoints, node faults, and their readiness checks
-are not yet implemented.
+`assets/fixture_objects.py` generates the static Kubernetes starting objects.
+`assets/install.sh` stages pinned host dependencies, and
+`assets/host_fixtures.py` creates the Dockerfile, binary, initial invoice
+manifest, Falco configuration and TLS key pairs once. The partial
+`core_ready.py` and `host_ready.py` checks cover only those subsets. The draft
+`prepare.sh` deliberately refuses to run until the full exam definition,
+supporting services, readiness wrapper and asset checksums exist. Ingress,
+Istio installation, TLS Secret creation, image archives, network test endpoints,
+node faults and their readiness checks are not yet implemented or validated.
 
 Dependency investigation (2026-11-18): upstream
 [ingress-nginx is retired](https://github.com/kubernetes/ingress-nginx#ingress-nginx-retirement)

@@ -21,6 +21,7 @@ python3 -B exam/OPA-001/tests/test_capture.py -v
 python3 -B exam/CKS-001/build.py --check
 python3 -B -m unittest discover -s exam/CKS-001/tests -v
 python3 -B -m unittest discover -s drafts/CKS-001B/tests -v
+shellcheck drafts/CKS-001B/prepare.sh drafts/CKS-001B/assets/install.sh
 shellcheck exam/CKS-001/*.sh exam/CKS-001/assets/*.sh
 (cd exam/CKS-001/assets && sha256sum --check --quiet SHA256SUMS)
 (cd exam/CKAD-001/assets && sha256sum --check --quiet SHA256SUMS)
