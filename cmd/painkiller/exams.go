@@ -42,7 +42,7 @@ func loadExams(root string) ([]examDefinition, error) {
 		if err = json.Unmarshal(b, &exam); err != nil {
 			return nil, fmt.Errorf("%s: %w", dir, err)
 		}
-		if !regexp.MustCompile(`^[A-Z][A-Z0-9]*-[0-9]{3}$`).MatchString(exam.ID) ||
+		if !regexp.MustCompile(`^[A-Z][A-Z0-9]*-[0-9]{3}[A-Z]?$`).MatchString(exam.ID) ||
 			exam.ID != entry.Name() || exam.Title == "" || exam.Minutes < 1 || exam.Minutes > 1440 {
 			return nil, fmt.Errorf("%s: invalid test metadata (ID must match folder, e.g. CKA-001)", dir)
 		}

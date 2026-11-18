@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -64,6 +65,61 @@ func TestQuestionMetadata(t *testing.T) {
 			tc.edit(&copyExam)
 			if err := validateQuestionMetadata(copyExam); err == nil {
 				t.Fatal("expected validation error")
+			}
+		})
+	}
+}
+
+func TestExamIDSuffix(t *testing.T) {
+	root := t.TempDir()
+	id := "CKS-001B"
+	dir := filepath.Join(root, id)
+	if err := os.Mkdir(dir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	files := map[string]string{
+		"test.json": `{"id":"CKS-001B","title":"Fixture","minutes":60,"categories":["Fixture"]}`,
+		"tasks.json": `[{"id":"task","question_id":"CKS-001B-Q1","category":"Fixture","title":"Fixture","instructions":"Create a namespace","solution":"kubectl create namespace fixture","points":100,"resource":"kubectl get namespace fixture -o json","checks":[{"description":"Namespace exists","points":100,"expression":".metadata.name == \"fixture\""}]}]`,
+		"setup.yaml": "kind: List\nitems: []\n", "reference-solutions.sh": "#!/bin/sh\ntrue\n",
+		"check-ready.sh": "#!/bin/sh\ntrue\n",
+	}
+	for name, body := range files {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(body), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := loadExams(root); err != nil {
+		t.Fatalf("suffixed exam should load: %v", err)
+	}
+	for _, invalid := range []string{"CKS-001b", "CKS-001BB", "CKS-001-B", "CKS-01B"} {
+		invalidDir := filepath.Join(root, invalid)
+		if err := os.Rename(dir, invalidDir); err != nil {
+			t.Fatal(err)
+		}
+		dir = invalidDir
+		if err := os.WriteFile(filepath.Join(dir, "test.json"), []byte(`{"id":"`+invalid+`","title":"Fixture","minutes":60}`), 0600); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := loadExams(root); err == nil {
+			t.Fatalf("invalid ID %q was accepted", invalid)
+		}
+	}
+}
+
+func TestLiveExamWrapperIDSuffix(t *testing.T) {
+	for _, tc := range []struct {
+		id, want string
+	}{
+		{"ZZZ-999B", "Unknown exam:"},
+		{"ZZZ-999BB", "Usage:"},
+		{"ZZZ-999b", "Usage:"},
+	} {
+		t.Run(tc.id, func(t *testing.T) {
+			cmd := exec.Command("bash", "../../scripts/test-exam.sh", tc.id)
+			cmd.Env = append(os.Environ(), "LAB_VM_START=3000")
+			output, err := cmd.CombinedOutput()
+			if err == nil || !strings.Contains(string(output), tc.want) {
+				t.Fatalf("unexpected result: %s, %v", output, err)
 			}
 		})
 	}

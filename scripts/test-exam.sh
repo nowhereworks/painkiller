@@ -2,7 +2,7 @@
 # Run only against a disposable, explicitly selected VM range.
 set -Eeuo pipefail
 cd "$(dirname "$0")/.."
-if [[ $# != 1 || ! $1 =~ ^[A-Z][A-Z0-9]*-[0-9]{3}$ ]]; then
+if [[ $# != 1 || ! $1 =~ ^[A-Z][A-Z0-9]*-[0-9]{3}[A-Z]?$ ]]; then
   echo "Usage: LAB_VM_START=<free VM ID> scripts/test-exam.sh <exam ID>" >&2
   exit 2
 fi

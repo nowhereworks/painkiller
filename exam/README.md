@@ -1,7 +1,8 @@
 # Test organization
 
 Each test lives in `exam/<ID>/`, using an uppercase family and three-digit
-number (for example `CKA-001`). The folder name must match `test.json`'s `id`.
+number with an optional single uppercase suffix (for example `CKA-001` or
+`CKS-001B`). The folder name must match `test.json`'s `id`.
 Keep all test-specific files, assets, and documentation inside that folder.
 Shared server code, lifecycle scripts, and provisioning playbooks stay shared.
 

@@ -71,6 +71,7 @@ Do not build or replace a template as part of this test.
     LAB_VM_START=3100 scripts/test-exam.sh CKS-001
    ```
 
+   Exam IDs may have a single uppercase suffix, such as `CKS-001B`.
    Run exams sequentially and verify the range is free before each run. The
    exam contract determines topology; the wrapper derives the last VM ID from
    that topology, and conflicting explicit `LAB_*` settings fail. The script
