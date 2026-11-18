@@ -1,7 +1,7 @@
-"""CKS-001B service subset: minimal Istio, ingress TLS material, image archives.
+"""CKS-001B service subset: minimal Istio, ingress, TLS and image archives.
 
-Run only in an ownership-checked disposable guest. Ingress controller, network
-probe endpoints and fault injection are not yet implemented.
+Run only in an ownership-checked disposable guest. Network probe endpoints and
+fault injection are not yet implemented.
 """
 import base64
 import json
@@ -11,6 +11,8 @@ import subprocess
 import tempfile
 
 from host_fixtures import create_once, path
+from ingress_fixture import NS as INGRESS_NS, NAME as INGRESS_NAME, canary, objects as ingress_objects
+from network_setup import setup as setup_network
 
 IMAGES = ("busybox:1.37.0", "alpine/curl:8.12.1", "alpine:3.21.3")
 
@@ -54,6 +56,20 @@ def setup(root):
         }
         k("apply", "-f", "-", data=json.dumps(secret))
         create_once(state / "portal-cert-installed", "complete\n", 0o600)
+
+    if not (state / "ingress-installed").exists():
+        k("apply", "-f", "-", data=json.dumps({"apiVersion": "v1", "kind": "List", "items": ingress_objects()}))
+        secret = {"apiVersion": "v1", "kind": "Secret", "type": "kubernetes.io/tls",
+                  "metadata": {"name": "cks001b-canary-cert", "namespace": "secure-portal"},
+                  "data": {key: base64.b64encode((state / name).read_bytes()).decode()
+                           for key, name in (("tls.crt", "canary-tls.crt"), ("tls.key", "canary-tls.key"))}}
+        k("apply", "-f", "-", data=json.dumps(secret))
+        k("apply", "-f", "-", data=json.dumps(canary()))
+        command(["kubectl", "-n", INGRESS_NS, "rollout", "status", "deployment/" + INGRESS_NAME,
+                 "--timeout=240s"], timeout=250)
+        create_once(state / "ingress-installed", "complete\n", 0o600)
+
+    setup_network(root, command)
 
     archives = path(root, "/root/ImageTarballs")
     archives.mkdir(parents=True, exist_ok=True)

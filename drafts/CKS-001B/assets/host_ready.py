@@ -60,6 +60,8 @@ def check(root, active=service_active):
     for cert, key, host in [
         (path(root, "/root/portal-client.crt"), path(root, "/root/portal-client.key"), "editor.training.example"),
         (state / "portal-tls.crt", state / "portal-tls.key", "portal.training.example"),
+        (state / "canary-tls.crt", state / "canary-tls.key", "ingress-check.training.example"),
+        (state / "network-tls.crt", state / "network-tls.key", "probe.training.example"),
     ]:
         require(cert_matches(cert, key, host), f"certificate pair for {host} missing or invalid")
     rules = [path(root, "/etc/falco/" + name) for name in

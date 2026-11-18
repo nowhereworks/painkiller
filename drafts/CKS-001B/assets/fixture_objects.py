@@ -8,6 +8,7 @@ No candidate answers (policies, labels or Secrets) are included here.
 NGINX = "nginx:1.28-alpine"
 UNPRIVILEGED = "nginxinc/nginx-unprivileged:1.28-alpine"
 BUSYBOX = "busybox:1.37.0"
+PYTHON = "python:3.12.12-alpine3.22"
 SLEEP = ["sh", "-c", "sleep 2147483647"]
 NAMESPACES = (
     "cks001b-system", "compute-watch", "outbound-guard", "workload-identity",
@@ -62,6 +63,7 @@ def objects():
     result.extend([
         pod("suspect", "compute-watch", BUSYBOX, SLEEP),
         pod("client", "outbound-guard", BUSYBOX, SLEEP),
+        pod("net-observer", "outbound-guard", PYTHON, SLEEP),
         pod("web-gate", "workload-identity", NGINX),
         pod("shop-web", "storefront", NGINX),
         pod("shop-api", "storefront", BUSYBOX, SLEEP),
@@ -69,6 +71,7 @@ def objects():
         pod("observer", "telemetry", BUSYBOX, SLEEP),
         pod("runtime-web", "runtime-shield", NGINX),
         pod("client", "api-clients", BUSYBOX, SLEEP),
+        pod("net-observer", "api-clients", PYTHON, SLEEP),
         service("shop-web", "storefront"),
     ])
 

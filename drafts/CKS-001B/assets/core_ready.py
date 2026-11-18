@@ -33,11 +33,11 @@ def check(items):
         require(obj.get("metadata", {}).get("labels", {}).get("painkiller-shell/exam") == "CKS-001B",
                 f"missing exam-owned namespace {ns}")
     for ns, name in [
-        ("compute-watch", "suspect"), ("outbound-guard", "client"),
+        ("compute-watch", "suspect"), ("outbound-guard", "client"), ("outbound-guard", "net-observer"),
         ("workload-identity", "web-gate"), ("storefront", "shop-web"),
         ("storefront", "shop-api"), ("storefront", "untrusted"),
         ("telemetry", "observer"), ("runtime-shield", "runtime-web"),
-        ("api-clients", "client"), ("default", "invoice-web"),
+        ("api-clients", "client"), ("api-clients", "net-observer"), ("default", "invoice-web"),
     ]:
         obj = index.get(("Pod", ns, name), {})
         require(bool(obj) and ready_pod(obj), f"Pod {ns}/{name} not ready")

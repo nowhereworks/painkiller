@@ -16,23 +16,35 @@ fixtures and explanations still need to be implemented.
 manifest, Falco configuration and TLS key pairs once. The partial
 `core_ready.py` and `host_ready.py` checks cover only those subsets. The draft
 `prepare.sh` deliberately refuses to run until the full exam definition,
-supporting services, readiness wrapper and asset checksums exist. Ingress,
-network test endpoints, node faults and their readiness checks are not yet
-implemented or validated. `services.py` and `services_ready.py` implement an
-initial subset: minimal Istio, the supplied ingress TLS Secret, image archives
-and the reference curl SBOM. They have only offline mock coverage, not a
-successful disposable-lab run.
+supporting services, readiness wrapper and asset checksums exist. Node faults,
+full readiness and grading are not yet implemented. `services.py` installs
+minimal Istio, a single ingress controller, lab-local probe endpoints, the
+supplied ingress TLS Secret, image archives and the reference curl SBOM.
+`ingress_ready.py` and `network_ready.py` exercise real canary traffic when
+run in the lab, but currently have only offline mock and loopback coverage.
+There has been no successful disposable-lab run.
 
 Dependency investigation (2026-11-18): upstream
 [ingress-nginx is retired](https://github.com/kubernetes/ingress-nginx#ingress-nginx-retirement)
 and its published v1.15.1 compatibility table ends at Kubernetes 1.35, whereas
 the shared bootstrap currently defaults to 1.36.1. Do not assume that either a
 retired ingress-nginx controller or Traefik enforces Q12's nginx annotations;
-the final lab needs a verified compatible implementation and real HTTP redirect
-and HTTPS probes. For Istio, upstream publishes an
+the draft pins v1.15.1 solely to reproduce the source's nginx-specific
+annotations in a disposable single-tenant lab. Readiness exercises an independent
+TLS/redirect canary; compatibility with 1.36.1 still requires a live run. This
+retired controller is not recommended for production. For Istio, upstream publishes an
 [amd64 1.32.0 release](https://github.com/istio/istio/releases/tag/1.32.0);
 its compatibility, download pin, installation and real sidecar behavior have
 not yet been validated in this lab.
+
+For egress probes the guest adds `198.18.20.10`, `.30.10`, `.40.10` and
+`.50.10` (all `/32`) to its **loopback** interface only; the host fixture
+listens on HTTP 8081 and TLS 443/9443. They are not assigned on the LAN or to
+the clone's NIC, and no reserved 192.168.254.x addresses are used. Setup
+refuses pre-existing conflicting addresses. A systemd pre-start restores the
+loopback addresses after a guest restart. The initial readiness probes both
+TCP and UDP DNS and all fixture ports from observer Pods in each egress
+namespace, plus frontend access from the three initial source Pods.
 
 `assets/network_policy.py` provides a bounded model for the specific
 NetworkPolicy probe cases in questions 2, 4 and 13. It is supplementary to real

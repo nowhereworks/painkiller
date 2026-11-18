@@ -38,11 +38,15 @@ class ServicesTests(unittest.TestCase):
         if args[:3] == ("get", "namespace", "cks001b-system"):
             return SimpleNamespace(stdout=json.dumps({"metadata": {"labels": {"painkiller-shell/exam": "CKS-001B"}}}))
         if args[:2] == ("apply", "-f"):
-            self.secret = json.loads(data)
+            obj = json.loads(data)
+            if obj.get("kind") == "Secret" and obj["metadata"]["name"] == "portal-cert":
+                self.secret = obj
         return SimpleNamespace(stdout="{}")
 
     def command(self, args, *, data=None, timeout=30):
         self.calls.append((args[0], args))
+        if args[:2] == ["ip", "-j"]:
+            return SimpleNamespace(stdout="[]")
         if args[0] == "skopeo":
             _, target, image = args[-1].split(":", 2)
             archive(Path(target), image)
@@ -56,6 +60,8 @@ class ServicesTests(unittest.TestCase):
             (self.state / name).touch()
         (self.state / "portal-tls.crt").write_text("certificate")
         (self.state / "portal-tls.key").write_text("private key")
+        (self.state / "canary-tls.crt").write_text("canary certificate")
+        (self.state / "canary-tls.key").write_text("canary private key")
 
     def test_unmarked_cluster_and_guest_refused(self):
         with self.assertRaisesRegex(RuntimeError, "unauthorized"):
