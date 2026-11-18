@@ -7,8 +7,11 @@ Do not use this directory to provision a lab.
 
 `test.json` and `questions.json` capture the proposed topology, 16 adapted
 questions and source weights. The latter is authoring input, **not** the
-server's `tasks.json` schema: solutions, walkthroughs, captures, checks,
-fixtures and explanations still need to be implemented.
+server's `tasks.json` schema. `solutions.py` contains unvalidated candidate
+solutions for all 16 questions; these are not yet wired into the application.
+Walkthroughs, complete captures, checks and explanations still need to be
+implemented. `assets/capture_files.py` provides only Q7's Dockerfile, Q8's
+Kubesec report and Q10's seccomp-file capture; it is not complete grading.
 
 `assets/fixture_objects.py` generates the static Kubernetes starting objects.
 `assets/install.sh` stages pinned host dependencies, and

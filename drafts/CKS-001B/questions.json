@@ -93,7 +93,7 @@
     "title": "Expose a web application with TLS",
     "category": "Cluster Setup",
     "points": 4,
-    "instructions": "In namespace secure-portal create Ingress portal-tls for host portal.training.example and path /, routing to the existing portal Service. Use the nginx IngressClass and existing Secret portal-cert. Set nginx.ingress.kubernetes.io/ssl-redirect to true and nginx.ingress.kubernetes.io/ssl-passthrough to false. Verify HTTPS through the ingress controller's HTTPS NodePort; HTTP must redirect to HTTPS."
+    "instructions": "In namespace secure-portal create Ingress portal-tls for host portal.training.example and path /, routing to the existing portal Service. Use the nginx IngressClass and existing Secret portal-cert. Set nginx.ingress.kubernetes.io/ssl-redirect to true and nginx.ingress.kubernetes.io/ssl-passthrough to false. Verify HTTPS through the ingress controller's HTTPS NodePort; HTTP must redirect to HTTPS. The certificate authority is /root/CKS/portal-ca.crt on the controller."
   },
   {
     "id": "restricted-egress",

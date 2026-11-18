@@ -117,6 +117,7 @@ def initialize(root):
     create_certificate(path(root, "/root/portal-client.crt"), path(root, "/root/portal-client.key"),
                        "editor.training.example")
     create_certificate(state / "portal-tls.crt", state / "portal-tls.key", "portal.training.example")
+    create_once(path(root, "/root/CKS/portal-ca.crt"), (state / "portal-tls.crt").read_text())
     create_certificate(state / "canary-tls.crt", state / "canary-tls.key", "ingress-check.training.example")
     create_certificate(state / "network-tls.crt", state / "network-tls.key", "probe.training.example")
     invoice = next(o for o in objects() if o["kind"] == "Pod" and o["metadata"]["name"] == "invoice-web")
