@@ -40,6 +40,10 @@ class Kubernetes:
         result = command(args)
         return json.loads(result.stdout) if result.stdout.strip() else {}
 
+    def list_all(self, kind):
+        result = command(["kubectl", "--request-timeout=5s", "get", kind, "--all-namespaces", "-o", "json"])
+        return json.loads(result.stdout)
+
     def exec(self, namespace, name, args, container=None):
         cmd = ["kubectl", "--request-timeout=5s", "-n", namespace, "exec", name]
         if container:

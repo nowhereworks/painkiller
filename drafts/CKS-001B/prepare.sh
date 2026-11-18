@@ -53,5 +53,6 @@ touch /var/lib/painkiller/cks001b/core-applied
 REMOTE
 fi
 node 'sudo -n env KUBECONFIG=/etc/kubernetes/admin.conf python3 -B /opt/painkiller/cks001b/services.py'
+node 'sudo -n env KUBECONFIG=/etc/kubernetes/admin.conf python3 -B /opt/painkiller/cks001b/rbac_capture.py baseline'
 bash "$exam/check-ready.sh"
 node 'sudo -n touch /var/lib/painkiller/cks001b/complete'

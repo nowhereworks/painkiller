@@ -19,6 +19,16 @@ the running process loaded the current on-disk contents. These are not
 complete grading for the exam. `assets/sbom_capture.py` checks Q11's candidate
 selection, image digest, curl package and SPDX relationships; a file cannot
 prove which CLI created it.
+`assets/rbac_capture.py` records the original effective RBAC grants before
+Start, compares all matching user/group bindings across namespaces, and
+performs read-only authorization reviews for Q5. Its bounded symbolic
+comparison refuses unexpectedly broad initial escalation grants rather than
+silently dropping their unrelated permissions. `assets/psa_witness.py`
+periodically performs server-side dry runs of a privileged Pod and the current
+Deployment template; Q9's capture reads only fresh evidence matching the
+namespace resource version and Deployment generation. `admission_ready.py`
+checks the initial RBAC fault and witness state. These have not yet been
+validated against a live cluster.
 
 `assets/fixture_objects.py` generates the static Kubernetes starting objects.
 `assets/install.sh` stages pinned host dependencies, and

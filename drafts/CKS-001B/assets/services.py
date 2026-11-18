@@ -13,6 +13,7 @@ import tempfile
 from host_fixtures import create_once, path
 from ingress_fixture import NS as INGRESS_NS, NAME as INGRESS_NAME, canary, objects as ingress_objects
 from network_setup import setup as setup_network
+from psa_witness import UNIT as PSA_UNIT
 
 IMAGES = ("busybox:1.37.0", "alpine/curl:8.12.1", "alpine:3.21.3")
 
@@ -70,6 +71,11 @@ def setup(root):
         create_once(state / "ingress-installed", "complete\n", 0o600)
 
     setup_network(root, command)
+    if not (state / "psa-witness-installed").exists():
+        create_once(path(root, "/etc/systemd/system/cks001b-psa-witness.service"), PSA_UNIT)
+        command(["systemctl", "daemon-reload"])
+        command(["systemctl", "enable", "--now", "cks001b-psa-witness.service"])
+        create_once(state / "psa-witness-installed", "complete\n", 0o600)
 
     archives = path(root, "/root/ImageTarballs")
     archives.mkdir(parents=True, exist_ok=True)
