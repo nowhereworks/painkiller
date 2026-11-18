@@ -1,4 +1,5 @@
 import os
+import json
 import shutil
 import sys
 import tempfile
@@ -31,6 +32,8 @@ class HostFixtureTests(unittest.TestCase):
     def test_real_generation_readiness_and_retry(self):
         (self.state / "authorized").touch()
         initialize(self.root)
+        candidate = json.loads((self.state / "candidate.json").read_text())
+        path(self.root, candidate["home"]).mkdir(parents=True, exist_ok=True)
         (self.state / "packages").touch()
         for name in ("bom", "kube-bench", "kubesec", "istioctl"):
             binary = path(self.root, "/usr/local/bin/" + name)

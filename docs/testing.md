@@ -21,7 +21,8 @@ python3 -B exam/OPA-001/tests/test_capture.py -v
 python3 -B exam/CKS-001/build.py --check
 python3 -B -m unittest discover -s exam/CKS-001/tests -v
 python3 -B -m unittest discover -s drafts/CKS-001B/tests -v
-# Optionally set CKS001B_KUBESEC to the pinned kubesec binary for the real-CLI test.
+# Optionally set CKS001B_KUBESEC to the pinned kubesec binary and
+# CKS001B_BOM_REPORT to an actual bom-generated curl-image report.
 shellcheck drafts/CKS-001B/prepare.sh drafts/CKS-001B/assets/install.sh
 shellcheck exam/CKS-001/*.sh exam/CKS-001/assets/*.sh
 (cd exam/CKS-001/assets && sha256sum --check --quiet SHA256SUMS)

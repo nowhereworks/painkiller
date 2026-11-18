@@ -3,6 +3,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import pwd
 import subprocess
 import tempfile
 
@@ -103,6 +104,9 @@ def initialize(root):
         raise RuntimeError("Refusing to initialize an unauthorized guest")
     if (state / "host-files").exists():
         return
+    candidate_name = os.environ.get("SUDO_USER") or pwd.getpwuid(os.getuid()).pw_name
+    candidate = pwd.getpwnam(candidate_name)
+    create_once(state / "candidate.json", json.dumps({"user": candidate_name, "home": candidate.pw_dir}) + "\n", 0o600)
     rules = [path(root, "/etc/falco/" + name) for name in
              ("falco_rules.yaml", "falco-incubating_rules.yaml", "falco-sandbox_rules.yaml")]
     if not all(rule.is_file() for rule in rules):

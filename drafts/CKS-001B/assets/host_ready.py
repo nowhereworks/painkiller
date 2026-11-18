@@ -43,6 +43,14 @@ def check(root, active=service_active):
     require((state / "authorized").is_file(), "guest authorization marker missing")
     require((state / "packages").is_file(), "dependency installation incomplete")
     require((state / "host-files").is_file(), "host fixture initialization incomplete")
+    try:
+        candidate = json.loads((state / "candidate.json").read_text())
+        home = candidate["home"]
+        require(isinstance(candidate["user"], str) and bool(candidate["user"]) and
+                isinstance(home, str) and home.startswith("/") and path(root, home).is_dir(),
+                "candidate home metadata invalid")
+    except (OSError, ValueError, KeyError, TypeError):
+        failures.append("candidate home metadata missing or invalid")
     for binary in ("bom", "kube-bench", "kubesec", "istioctl"):
         require(os.access(path(root, "/usr/local/bin/" + binary), os.X_OK), f"{binary} missing")
     for binary in ("/usr/bin/falco", "/opt/course/ledger/ledger"):

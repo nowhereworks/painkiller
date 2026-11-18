@@ -61,7 +61,8 @@ def dockerfile_checks(text):
             parsed = json.loads(cmd[0])
             no_shell = no_shell and len(cmd) == 1 and isinstance(parsed, list) and all(
                 isinstance(item, str) for item in parsed)
-            if isinstance(parsed, list) and parsed and parsed[0].split("/")[-1] in ("sh", "bash", "ash", "dash"):
+            if (isinstance(parsed, list) and parsed and isinstance(parsed[0], str) and
+                    parsed[0].split("/")[-1] in ("sh", "bash", "ash", "dash")):
                 no_shell = False
         except (ValueError, TypeError):
             no_shell = False

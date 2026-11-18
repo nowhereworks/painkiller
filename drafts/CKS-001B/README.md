@@ -11,7 +11,14 @@ server's `tasks.json` schema. `solutions.py` contains unvalidated candidate
 solutions for all 16 questions; these are not yet wired into the application.
 Walkthroughs, complete captures, checks and explanations still need to be
 implemented. `assets/capture_files.py` provides only Q7's Dockerfile, Q8's
-Kubesec report and Q10's seccomp-file capture; it is not complete grading.
+Kubesec report and Q10's seccomp-file capture. `assets/workload_capture.py`
+adds workload/runtime capture for Q3, Q6, Q8, Q10 and Q15; it checks one
+current-revision Ready Deployment Pod and all its specified containers. Q10
+validates the file, selected profile and seccomp filter mode, but cannot prove
+the running process loaded the current on-disk contents. These are not
+complete grading for the exam. `assets/sbom_capture.py` checks Q11's candidate
+selection, image digest, curl package and SPDX relationships; a file cannot
+prove which CLI created it.
 
 `assets/fixture_objects.py` generates the static Kubernetes starting objects.
 `assets/install.sh` stages pinned host dependencies, and

@@ -90,6 +90,7 @@ else:
                 self.assertFalse(dockerfile_checks(good.replace(original, replacement))[key])
         self.assertFalse(dockerfile_checks(good + "# extra\n# extra\n")["minimal"])
         self.assertFalse(dockerfile_checks(good.replace("COPY ledger /usr/local/bin/ledger", 'COPY ["ledger",1]'))["binary"])
+        self.assertFalse(dockerfile_checks(good.replace("EXPOSE 8080", 'CMD [1]'))["minimal"])
 
     def test_seccomp_grading_semantics_and_negative_cases(self):
         profile = {"defaultAction": "SCMP_ACT_ALLOW", "syscalls": [
