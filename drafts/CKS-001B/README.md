@@ -17,8 +17,11 @@ manifest, Falco configuration and TLS key pairs once. The partial
 `core_ready.py` and `host_ready.py` checks cover only those subsets. The draft
 `prepare.sh` deliberately refuses to run until the full exam definition,
 supporting services, readiness wrapper and asset checksums exist. Ingress,
-Istio installation, TLS Secret creation, image archives, network test endpoints,
-node faults and their readiness checks are not yet implemented or validated.
+network test endpoints, node faults and their readiness checks are not yet
+implemented or validated. `services.py` and `services_ready.py` implement an
+initial subset: minimal Istio, the supplied ingress TLS Secret, image archives
+and the reference curl SBOM. They have only offline mock coverage, not a
+successful disposable-lab run.
 
 Dependency investigation (2026-11-18): upstream
 [ingress-nginx is retired](https://github.com/kubernetes/ingress-nginx#ingress-nginx-retirement)
