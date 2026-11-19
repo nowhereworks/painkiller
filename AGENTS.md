@@ -8,6 +8,9 @@ This is the repository for Painkiller Shell: A Killer.sh clone that aims to mimi
 - Always commit and push after work
 - When making modifications, change as little as possible in order to achieve goals
 - Always persist any useful data for future sessions 
+- Before authoring or changing an exam, read `exam/README.md` and the affected exam's README for fixture, grading, and dependency pitfalls.
+- Inspect the initial git status and preserve pre-existing edits and deletions. Stage only this task's changes; use selective staging when a documentation file already contains user edits.
+- Background execution does not remove a tool's timeout. Give long lab runs an adequate execution timeout, await completion notifications without polling, and inspect ownership before retrying or cleaning up an interrupted run.
 - Before planning or running tests, read `docs/testing.md` and follow its current testing and lab-safety procedures. Update it whenever the testing workflow changes.
 - Before creating or changing lab images, templates, or provisioning, read and follow `docs/vm-images-and-templates.md`. Keep affected `./docs` files up to date when behavior, workflows, requirements, or operational rules change.
 - Scripts don't need to map 1:1 to `exams` and and in fact might be used to provision environments for more than one exam. When deciding about this topic, do the simplest thing: If a given `exam` asks too much of a given script and changing it might cause cascade changes and tests, create a custom copy for the `exam` in question.

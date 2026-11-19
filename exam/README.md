@@ -125,3 +125,28 @@ Each readiness check is exam-owned, read-only, uses the saved lab environment an
 student access, and checks essential infrastructure and intentional faults rather
 than grading answers. Keep it fast, with bounded retries for convergence. Update
 it whenever the expected starting state changes.
+
+## Fixture and grading pitfalls
+
+- A volume mount hides the image's contents at that path. Initialize required
+  subdirectories inside writable volumes before application startup; for example,
+  mounting `/var/log` hides nginx's bundled `/var/log/nginx`. Verify application
+  readiness and Deployment rollout, not merely a Pod briefly reaching Running.
+- Runtime mountpoints can differ from manifest paths because of symlinks.
+  Resolve paths inside the actual container before comparing mount flags:
+  `/var/run` may appear as `/run` in `/proc/1/mountinfo`. Do not assume aliases
+  are equivalent without checking the container's symlink.
+- For independently refreshed evidence, read the evidence before sampling the
+  current time for freshness validation. Sampling time at capture startup can
+  falsely classify an update during API reads as future-dated. Match evidence
+  to the observed resource UID/version or generation as well as its age.
+- Falco's first matching rule can shadow later local rules. When an exam must
+  observe overlapping detections without changing distribution rules, deliberately
+  configure and validate matching behavior (CKS-001B uses `rule_matching: all`).
+  Check real benign execution events, not just valid YAML.
+- An IngressClass name or annotation does not establish controller support.
+  Verify the installed controller's actual provider and use an independent
+  certificate-verified TLS/redirect canary. Traefik's ordinary Kubernetes Ingress
+  provider is not its Kubernetes Ingress NGINX compatibility provider.
+
+See `CKS-001B/README.md` for the concrete fixes and assessment boundaries.

@@ -49,6 +49,24 @@ Supporting probe failures must remain capture errors even when kubectl reports
 `(NotFound)`: the generic capture path otherwise treats that text as a missing
 candidate answer. Sanitize supporting exec stderr and emit a distinct error.
 
+## Validation discipline
+
+- Generate definitions and refresh asset checksums before starting a live run.
+  Freeze runtime assets, setup, solutions and grading for that run; editing them
+  during preparation can mix versions and invalidate the result.
+- Use a failed disposable guest for ownership-checked diagnosis, but do not call
+  a manually repaired guest a clean end-to-end pass. After behavior fixes, rerun
+  the complete wrapper on a newly verified-free allocation, including readiness,
+  baseline, reference answers, every listed mutation and cleanup.
+- First-boot cloud-init/package upgrades can restart networking and change a
+  guest's DHCP address after initial SSH readiness. Observe boot completion
+  through the ownership-checked guest agent, rediscover the address, and verify
+  its SSH key through that agent. Never compensate by changing clone NIC, DHCP,
+  machine identity or host keys. Keep exam-specific handling exam-owned.
+- Report passed, failed and skipped checks separately. Optional real-tool tests
+  need the actual pinned executable and real evidence; confirm temporary paths
+  still exist before reusing them after a session resumes.
+
 ## Browser-free live exam validation
 
 This provisions real disposable Proxmox VMs, runs candidate commands, modifies
