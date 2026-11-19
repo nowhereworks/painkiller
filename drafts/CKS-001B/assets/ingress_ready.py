@@ -12,25 +12,25 @@ from services_ready import ready_deployment
 HOST = "ingress-check.training.example"
 
 
-def probe(ip, http_port, https_port, ca):
-    """Observe existing canary only; never create or mutate an Ingress."""
+def probe(ip, http_port, https_port, ca, host=HOST):
+    """Observe an existing route only; never create or mutate an Ingress."""
     base = ["curl", "--silent", "--show-error", "--noproxy", "*", "--connect-timeout", "2", "--max-time", "5"]
     http = subprocess.run(
-        [*base, "--resolve", f"{HOST}:{http_port}:{ip}", "-H", f"Host: {HOST}",
-         "--dump-header", "-", "--output", "/dev/null", f"http://{HOST}:{http_port}/"],
+        [*base, "--resolve", f"{host}:{http_port}:{ip}", "-H", f"Host: {host}",
+         "--dump-header", "-", "--output", "/dev/null", f"http://{host}:{http_port}/"],
         text=True, capture_output=True, timeout=7,
     )
     https = subprocess.run(
-        [*base, "--fail", "--cacert", str(ca), "--resolve", f"{HOST}:{https_port}:{ip}",
-         f"https://{HOST}:{https_port}/"],
+        [*base, "--fail", "--cacert", str(ca), "--resolve", f"{host}:{https_port}:{ip}",
+         f"https://{host}:{https_port}/"],
         text=True, capture_output=True, timeout=7,
     )
     lines = http.stdout.replace("\r", "").splitlines()
     status = lines[0].split()[1] if lines and len(lines[0].split()) >= 2 else ""
     locations = [line.split(":", 1)[1].strip() for line in lines if line.lower().startswith("location:")]
     redirect = (http.returncode == 0 and status in ("301", "302", "307", "308")
-                and any(loc.startswith(f"https://{HOST}/") or loc == f"https://{HOST}"
-                        or loc.startswith(f"https://{HOST}:") for loc in locations))
+                and any(loc.startswith(f"https://{host}/") or loc == f"https://{host}"
+                        or loc.startswith(f"https://{host}:") for loc in locations))
     return redirect, https.returncode == 0 and "Welcome to nginx" in https.stdout
 
 

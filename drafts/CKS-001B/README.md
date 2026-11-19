@@ -29,6 +29,11 @@ Deployment template; Q9's capture reads only fresh evidence matching the
 namespace resource version and Deployment generation. `admission_ready.py`
 checks the initial RBAC fault and witness state. These have not yet been
 validated against a live cluster.
+`ingress_capture.py` checks Q12's named route and annotations against an
+independent TLS/redirect canary. `mesh_capture.py` checks Q14's namespace-wide
+STRICT setting, Ready sidecars, meshed connectivity and a plaintext negative
+probe. The negative probe is supporting evidence, not proof that network policy
+could not also block that traffic.
 
 `assets/fixture_objects.py` generates the static Kubernetes starting objects.
 `assets/install.sh` stages pinned host dependencies, and
@@ -36,13 +41,21 @@ validated against a live cluster.
 manifest, Falco configuration and TLS key pairs once. The partial
 `core_ready.py` and `host_ready.py` checks cover only those subsets. The draft
 `prepare.sh` deliberately refuses to run until the full exam definition,
-supporting services, readiness wrapper and asset checksums exist. Node faults,
-full readiness and grading are not yet implemented. `services.py` installs
+supporting services, readiness wrapper and asset checksums exist. Full readiness
+and grading are not yet implemented. `services.py` installs
 minimal Istio, a single ingress controller, lab-local probe endpoints, the
 supplied ingress TLS Secret, image archives and the reference curl SBOM.
 `ingress_ready.py` and `network_ready.py` exercise real canary traffic when
 run in the lab, but currently have only offline mock and loopback coverage.
 There has been no successful disposable-lab run.
+
+For Q16, `etcd_fault.py` refuses unmarked or non-singleton clusters, non-root
+live etcd, mismatched live/static mount settings and symlinked paths. It only
+changes the top-level `/var/lib/etcd` directory on the authorized disposable
+guest; `etcd_ready.py` verifies that fault. `etcd_capture.py` reads the live
+configuration and checks the tree's metadata, two CIS benchmark results and API
+health without following symlinks. These paths and the fixture have not been
+validated on a live lab.
 
 Dependency investigation (2026-11-18): upstream
 [ingress-nginx is retired](https://github.com/kubernetes/ingress-nginx#ingress-nginx-retirement)
