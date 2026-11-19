@@ -1,0 +1,686 @@
+[
+  {
+    "id": "falco-miner",
+    "question_id": "CKS-001B-Q1",
+    "title": "Detect mining processes",
+    "category": "Monitoring, Logging and Runtime Security",
+    "points": 5,
+    "instructions": "All commands/files belong on the initial controller. This lab has one schedulable control plane, no workers and no context switching. Use sudo for root-owned files; ~ means your candidate home. Questions are independent; preserve other tasks and supporting services.\n\nOn the controller, add a Falco rule to /etc/falco/falco_rules.local.yaml that detects execution of xmrig, minerd, or cpuminer. Set priority CRITICAL, output MINER_NOTICE: %evt.time,%container.name,%proc.name, and tags [container, crypto_mining, mitre_execution]. Keep Falco active and the default rules unchanged. The suspect workload is in namespace compute-watch.",
+    "steps": [
+      "Inspect the local rule-loading configuration.",
+      "Match process execution and all three process names.",
+      "Set priority, output and tags, validate the rules, then restart Falco."
+    ],
+    "explanation": "Local rules survive distribution-rule updates. An exec event is different from a process merely existing.",
+    "solution": "sudo tee /etc/falco/falco_rules.local.yaml >/dev/null <<'YAML'\n- rule: Detect mining processes\n  desc: Detect execution of known cryptocurrency miners\n  condition: spawned_process and proc.name in (xmrig, minerd, cpuminer)\n  output: \"MINER_NOTICE: %evt.time,%container.name,%proc.name\"\n  priority: CRITICAL\n  tags: [container, crypto_mining, mitre_execution]\nYAML\nsudo systemctl restart falco\nsudo systemctl is-active --quiet falco",
+    "resource": "sudo -n env KUBECONFIG=/etc/kubernetes/admin.conf timeout 27s python3 -B /opt/painkiller/cks001b/capture.py q1",
+    "checks": [
+      {
+        "description": "Detect execution of all three mining process names",
+        "points": 2,
+        "expression": ".processes == true",
+        "diagnostics": ".failures // []"
+      },
+      {
+        "description": "Use CRITICAL priority",
+        "points": 1,
+        "expression": ".priority == true",
+        "diagnostics": ".failures // []"
+      },
+      {
+        "description": "Use the requested output and tags",
+        "points": 1,
+        "expression": ".output == true",
+        "diagnostics": ".failures // []"
+      },
+      {
+        "description": "Load the local rule in active Falco without changing defaults",
+        "points": 1,
+        "expression": ".active == true",
+        "diagnostics": ".failures // []"
+      }
+    ]
+  },
+  {
+    "id": "deny-egress-ranges",
+    "question_id": "CKS-001B-Q2",
+    "title": "Exclude dangerous destinations",
+    "category": "Cluster Setup",
+    "points": 5,
+    "instructions": "In namespace outbound-guard, create NetworkPolicy exclude-ranges selecting all pods. Block egress to 198.18.20.0/24 and 198.18.30.0/24; allow DNS on UDP and TCP port 53 to the cluster DNS Service and allow all other egress. Do not isolate ingress. The DNS Service address is outside the excluded CIDRs.",
+    "steps": [
+      "Select every Pod for egress isolation.",
+      "Allow IPv4 destinations with the two CIDR exceptions.",
+      "Verify both DNS protocols, excluded destinations and an allowed control."
+    ],
+    "explanation": "NetworkPolicies add allowed traffic; a second broad allow can defeat an exclusion.",
+    "solution": "kubectl apply -f - <<'YAML'\n{\n  \"apiVersion\": \"networking.k8s.io/v1\",\n  \"kind\": \"NetworkPolicy\",\n  \"metadata\": {\n    \"name\": \"exclude-ranges\",\n    \"namespace\": \"outbound-guard\"\n  },\n  \"spec\": {\n    \"podSelector\": {},\n    \"policyTypes\": [\n      \"Egress\"\n    ],\n    \"egress\": [\n      {\n        \"to\": [\n          {\n            \"ipBlock\": {\n              \"cidr\": \"0.0.0.0/0\",\n              \"except\": [\n                \"198.18.20.0/24\",\n                \"198.18.30.0/24\"\n              ]\n            }\n          }\n        ]\n      }\n    ]\n  }\n}\nYAML",
+    "resource": "sudo -n env KUBECONFIG=/etc/kubernetes/admin.conf timeout 27s python3 -B /opt/painkiller/cks001b/capture.py q2",
+    "checks": [
+      {
+        "description": "Select all namespace pods for egress only",
+        "points": 1,
+        "expression": ".policy == true",
+        "diagnostics": ".failures // []"
+      },
+      {
+        "description": "Block both dangerous CIDRs",
+        "points": 2,
+        "expression": ".blocked == true",
+        "diagnostics": ".failures // []"
+      },
+      {
+        "description": "Retain other egress and leave ingress unaffected",
+        "points": 1,
+        "expression": ".allowed == true",
+        "diagnostics": ".failures // []"
+      },
+      {
+        "description": "Retain UDP and TCP DNS",
+        "points": 1,
+        "expression": ".dns == true",
+        "diagnostics": ".failures // []"
+      }
+    ]
+  },
+  {
+    "id": "nonroot-web",
+    "question_id": "CKS-001B-Q3",
+    "title": "Run a web Pod without privilege escalation",
+    "category": "Minimize Microservice Vulnerabilities",
+    "points": 10,
+    "instructions": "Secure Pod web-gate in namespace workload-identity. Use nginxinc/nginx-unprivileged:alpine, UID and GID 101, runAsNonRoot, and allowPrivilegeEscalation false. Declare container port 8080 and leave the Pod serving HTTP on that port. Recreate the Pod if necessary.",
+    "steps": [
+      "Inspect the existing Pod and unprivileged nginx image.",
+      "Set non-root UID/GID and disallow escalation.",
+      "Recreate the Pod and verify HTTP on 8080."
+    ],
+    "explanation": "runAsNonRoot checks identity, while allowPrivilegeEscalation controls no_new_privs independently.",
+    "solution": "kubectl -n workload-identity delete pod web-gate --ignore-not-found --wait=true\nkubectl apply -f - <<'YAML'\n{\n  \"apiVersion\": \"v1\",\n  \"kind\": \"Pod\",\n  \"metadata\": {\n    \"name\": \"web-gate\",\n    \"namespace\": \"workload-identity\",\n    \"labels\": {\n      \"app\": \"web-gate\"\n    }\n  },\n  \"spec\": {\n    \"containers\": [\n      {\n        \"name\": \"web-gate\",\n        \"image\": \"nginxinc/nginx-unprivileged:alpine\",\n        \"imagePullPolicy\": \"IfNotPresent\",\n        \"securityContext\": {\n          \"allowPrivilegeEscalation\": false\n        },\n        \"ports\": [\n          {\n            \"containerPort\": 8080,\n            \"protocol\": \"TCP\"\n          }\n        ]\n      }\n    ],\n    \"securityContext\": {\n      \"runAsNonRoot\": true,\n      \"runAsUser\": 101,\n      \"runAsGroup\": 101\n    }\n  }\n}\nYAML\nkubectl -n workload-identity wait pod/web-gate --for=condition=Ready --timeout=120s\nkubectl -n workload-identity exec web-gate -- wget -T 3 -qO- http://127.0.0.1:8080/",
+    "resource": "sudo -n env KUBECONFIG=/etc/kubernetes/admin.conf timeout 27s python3 -B /opt/painkiller/cks001b/capture.py q3",
+    "checks": [
+      {
+        "description": "Disable privilege escalation",
+        "points": 2,
+        "expression": ".escalation == true",
+        "diagnostics": ".failures // []"
+      },
+      {
+        "description": "Require non-root execution",
+        "points": 1,
+        "expression": ".nonroot == true",
+        "diagnostics": ".failures // []"
+      },
+      {
+        "description": "Run with UID 101",
+        "points": 1,
+        "expression": ".uid == true",
+        "diagnostics": ".failures // []"
+      },
+      {
+        "description": "Run with GID 101",
+        "points": 1,
+        "expression": ".gid == true",
+        "diagnostics": ".failures // []"
+      },
+      {
+        "description": "Use the specified image",
+        "points": 1,
+        "expression": ".image == true",
+        "diagnostics": ".failures // []"
+      },
+      {
+        "description": "Declare TCP 8080",
+        "points": 1,
+        "expression": ".port == true",
+        "diagnostics": ".failures // []"
+      },
+      {
+        "description": "Leave the Pod healthy and serving HTTP on 8080",
+        "points": 3,
+        "expression": ".serving == true",
+        "diagnostics": ".failures // []"
+      }
+    ]
+  },
+  {
+    "id": "selective-ingress",
+    "question_id": "CKS-001B-Q4",
+    "title": "Limit frontend ingress",
+    "category": "Cluster Setup",
+    "points": 7,
+    "instructions": "In namespace storefront, create NetworkPolicy web-access selecting pods labeled app=shop-web. Allow TCP port 80 only from pods labeled app=shop-api in storefront and from any pod in namespace telemetry. Deny other ingress to the selected pods without isolating their egress.",
+    "steps": [
+      "Select frontend Pods only.",
+      "Use separate peers for same-namespace backend Pods and the telemetry namespace.",
+      "Limit the rule to TCP 80 and test permitted and denied clients."
+    ],
+    "explanation": "Separate peer entries are ORed; namespaceSelector and podSelector in one peer are ANDed.",
+    "solution": "kubectl apply -f - <<'YAML'\n{\n  \"apiVersion\": \"networking.k8s.io/v1\",\n  \"kind\": \"NetworkPolicy\",\n  \"metadata\": {\n    \"name\": \"web-access\",\n    \"namespace\": \"storefront\"\n  },\n  \"spec\": {\n    \"podSelector\": {\n      \"matchLabels\": {\n        \"app\": \"shop-web\"\n      }\n    },\n    \"policyTypes\": [\n      \"Ingress\"\n    ],\n    \"ingress\": [\n      {\n        \"from\": [\n          {\n            \"podSelector\": {\n              \"matchLabels\": {\n                \"app\": \"shop-api\"\n              }\n            }\n          },\n          {\n            \"namespaceSelector\": {\n              \"matchLabels\": {\n                \"kubernetes.io/metadata.name\": \"telemetry\"\n              }\n            }\n          }\n        ],\n        \"ports\": [\n          {\n            \"protocol\": \"TCP\",\n            \"port\": 80\n          }\n        ]\n      }\n    ]\n  }\n}\nYAML",
+    "resource": "sudo -n env KUBECONFIG=/etc/kubernetes/admin.conf timeout 27s python3 -B /opt/painkiller/cks001b/capture.py q4",
+    "checks": [
+      {
+        "description": "Select only the frontend for ingress",
+        "points": 1,
+        "expression": ".policy == true",
+        "diagnostics": ".failures // []"
+      },
+      {
+        "description": "Preserve frontend egress",
+        "points": 1,
+        "expression": ".scope == true",
+        "diagnostics": ".failures // []"
+      },
+      {
+        "description": "Permit the two specified source groups",
+        "points": 3,
+        "expression": ".allowed == true",
+        "diagnostics": ".failures // []"
+      },
+      {
+        "description": "Deny other frontend ingress",
+        "points": 2,
+        "expression": ".denied == true",
+        "diagnostics": ".failures // []"
+      }
+    ]
+  },
+  {
+    "id": "rbac-escalation",
+    "question_id": "CKS-001B-Q5",
+    "title": "Remove RBAC escalation",
+    "category": "Cluster Hardening",
+    "points": 6,
+    "instructions": "ServiceAccount pipeline-agent in namespace delivery is bound cluster-wide to ClusterRole pipeline-agent-role. Remove its ability to create, update, or patch rolebindings and clusterrolebindings anywhere. Retain all its existing Pod, Service and ConfigMap permissions and add no permissions.",
+    "steps": [
+      "Inspect the service account's effective role bindings.",
+      "Remove only the dangerous binding-write verbs.",
+      "Verify denied binding writes and unchanged ordinary resource access."
+    ],
+    "explanation": "Preserving permissions is as important as removing escalation. Removing the entire binding is not sufficient.",
+    "solution": "kubectl get clusterrole pipeline-agent-role -o json | python3 -c '\nimport json, subprocess, sys\nrole = json.load(sys.stdin)\nfor rule in role[\"rules\"]:\n    if \"rbac.authorization.k8s.io\" in rule.get(\"apiGroups\", []) and set(rule.get(\"resources\", [])) == {\"rolebindings\", \"clusterrolebindings\"}:\n        rule[\"verbs\"] = [v for v in rule[\"verbs\"] if v not in {\"create\", \"update\", \"patch\"}]\nsubprocess.run([\"kubectl\", \"patch\", \"clusterrole\", \"pipeline-agent-role\", \"--type=merge\", \"-p\", json.dumps({\"rules\": role[\"rules\"]})], check=True)\n'\nanswer=$(kubectl auth can-i --as=system:serviceaccount:delivery:pipeline-agent create clusterrolebindings || true)\ntest \"$answer\" = no",
+    "resource": "sudo -n env KUBECONFIG=/etc/kubernetes/admin.conf timeout 27s python3 -B /opt/painkiller/cks001b/capture.py q5",
+    "checks": [
+      {
+        "description": "Deny rolebinding writes everywhere",
+        "points": 2,
+        "expression": ".rolebindings == true",
+        "diagnostics": ".failures // []"
+      },
+      {
+        "description": "Deny clusterrolebinding writes",
+        "points": 2,
+        "expression": ".clusterrolebindings == true",
+        "diagnostics": ".failures // []"
+      },
+      {
+        "description": "Retain other current permissions",
+        "points": 1,
+        "expression": ".retained == true",
+        "diagnostics": ".failures // []"
+      },
+      {
+        "description": "Add no permissions",
+        "points": 1,
+        "expression": ".no_new == true",
+        "diagnostics": ".failures // []"
+      }
+    ]
+  },
+  {
+    "id": "readonly-root",
+    "question_id": "CKS-001B-Q6",
+    "title": "Make the application root filesystem immutable",
+    "category": "Monitoring, Logging and Runtime Security",
+    "points": 8,
+    "instructions": "Harden all containers in Deployment report-web in namespace immutable-workloads with readOnlyRootFilesystem true. Preserve writable mounts at /tmp, /var/log, /var/cache/nginx and /var/run. Leave the nginx application healthy and serving HTTP.",
+    "steps": [
+      "Inspect the writable storage mounts.",
+      "Set readOnlyRootFilesystem on each container.",
+      "Wait for the rollout and verify root mount flags, writable volumes and HTTP."
+    ],
+    "explanation": "Read-only root filesystems prevent image-layer writes without making separately mounted scratch volumes read-only.",
+    "solution": "kubectl -n immutable-workloads patch deployment report-web --type=strategic -p '{\"spec\":{\"template\":{\"spec\":{\"containers\":[{\"name\":\"report-web\",\"securityContext\":{\"readOnlyRootFilesystem\":true}}]}}}}'\nkubectl -n immutable-workloads rollout status deployment/report-web --timeout=120s\nkubectl -n immutable-workloads exec deployment/report-web -- wget -T 3 -qO- http://127.0.0.1/",
+    "resource": "sudo -n env KUBECONFIG=/etc/kubernetes/admin.conf timeout 27s python3 -B /opt/painkiller/cks001b/capture.py q6",
+    "checks": [
+      {
+        "description": "Configure read-only root filesystems",
+        "points": 3,
+        "expression": ".readonly == true",
+        "diagnostics": ".failures // []"
+      },
+      {
+        "description": "Enforce read-only root with writable mounts",
+        "points": 3,
+        "expression": ".mounts == true",
+        "diagnostics": ".failures // []"
+      },
+      {
+        "description": "Keep hardened nginx serving HTTP",
+        "points": 2,
+        "expression": ".serving == true",
+        "diagnostics": ".failures // []"
+      }
+    ]
+  },
+  {
+    "id": "distroless-dockerfile",
+    "question_id": "CKS-001B-Q7",
+    "title": "Reduce a build image footprint",
+    "category": "Supply Chain Security",
+    "points": 5,
+    "instructions": "Edit /opt/course/ledger/ledger.Dockerfile on the controller. Replace its Ubuntu base with gcr.io/distroless/base, eliminate package-manager and shell-dependent instructions, and copy only the supplied Go application binary. Run as nonroot (UID 65532) and use an exec-form ENTRYPOINT. Do not add lines. The binary listens on port 8080.",
+    "steps": [
+      "Inspect the supplied binary and build file.",
+      "Remove package installation and shell execution.",
+      "Choose distroless/nonroot and an exec-form entrypoint without increasing line count."
+    ],
+    "explanation": "Distroless has no shell or package manager. The final file proves its structure, not the history of edits.",
+    "solution": "sudo tee /opt/course/ledger/ledger.Dockerfile >/dev/null <<'DOCKERFILE'\nFROM gcr.io/distroless/base\nCOPY ledger /usr/local/bin/ledger\nUSER nonroot\nEXPOSE 8080\nENTRYPOINT [\"/usr/local/bin/ledger\"]\nDOCKERFILE",
+    "resource": "sudo -n env KUBECONFIG=/etc/kubernetes/admin.conf timeout 27s python3 -B /opt/painkiller/cks001b/capture.py q7",
+    "checks": [
+      {
+        "description": "Use distroless",
+        "points": 1,
+        "expression": ".base == true",
+        "diagnostics": ".failures // []"
+      },
+      {
+        "description": "Remove shell and package installation without adding lines",
+        "points": 1,
+        "expression": ".minimal == true",
+        "diagnostics": ".failures // []"
+      },
+      {
+        "description": "Copy only the application binary",
+        "points": 1,
+        "expression": ".binary == true",
+        "diagnostics": ".failures // []"
+      },
+      {
+        "description": "Select nonroot",
+        "points": 1,
+        "expression": ".nonroot == true",
+        "diagnostics": ".failures // []"
+      },
+      {
+        "description": "Use exec ENTRYPOINT",
+        "points": 1,
+        "expression": ".exec == true",
+        "diagnostics": ".failures // []"
+      }
+    ]
+  },
+  {
+    "id": "capabilities-scan",
+    "question_id": "CKS-001B-Q8",
+    "title": "Reduce Linux capabilities and scan",
+    "category": "Supply Chain Security",
+    "points": 9,
+    "instructions": "Secure the default namespace Pod invoice-web using its manifest /root/CKS/invoice-web.yaml on the controller: drop ALL capabilities and add back only NET_BIND_SERVICE. Leave nginx serving HTTP on port 8080. Use the installed kubesec to scan the corrected manifest and save its JSON report with a passing score to /root/CKS/invoice-kubesec.json. NET_BIND_SERVICE is assessed as requested even though port 8080 is not privileged.",
+    "steps": [
+      "Update the supplied manifest's capabilities.",
+      "Recreate the Pod from that manifest and test nginx.",
+      "Scan the corrected manifest with Kubesec and retain its JSON report."
+    ],
+    "explanation": "Dropping ALL removes the runtime's default capability set. NET_BIND_SERVICE is not needed for the nonprivileged 8080 port.",
+    "solution": "sudo python3 - <<'PY'\nimport json\nfrom pathlib import Path\np = Path('/root/CKS/invoice-web.yaml')\npod = json.loads(p.read_text())\nsecurity = pod['spec']['containers'][0]['securityContext']\nsecurity['capabilities'] = {'drop': ['ALL'], 'add': ['NET_BIND_SERVICE']}\np.write_text(json.dumps(pod, indent=2) + '\\n')\nPY\nkubectl -n default delete pod invoice-web --ignore-not-found --wait=true\nsudo cat /root/CKS/invoice-web.yaml | kubectl apply -f -\nkubectl -n default wait pod/invoice-web --for=condition=Ready --timeout=120s\nsudo sh -c 'kubesec scan /root/CKS/invoice-web.yaml > /root/CKS/invoice-kubesec.json'\nkubectl -n default exec invoice-web -- wget -T 3 -qO- http://127.0.0.1:8080/",
+    "resource": "sudo -n env KUBECONFIG=/etc/kubernetes/admin.conf timeout 27s python3 -B /opt/painkiller/cks001b/capture.py q8",
+    "checks": [
+      {
+        "description": "Drop ALL in the manifest and Pod",
+        "points": 3,
+        "expression": ".drop == true",
+        "diagnostics": ".failures // []"
+      },
+      {
+        "description": "Add back only NET_BIND_SERVICE",
+        "points": 2,
+        "expression": ".add == true",
+        "diagnostics": ".failures // []"
+      },
+      {
+        "description": "Keep the restricted Pod serving HTTP",
+        "points": 2,
+        "expression": ".serving == true",
+        "diagnostics": ".failures // []"
+      },
+      {
+        "description": "Save a passing Kubesec report",
+        "points": 2,
+        "expression": ".report == true",
+        "diagnostics": ".failures // []"
+      }
+    ]
+  },
+  {
+    "id": "psa-restricted",
+    "question_id": "CKS-001B-Q9",
+    "title": "Enforce Pod Security Standards",
+    "category": "Minimize Microservice Vulnerabilities",
+    "points": 10,
+    "instructions": "Configure namespace finance-ledger to enforce the restricted Pod Security Standard at version latest and warn at baseline. Leave its compliant Deployment running. Verify that a privileged Pod is rejected; do not leave an additional privileged Pod running.",
+    "steps": [
+      "Set the namespace's enforcement and warning labels.",
+      "Keep the existing compliant Deployment running.",
+      "Use server-side dry-run to observe rejection of a privileged Pod."
+    ],
+    "explanation": "Pod Security Admission acts on new admission; applying labels does not retroactively evict existing Pods.",
+    "solution": "kubectl label namespace finance-ledger pod-security.kubernetes.io/enforce=restricted pod-security.kubernetes.io/enforce-version=latest pod-security.kubernetes.io/warn=baseline --overwrite\nkubectl -n finance-ledger rollout status deployment/ledger-web --timeout=120s\nif output=$(kubectl -n finance-ledger run psa-denial-probe --image=busybox:1.37.0 --dry-run=server -o yaml --overrides='{\"spec\":{\"containers\":[{\"name\":\"psa-denial-probe\",\"image\":\"busybox:1.37.0\",\"securityContext\":{\"privileged\":true}}]}}' 2>&1); then\n  echo 'Privileged Pod was unexpectedly admitted' >&2\n  exit 1\nfi\nprintf '%s\\n' \"$output\" | grep -q 'violates PodSecurity'",
+    "resource": "sudo -n env KUBECONFIG=/etc/kubernetes/admin.conf timeout 27s python3 -B /opt/painkiller/cks001b/capture.py q9",
+    "checks": [
+      {
+        "description": "Enforce restricted",
+        "points": 3,
+        "expression": ".enforce == true",
+        "diagnostics": ".failures // []"
+      },
+      {
+        "description": "Use latest",
+        "points": 1,
+        "expression": ".version == true",
+        "diagnostics": ".failures // []"
+      },
+      {
+        "description": "Warn at baseline",
+        "points": 2,
+        "expression": ".warning == true",
+        "diagnostics": ".failures // []"
+      },
+      {
+        "description": "Reject privileged admission",
+        "points": 2,
+        "expression": ".rejected == true",
+        "diagnostics": ".failures // []"
+      },
+      {
+        "description": "Keep the compliant application healthy",
+        "points": 2,
+        "expression": ".compliant == true",
+        "diagnostics": ".failures // []"
+      }
+    ]
+  },
+  {
+    "id": "seccomp-debug",
+    "question_id": "CKS-001B-Q10",
+    "title": "Block debugging syscalls",
+    "category": "System Hardening",
+    "points": 4,
+    "instructions": "On the controller create /var/lib/kubelet/seccomp/profiles/no-inspect.json with defaultAction SCMP_ACT_ALLOW and SCMP_ACT_ERRNO for ptrace and process_vm_readv. Configure existing Pod runtime-web in namespace runtime-shield to use this Localhost profile and remain healthy serving nginx. Recreate the Pod if necessary.",
+    "steps": [
+      "Create a default-allow seccomp profile denying the two named syscalls.",
+      "Reference it relative to kubelet's seccomp root.",
+      "Recreate the Pod and verify the service."
+    ],
+    "explanation": "Localhost seccomp profiles are node files loaded when a container starts; editing a file does not update an already-running filter.",
+    "solution": "sudo mkdir -p /var/lib/kubelet/seccomp/profiles\nsudo tee /var/lib/kubelet/seccomp/profiles/no-inspect.json >/dev/null <<'JSON'\n{\"defaultAction\":\"SCMP_ACT_ALLOW\",\"syscalls\":[{\"names\":[\"ptrace\",\"process_vm_readv\"],\"action\":\"SCMP_ACT_ERRNO\"}]}\nJSON\nkubectl -n runtime-shield delete pod runtime-web --ignore-not-found --wait=true\nkubectl apply -f - <<'YAML'\n{\n  \"apiVersion\": \"v1\",\n  \"kind\": \"Pod\",\n  \"metadata\": {\n    \"name\": \"runtime-web\",\n    \"namespace\": \"runtime-shield\",\n    \"labels\": {\n      \"app\": \"runtime-web\"\n    }\n  },\n  \"spec\": {\n    \"containers\": [\n      {\n        \"name\": \"runtime-web\",\n        \"image\": \"nginx:1.28-alpine\",\n        \"imagePullPolicy\": \"IfNotPresent\"\n      }\n    ],\n    \"securityContext\": {\n      \"seccompProfile\": {\n        \"type\": \"Localhost\",\n        \"localhostProfile\": \"profiles/no-inspect.json\"\n      }\n    }\n  }\n}\nYAML\nkubectl -n runtime-shield wait pod/runtime-web --for=condition=Ready --timeout=120s\nkubectl -n runtime-shield exec runtime-web -- wget -T 3 -qO- http://127.0.0.1/",
+    "resource": "sudo -n env KUBECONFIG=/etc/kubernetes/admin.conf timeout 27s python3 -B /opt/painkiller/cks001b/capture.py q10",
+    "checks": [
+      {
+        "description": "Allow other syscalls by default",
+        "points": 1,
+        "expression": ".default_allow == true",
+        "diagnostics": ".failures // []"
+      },
+      {
+        "description": "Deny both debugging syscalls with errno",
+        "points": 1,
+        "expression": ".debug_blocked == true",
+        "diagnostics": ".failures // []"
+      },
+      {
+        "description": "Apply the Localhost profile",
+        "points": 1,
+        "expression": ".profile == true",
+        "diagnostics": ".failures // []"
+      },
+      {
+        "description": "Keep the protected application serving HTTP",
+        "points": 1,
+        "expression": ".serving == true",
+        "diagnostics": ".failures // []"
+      }
+    ]
+  },
+  {
+    "id": "image-sbom",
+    "question_id": "CKS-001B-Q11",
+    "title": "Identify an image and generate its SBOM",
+    "category": "Supply Chain Security",
+    "points": 7,
+    "instructions": "Deployment orchard in namespace produce has containers pear, plum and cherry; exactly one image contains the curl package. Inspect the running containers and write that container name to ~/selected-produce.txt. Use installed bom with the matching image archive in /root/ImageTarballs to generate an SPDX JSON image SBOM at ~/selected-produce.spdx.json. Filenames replace image / and : characters with underscores.",
+    "steps": [
+      "Inspect package inventories in each running container.",
+      "Select the matching local image archive.",
+      "Generate SPDX JSON with bom and save both outputs in your home directory."
+    ],
+    "explanation": "An image SBOM should identify the image and its packages. A curl binary alone does not establish package-manager inventory.",
+    "solution": "kubectl -n produce exec deployment/orchard -c plum -- curl --version\nprintf '%s\\n' plum > \"$HOME/selected-produce.txt\"\nsudo bom generate --image-archive /root/ImageTarballs/alpine_curl_8.12.1.tar --format json --output \"$HOME/selected-produce.spdx.json\"\nsudo chown \"$(id -u):$(id -g)\" \"$HOME/selected-produce.spdx.json\"",
+    "resource": "sudo -n env KUBECONFIG=/etc/kubernetes/admin.conf timeout 27s python3 -B /opt/painkiller/cks001b/capture.py q11",
+    "checks": [
+      {
+        "description": "Identify the curl-containing running container",
+        "points": 2,
+        "expression": ".container == true",
+        "diagnostics": ".failures // []"
+      },
+      {
+        "description": "Save an SPDX image SBOM including curl",
+        "points": 5,
+        "expression": ".sbom == true",
+        "diagnostics": ".failures // []"
+      }
+    ]
+  },
+  {
+    "id": "tls-ingress",
+    "question_id": "CKS-001B-Q12",
+    "title": "Expose a web application with TLS",
+    "category": "Cluster Setup",
+    "points": 4,
+    "instructions": "In namespace secure-portal create Ingress portal-tls for host portal.training.example and path /, routing to the existing portal Service. Use the nginx IngressClass and existing Secret portal-cert. Set nginx.ingress.kubernetes.io/ssl-redirect to true and nginx.ingress.kubernetes.io/ssl-passthrough to false. Verify HTTPS through the ingress controller's HTTPS NodePort; HTTP must redirect to HTTPS. The certificate authority is /root/CKS/portal-ca.crt on the controller.",
+    "steps": [
+      "Inspect the Service, certificate and controller NodePorts.",
+      "Create the host/path route with TLS termination and annotations.",
+      "Test certificate-verified HTTPS and the HTTP redirect separately."
+    ],
+    "explanation": "TLS termination uses the ingress Secret. HTTP can remain open solely to redirect clients to HTTPS.",
+    "solution": "kubectl apply -f - <<'YAML'\n{\n  \"apiVersion\": \"networking.k8s.io/v1\",\n  \"kind\": \"Ingress\",\n  \"metadata\": {\n    \"name\": \"portal-tls\",\n    \"namespace\": \"secure-portal\",\n    \"annotations\": {\n      \"nginx.ingress.kubernetes.io/ssl-redirect\": \"true\",\n      \"nginx.ingress.kubernetes.io/ssl-passthrough\": \"false\"\n    }\n  },\n  \"spec\": {\n    \"ingressClassName\": \"nginx\",\n    \"tls\": [\n      {\n        \"hosts\": [\n          \"portal.training.example\"\n        ],\n        \"secretName\": \"portal-cert\"\n      }\n    ],\n    \"rules\": [\n      {\n        \"host\": \"portal.training.example\",\n        \"http\": {\n          \"paths\": [\n            {\n              \"path\": \"/\",\n              \"pathType\": \"Prefix\",\n              \"backend\": {\n                \"service\": {\n                  \"name\": \"portal\",\n                  \"port\": {\n                    \"number\": 80\n                  }\n                }\n              }\n            }\n          ]\n        }\n      }\n    ]\n  }\n}\nYAML\nnode=$(kubectl get nodes -o jsonpath='{.items[0].status.addresses[?(@.type==\"InternalIP\")].address}')\nhttp=$(kubectl -n cks001b-ingress get service cks001b-ingress -o jsonpath='{.spec.ports[?(@.name==\"http\")].nodePort}')\nhttps=$(kubectl -n cks001b-ingress get service cks001b-ingress -o jsonpath='{.spec.ports[?(@.name==\"https\")].nodePort}')\nfor attempt in $(seq 1 30); do\n  if sudo curl -fsS --noproxy '*' --cacert /root/CKS/portal-ca.crt --resolve \"portal.training.example:$https:$node\" \"https://portal.training.example:$https/\" >/dev/null; then break; fi\n  sleep 1\ndone\nsudo curl -fsS --noproxy '*' --cacert /root/CKS/portal-ca.crt --resolve \"portal.training.example:$https:$node\" \"https://portal.training.example:$https/\"\nredirect=$(curl -sS --noproxy '*' --resolve \"portal.training.example:$http:$node\" -H 'Host: portal.training.example' -o /dev/null -w '%{redirect_url}' \"http://portal.training.example:$http/\")\ncase \"$redirect\" in https://portal.training.example/*|https://portal.training.example:*) ;; *) echo 'HTTPS redirect missing' >&2; exit 1;; esac",
+    "resource": "sudo -n env KUBECONFIG=/etc/kubernetes/admin.conf timeout 27s python3 -B /opt/painkiller/cks001b/capture.py q12",
+    "checks": [
+      {
+        "description": "Route the specified host and path to portal",
+        "points": 1,
+        "expression": ".route == true",
+        "diagnostics": ".failures // []"
+      },
+      {
+        "description": "Attach the supplied TLS Secret",
+        "points": 1,
+        "expression": ".tls == true",
+        "diagnostics": ".failures // []"
+      },
+      {
+        "description": "Use nginx class and requested annotations",
+        "points": 1,
+        "expression": ".configuration == true",
+        "diagnostics": ".failures // []"
+      },
+      {
+        "description": "Verify TLS and HTTP redirect",
+        "points": 1,
+        "expression": ".traffic == true",
+        "diagnostics": ".failures // []"
+      }
+    ]
+  },
+  {
+    "id": "restricted-egress",
+    "question_id": "CKS-001B-Q13",
+    "title": "Permit only selected egress",
+    "category": "Cluster Setup",
+    "points": 7,
+    "instructions": "In namespace api-clients create NetworkPolicy allow-service-egress selecting all pods. Allow only DNS on TCP and UDP port 53, HTTPS on TCP port 443, and TCP port 9443 to 198.18.40.0/24 for api.training.example. Deny all other egress; do not isolate ingress.",
+    "steps": [
+      "Select every Pod for egress isolation.",
+      "Allow DNS, HTTPS and a separate CIDR-scoped custom API rule.",
+      "Test permitted ports and negative controls."
+    ],
+    "explanation": "A CIDR restriction and port must be in the same rule to constrain the custom API exception.",
+    "solution": "kubectl apply -f - <<'YAML'\n{\n  \"apiVersion\": \"networking.k8s.io/v1\",\n  \"kind\": \"NetworkPolicy\",\n  \"metadata\": {\n    \"name\": \"allow-service-egress\",\n    \"namespace\": \"api-clients\"\n  },\n  \"spec\": {\n    \"podSelector\": {},\n    \"policyTypes\": [\n      \"Egress\"\n    ],\n    \"egress\": [\n      {\n        \"ports\": [\n          {\n            \"protocol\": \"UDP\",\n            \"port\": 53\n          },\n          {\n            \"protocol\": \"TCP\",\n            \"port\": 53\n          },\n          {\n            \"protocol\": \"TCP\",\n            \"port\": 443\n          }\n        ]\n      },\n      {\n        \"to\": [\n          {\n            \"ipBlock\": {\n              \"cidr\": \"198.18.40.0/24\"\n            }\n          }\n        ],\n        \"ports\": [\n          {\n            \"protocol\": \"TCP\",\n            \"port\": 9443\n          }\n        ]\n      }\n    ]\n  }\n}\nYAML",
+    "resource": "sudo -n env KUBECONFIG=/etc/kubernetes/admin.conf timeout 27s python3 -B /opt/painkiller/cks001b/capture.py q13",
+    "checks": [
+      {
+        "description": "Select all pods for egress only",
+        "points": 1,
+        "expression": ".policy == true",
+        "diagnostics": ".failures // []"
+      },
+      {
+        "description": "Allow TCP and UDP DNS",
+        "points": 1,
+        "expression": ".dns == true",
+        "diagnostics": ".failures // []"
+      },
+      {
+        "description": "Allow HTTPS",
+        "points": 1,
+        "expression": ".https == true",
+        "diagnostics": ".failures // []"
+      },
+      {
+        "description": "Allow only the specified API CIDR on 9443",
+        "points": 2,
+        "expression": ".api == true",
+        "diagnostics": ".failures // []"
+      },
+      {
+        "description": "Deny other egress without changing ingress",
+        "points": 2,
+        "expression": ".denied == true",
+        "diagnostics": ".failures // []"
+      }
+    ]
+  },
+  {
+    "id": "istio-mtls",
+    "question_id": "CKS-001B-Q14",
+    "title": "Require mutual TLS",
+    "category": "Minimize Microservice Vulnerabilities",
+    "points": 7,
+    "instructions": "Istio and istioctl are installed. In namespace private-mesh create PeerAuthentication default with STRICT mTLS. Ensure both existing Deployments north and south have running istio-proxy sidecars and can communicate with each other.",
+    "steps": [
+      "Enable injection and restart both workloads.",
+      "Create namespace-wide STRICT PeerAuthentication.",
+      "Verify Ready proxies, meshed connectivity and rejection of plaintext."
+    ],
+    "explanation": "Sidecar injection alone does not require mutual TLS; STRICT peer authentication rejects unmeshed plaintext clients.",
+    "solution": "kubectl apply -f - <<'YAML'\n{\n  \"apiVersion\": \"security.istio.io/v1\",\n  \"kind\": \"PeerAuthentication\",\n  \"metadata\": {\n    \"name\": \"default\",\n    \"namespace\": \"private-mesh\"\n  },\n  \"spec\": {\n    \"mtls\": {\n      \"mode\": \"STRICT\"\n    }\n  }\n}\nYAML\nkubectl label namespace private-mesh istio-injection=enabled --overwrite\nkubectl -n private-mesh rollout restart deployment/north deployment/south\nkubectl -n private-mesh rollout status deployment/north --timeout=180s\nkubectl -n private-mesh rollout status deployment/south --timeout=180s\nkubectl -n private-mesh exec deployment/north -c north -- wget -T 3 -qO- http://south/",
+    "resource": "sudo -n env KUBECONFIG=/etc/kubernetes/admin.conf timeout 27s python3 -B /opt/painkiller/cks001b/capture.py q14",
+    "checks": [
+      {
+        "description": "Enforce namespace-wide STRICT mTLS",
+        "points": 2,
+        "expression": ".strict == true",
+        "diagnostics": ".failures // []"
+      },
+      {
+        "description": "Inject a Ready north sidecar",
+        "points": 1,
+        "expression": ".north_proxy == true",
+        "diagnostics": ".failures // []"
+      },
+      {
+        "description": "Inject a Ready south sidecar",
+        "points": 1,
+        "expression": ".south_proxy == true",
+        "diagnostics": ".failures // []"
+      },
+      {
+        "description": "Allow meshed communication",
+        "points": 2,
+        "expression": ".communication == true",
+        "diagnostics": ".failures // []"
+      },
+      {
+        "description": "Reject unmeshed plaintext traffic",
+        "points": 1,
+        "expression": ".plaintext_blocked == true",
+        "diagnostics": ".failures // []"
+      }
+    ]
+  },
+  {
+    "id": "tls-secret",
+    "question_id": "CKS-001B-Q15",
+    "title": "Mount a TLS Secret",
+    "category": "Minimize Microservice Vulnerabilities",
+    "points": 2,
+    "instructions": "Using /root/portal-client.crt and /root/portal-client.key on the controller, create TLS Secret editor-cert in namespace editor. Mount it as volume editor-tls at /etc/editor/tls in the existing Deployment editor-web. Leave the Deployment healthy.",
+    "steps": [
+      "Create a TLS Secret from the supplied matching certificate/key.",
+      "Add its volume and container mount.",
+      "Wait for the rollout and verify the mounted bytes."
+    ],
+    "explanation": "Secret volumes expose keys as files; a Secret's existence alone does not prove the application can read its mounted contents.",
+    "solution": "sudo kubectl --kubeconfig=/etc/kubernetes/admin.conf -n editor create secret tls editor-cert --cert=/root/portal-client.crt --key=/root/portal-client.key --dry-run=client -o yaml | kubectl apply -f -\nkubectl -n editor patch deployment editor-web --type=strategic -p '{\"spec\":{\"template\":{\"spec\":{\"volumes\":[{\"name\":\"editor-tls\",\"secret\":{\"secretName\":\"editor-cert\"}}],\"containers\":[{\"name\":\"editor-web\",\"volumeMounts\":[{\"name\":\"editor-tls\",\"mountPath\":\"/etc/editor/tls\",\"readOnly\":true}]}]}}}}'\nkubectl -n editor rollout status deployment/editor-web --timeout=120s",
+    "resource": "sudo -n env KUBECONFIG=/etc/kubernetes/admin.conf timeout 27s python3 -B /opt/painkiller/cks001b/capture.py q15",
+    "checks": [
+      {
+        "description": "Create the correct TLS Secret",
+        "points": 1,
+        "expression": ".secret == true",
+        "diagnostics": ".failures // []"
+      },
+      {
+        "description": "Mount its contents in the healthy Deployment",
+        "points": 1,
+        "expression": ".mounted == true",
+        "diagnostics": ".failures // []"
+      }
+    ]
+  },
+  {
+    "id": "etcd-cis",
+    "question_id": "CKS-001B-Q16",
+    "title": "Remediate etcd data-directory findings",
+    "category": "Cluster Setup",
+    "points": 4,
+    "instructions": "Use the installed kube-bench to inspect control-plane CIS findings. Identify the etcd data directory from the active static Pod configuration. Set its ownership recursively to etcd:etcd and directories to permissions 0700 or stricter. Keep files readable and writable by the etcd owner, remove group and other access, and leave etcd and the API healthy. Verify the benchmark's directory permission and ownership checks. Limit changes to that data directory.",
+    "steps": [
+      "Run the named CIS checks and inspect the actual etcd data-dir mount.",
+      "Set recursive etcd ownership, 0700 directories and 0600 files only in that tree.",
+      "Rerun the checks and verify API readiness."
+    ],
+    "explanation": "Directory traversal and file read/write permissions differ. This disposable lab's root-run etcd can access the etcd-owned tree.",
+    "solution": "sudo kube-bench --config-dir /opt/kube-bench/cfg --benchmark cis-1.10 --check 1.1.11,1.1.12 run --targets master\nsudo python3 - <<'PY'\nfrom pathlib import Path\nimport yaml\nspec = yaml.safe_load(Path('/etc/kubernetes/manifests/etcd.yaml').read_text())['spec']\ncontainer = spec['containers'][0]\ndata_dir = next(x.split('=', 1)[1] for x in container['command'] if x.startswith('--data-dir='))\nmount = next(m for m in container['volumeMounts'] if data_dir == m['mountPath'])\nhost = next(v['hostPath']['path'] for v in spec['volumes'] if v['name'] == mount['name'])\nif host != '/var/lib/etcd' or data_dir != '/var/lib/etcd':\n    raise SystemExit('Unexpected etcd data directory; inspect the manifest before changing permissions')\nprint('Verified etcd data directory:', host)\nPY\nsudo chown -R etcd:etcd /var/lib/etcd\nsudo find /var/lib/etcd -xdev -type d -exec chmod 0700 {} +\nsudo find /var/lib/etcd -xdev -type f -exec chmod 0600 {} +\nsudo kube-bench --config-dir /opt/kube-bench/cfg --benchmark cis-1.10 --check 1.1.11,1.1.12 --exit-code 1 run --targets master",
+    "resource": "sudo -n env KUBECONFIG=/etc/kubernetes/admin.conf timeout 27s python3 -B /opt/painkiller/cks001b/capture.py q16",
+    "checks": [
+      {
+        "description": "Restrict directory and file permissions recursively",
+        "points": 1,
+        "expression": ".permissions == true",
+        "diagnostics": ".failures // []"
+      },
+      {
+        "description": "Own the tree as etcd:etcd",
+        "points": 1,
+        "expression": ".ownership == true",
+        "diagnostics": ".failures // []"
+      },
+      {
+        "description": "Pass CIS checks 1.1.11 and 1.1.12",
+        "points": 1,
+        "expression": ".benchmark == true",
+        "diagnostics": ".failures // []"
+      },
+      {
+        "description": "Keep the API healthy",
+        "points": 1,
+        "expression": ".healthy == true",
+        "diagnostics": ".failures // []"
+      }
+    ]
+  }
+]

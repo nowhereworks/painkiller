@@ -20,6 +20,10 @@ shellcheck exam/OPA-001/*.sh exam/OPA-001/assets/*.sh
 python3 -B exam/OPA-001/tests/test_capture.py -v
 python3 -B exam/CKS-001/build.py --check
 python3 -B -m unittest discover -s exam/CKS-001/tests -v
+python3 -B exam/CKS-001B/build.py --check
+python3 -B -m unittest discover -s exam/CKS-001B/tests -v
+shellcheck exam/CKS-001B/*.sh exam/CKS-001B/assets/*.sh
+(cd exam/CKS-001B/assets && sha256sum --check --quiet SHA256SUMS)
 python3 -B -m unittest discover -s drafts/CKS-001B/tests -v
 # Optionally set CKS001B_KUBESEC to the pinned kubesec binary and
 # CKS001B_BOM_REPORT to an actual bom-generated curl-image report.
@@ -73,6 +77,7 @@ Do not build or replace a template as part of this test.
    LAB_VM_START=3100 scripts/test-exam.sh CKAD-001
     LAB_VM_START=3100 scripts/test-exam.sh OPA-001
     LAB_VM_START=3100 scripts/test-exam.sh CKS-001
+    LAB_VM_START=3100 scripts/test-exam.sh CKS-001B
    ```
 
    Exam IDs may have a single uppercase suffix, such as `CKS-001B`.
@@ -139,6 +144,17 @@ are disposable single-node exam tuning, not shared or production defaults.
 Its independent witness generates audit events and admission dry runs; grading
 does not mutate workloads or stop the webhook. See `exam/CKS-001/README.md`
 for compatibility pins, source adaptations and evidence boundaries.
+
+CKS-001B uses **one** schedulable controller from base 9199, no workers,
+8192 MB minimum, full-install Kubernetes/Calico and no reserved LAN addresses.
+It needs kernel BTF for Falco, package/image downloads, minimal Istio sidecars,
+Traefik's actual Kubernetes Ingress NGINX provider, and loopback-only network
+fixtures in 198.18.0.0/15. Require all 16 task-level loss/restore mutations.
+Its etcd fault and recursive fixes are restricted to the verified data tree
+of its authorized disposable guest. See `exam/CKS-001B/README.md`.
+Preparation observes cloud-init completion through the owned VM's guest agent
+before using its final DHCP address; do not work around boot-time address
+changes by replacing guest NIC, DHCP or identity configuration.
 
 ## Browser coverage
 

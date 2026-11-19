@@ -1,0 +1,986 @@
+{
+  "apiVersion": "v1",
+  "kind": "List",
+  "items": [
+    {
+      "apiVersion": "v1",
+      "kind": "Namespace",
+      "metadata": {
+        "name": "cks001b-system",
+        "labels": {
+          "painkiller-shell/exam": "CKS-001B"
+        }
+      }
+    },
+    {
+      "apiVersion": "v1",
+      "kind": "Namespace",
+      "metadata": {
+        "name": "compute-watch",
+        "labels": {
+          "painkiller-shell/exam": "CKS-001B"
+        }
+      }
+    },
+    {
+      "apiVersion": "v1",
+      "kind": "Namespace",
+      "metadata": {
+        "name": "outbound-guard",
+        "labels": {
+          "painkiller-shell/exam": "CKS-001B"
+        }
+      }
+    },
+    {
+      "apiVersion": "v1",
+      "kind": "Namespace",
+      "metadata": {
+        "name": "workload-identity",
+        "labels": {
+          "painkiller-shell/exam": "CKS-001B"
+        }
+      }
+    },
+    {
+      "apiVersion": "v1",
+      "kind": "Namespace",
+      "metadata": {
+        "name": "storefront",
+        "labels": {
+          "painkiller-shell/exam": "CKS-001B"
+        }
+      }
+    },
+    {
+      "apiVersion": "v1",
+      "kind": "Namespace",
+      "metadata": {
+        "name": "telemetry",
+        "labels": {
+          "painkiller-shell/exam": "CKS-001B"
+        }
+      }
+    },
+    {
+      "apiVersion": "v1",
+      "kind": "Namespace",
+      "metadata": {
+        "name": "delivery",
+        "labels": {
+          "painkiller-shell/exam": "CKS-001B"
+        }
+      }
+    },
+    {
+      "apiVersion": "v1",
+      "kind": "Namespace",
+      "metadata": {
+        "name": "immutable-workloads",
+        "labels": {
+          "painkiller-shell/exam": "CKS-001B"
+        }
+      }
+    },
+    {
+      "apiVersion": "v1",
+      "kind": "Namespace",
+      "metadata": {
+        "name": "finance-ledger",
+        "labels": {
+          "painkiller-shell/exam": "CKS-001B"
+        }
+      }
+    },
+    {
+      "apiVersion": "v1",
+      "kind": "Namespace",
+      "metadata": {
+        "name": "runtime-shield",
+        "labels": {
+          "painkiller-shell/exam": "CKS-001B"
+        }
+      }
+    },
+    {
+      "apiVersion": "v1",
+      "kind": "Namespace",
+      "metadata": {
+        "name": "produce",
+        "labels": {
+          "painkiller-shell/exam": "CKS-001B"
+        }
+      }
+    },
+    {
+      "apiVersion": "v1",
+      "kind": "Namespace",
+      "metadata": {
+        "name": "secure-portal",
+        "labels": {
+          "painkiller-shell/exam": "CKS-001B"
+        }
+      }
+    },
+    {
+      "apiVersion": "v1",
+      "kind": "Namespace",
+      "metadata": {
+        "name": "api-clients",
+        "labels": {
+          "painkiller-shell/exam": "CKS-001B"
+        }
+      }
+    },
+    {
+      "apiVersion": "v1",
+      "kind": "Namespace",
+      "metadata": {
+        "name": "private-mesh",
+        "labels": {
+          "painkiller-shell/exam": "CKS-001B"
+        }
+      }
+    },
+    {
+      "apiVersion": "v1",
+      "kind": "Namespace",
+      "metadata": {
+        "name": "editor",
+        "labels": {
+          "painkiller-shell/exam": "CKS-001B"
+        }
+      }
+    },
+    {
+      "apiVersion": "v1",
+      "kind": "Pod",
+      "metadata": {
+        "name": "net-control",
+        "namespace": "cks001b-system",
+        "labels": {
+          "app": "net-control"
+        }
+      },
+      "spec": {
+        "containers": [
+          {
+            "name": "net-control",
+            "image": "python:3.12.12-alpine3.22",
+            "imagePullPolicy": "IfNotPresent",
+            "command": [
+              "sh",
+              "-c",
+              "sleep 2147483647"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "apiVersion": "v1",
+      "kind": "Pod",
+      "metadata": {
+        "name": "isolation-canary",
+        "namespace": "cks001b-system",
+        "labels": {
+          "app": "isolation-canary"
+        }
+      },
+      "spec": {
+        "containers": [
+          {
+            "name": "isolation-canary",
+            "image": "nginx:1.28-alpine",
+            "imagePullPolicy": "IfNotPresent"
+          }
+        ]
+      }
+    },
+    {
+      "apiVersion": "v1",
+      "kind": "Pod",
+      "metadata": {
+        "name": "suspect",
+        "namespace": "compute-watch",
+        "labels": {
+          "app": "suspect"
+        }
+      },
+      "spec": {
+        "containers": [
+          {
+            "name": "suspect",
+            "image": "busybox:1.37.0",
+            "imagePullPolicy": "IfNotPresent",
+            "command": [
+              "sh",
+              "-c",
+              "for n in xmrig minerd cpuminer; do cp /bin/busybox /tmp/$n; done; while true; do for n in xmrig minerd cpuminer; do /tmp/$n true >/dev/null 2>&1 || true; done; sleep 3; done"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "apiVersion": "v1",
+      "kind": "Pod",
+      "metadata": {
+        "name": "client",
+        "namespace": "outbound-guard",
+        "labels": {
+          "app": "client"
+        }
+      },
+      "spec": {
+        "containers": [
+          {
+            "name": "client",
+            "image": "busybox:1.37.0",
+            "imagePullPolicy": "IfNotPresent",
+            "command": [
+              "sh",
+              "-c",
+              "sleep 2147483647"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "apiVersion": "v1",
+      "kind": "Pod",
+      "metadata": {
+        "name": "net-observer",
+        "namespace": "outbound-guard",
+        "labels": {
+          "app": "net-observer"
+        }
+      },
+      "spec": {
+        "containers": [
+          {
+            "name": "net-observer",
+            "image": "python:3.12.12-alpine3.22",
+            "imagePullPolicy": "IfNotPresent",
+            "command": [
+              "sh",
+              "-c",
+              "sleep 2147483647"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "apiVersion": "v1",
+      "kind": "Pod",
+      "metadata": {
+        "name": "web-gate",
+        "namespace": "workload-identity",
+        "labels": {
+          "app": "web-gate"
+        }
+      },
+      "spec": {
+        "containers": [
+          {
+            "name": "web-gate",
+            "image": "nginx:1.28-alpine",
+            "imagePullPolicy": "IfNotPresent"
+          }
+        ]
+      }
+    },
+    {
+      "apiVersion": "v1",
+      "kind": "Pod",
+      "metadata": {
+        "name": "shop-web",
+        "namespace": "storefront",
+        "labels": {
+          "app": "shop-web"
+        }
+      },
+      "spec": {
+        "containers": [
+          {
+            "name": "shop-web",
+            "image": "nginx:1.28-alpine",
+            "imagePullPolicy": "IfNotPresent"
+          }
+        ]
+      }
+    },
+    {
+      "apiVersion": "v1",
+      "kind": "Pod",
+      "metadata": {
+        "name": "shop-api",
+        "namespace": "storefront",
+        "labels": {
+          "app": "shop-api"
+        }
+      },
+      "spec": {
+        "containers": [
+          {
+            "name": "shop-api",
+            "image": "busybox:1.37.0",
+            "imagePullPolicy": "IfNotPresent",
+            "command": [
+              "sh",
+              "-c",
+              "sleep 2147483647"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "apiVersion": "v1",
+      "kind": "Pod",
+      "metadata": {
+        "name": "untrusted",
+        "namespace": "storefront",
+        "labels": {
+          "app": "untrusted"
+        }
+      },
+      "spec": {
+        "containers": [
+          {
+            "name": "untrusted",
+            "image": "busybox:1.37.0",
+            "imagePullPolicy": "IfNotPresent",
+            "command": [
+              "sh",
+              "-c",
+              "sleep 2147483647"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "apiVersion": "v1",
+      "kind": "Pod",
+      "metadata": {
+        "name": "observer",
+        "namespace": "telemetry",
+        "labels": {
+          "app": "observer"
+        }
+      },
+      "spec": {
+        "containers": [
+          {
+            "name": "observer",
+            "image": "busybox:1.37.0",
+            "imagePullPolicy": "IfNotPresent",
+            "command": [
+              "sh",
+              "-c",
+              "sleep 2147483647"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "apiVersion": "v1",
+      "kind": "Pod",
+      "metadata": {
+        "name": "runtime-web",
+        "namespace": "runtime-shield",
+        "labels": {
+          "app": "runtime-web"
+        }
+      },
+      "spec": {
+        "containers": [
+          {
+            "name": "runtime-web",
+            "image": "nginx:1.28-alpine",
+            "imagePullPolicy": "IfNotPresent"
+          }
+        ]
+      }
+    },
+    {
+      "apiVersion": "v1",
+      "kind": "Pod",
+      "metadata": {
+        "name": "client",
+        "namespace": "api-clients",
+        "labels": {
+          "app": "client"
+        }
+      },
+      "spec": {
+        "containers": [
+          {
+            "name": "client",
+            "image": "busybox:1.37.0",
+            "imagePullPolicy": "IfNotPresent",
+            "command": [
+              "sh",
+              "-c",
+              "sleep 2147483647"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "apiVersion": "v1",
+      "kind": "Pod",
+      "metadata": {
+        "name": "net-observer",
+        "namespace": "api-clients",
+        "labels": {
+          "app": "net-observer"
+        }
+      },
+      "spec": {
+        "containers": [
+          {
+            "name": "net-observer",
+            "image": "python:3.12.12-alpine3.22",
+            "imagePullPolicy": "IfNotPresent",
+            "command": [
+              "sh",
+              "-c",
+              "sleep 2147483647"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "apiVersion": "v1",
+      "kind": "Service",
+      "metadata": {
+        "name": "shop-web",
+        "namespace": "storefront"
+      },
+      "spec": {
+        "selector": {
+          "app": "shop-web"
+        },
+        "ports": [
+          {
+            "port": 80,
+            "targetPort": 80
+          }
+        ]
+      }
+    },
+    {
+      "apiVersion": "networking.k8s.io/v1",
+      "kind": "NetworkPolicy",
+      "metadata": {
+        "name": "isolate-canary",
+        "namespace": "cks001b-system"
+      },
+      "spec": {
+        "podSelector": {
+          "matchLabels": {
+            "app": "isolation-canary"
+          }
+        },
+        "policyTypes": [
+          "Ingress"
+        ],
+        "ingress": []
+      }
+    },
+    {
+      "apiVersion": "v1",
+      "kind": "ServiceAccount",
+      "metadata": {
+        "name": "pipeline-agent",
+        "namespace": "delivery"
+      }
+    },
+    {
+      "apiVersion": "rbac.authorization.k8s.io/v1",
+      "kind": "ClusterRole",
+      "metadata": {
+        "name": "pipeline-agent-role"
+      },
+      "rules": [
+        {
+          "apiGroups": [
+            ""
+          ],
+          "resources": [
+            "pods",
+            "services",
+            "configmaps"
+          ],
+          "verbs": [
+            "get",
+            "list",
+            "watch",
+            "create",
+            "update",
+            "patch",
+            "delete"
+          ]
+        },
+        {
+          "apiGroups": [
+            "rbac.authorization.k8s.io"
+          ],
+          "resources": [
+            "rolebindings",
+            "clusterrolebindings"
+          ],
+          "verbs": [
+            "get",
+            "list",
+            "watch",
+            "create",
+            "update",
+            "patch"
+          ]
+        }
+      ]
+    },
+    {
+      "apiVersion": "rbac.authorization.k8s.io/v1",
+      "kind": "ClusterRoleBinding",
+      "metadata": {
+        "name": "pipeline-agent-binding"
+      },
+      "roleRef": {
+        "apiGroup": "rbac.authorization.k8s.io",
+        "kind": "ClusterRole",
+        "name": "pipeline-agent-role"
+      },
+      "subjects": [
+        {
+          "kind": "ServiceAccount",
+          "name": "pipeline-agent",
+          "namespace": "delivery"
+        }
+      ]
+    },
+    {
+      "apiVersion": "apps/v1",
+      "kind": "Deployment",
+      "metadata": {
+        "name": "report-web",
+        "namespace": "immutable-workloads"
+      },
+      "spec": {
+        "replicas": 1,
+        "selector": {
+          "matchLabels": {
+            "app": "report-web"
+          }
+        },
+        "template": {
+          "metadata": {
+            "labels": {
+              "app": "report-web"
+            }
+          },
+          "spec": {
+            "containers": [
+              {
+                "name": "report-web",
+                "image": "nginx:1.28-alpine",
+                "imagePullPolicy": "IfNotPresent",
+                "volumeMounts": [
+                  {
+                    "name": "tmp",
+                    "mountPath": "/tmp"
+                  },
+                  {
+                    "name": "log",
+                    "mountPath": "/var/log"
+                  },
+                  {
+                    "name": "cache",
+                    "mountPath": "/var/cache/nginx"
+                  },
+                  {
+                    "name": "run",
+                    "mountPath": "/var/run"
+                  }
+                ],
+                "command": [
+                  "sh",
+                  "-c",
+                  "mkdir -p /var/log/nginx; exec nginx -g 'daemon off;'"
+                ],
+                "readinessProbe": {
+                  "httpGet": {
+                    "path": "/",
+                    "port": 80
+                  }
+                }
+              }
+            ],
+            "volumes": [
+              {
+                "name": "tmp",
+                "emptyDir": {}
+              },
+              {
+                "name": "log",
+                "emptyDir": {}
+              },
+              {
+                "name": "cache",
+                "emptyDir": {}
+              },
+              {
+                "name": "run",
+                "emptyDir": {}
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "apiVersion": "apps/v1",
+      "kind": "Deployment",
+      "metadata": {
+        "name": "ledger-web",
+        "namespace": "finance-ledger"
+      },
+      "spec": {
+        "replicas": 1,
+        "selector": {
+          "matchLabels": {
+            "app": "ledger-web"
+          }
+        },
+        "template": {
+          "metadata": {
+            "labels": {
+              "app": "ledger-web"
+            }
+          },
+          "spec": {
+            "containers": [
+              {
+                "name": "ledger-web",
+                "image": "nginxinc/nginx-unprivileged:1.28-alpine",
+                "imagePullPolicy": "IfNotPresent",
+                "securityContext": {
+                  "allowPrivilegeEscalation": false,
+                  "capabilities": {
+                    "drop": [
+                      "ALL"
+                    ]
+                  }
+                }
+              }
+            ],
+            "securityContext": {
+              "runAsNonRoot": true,
+              "runAsUser": 101,
+              "runAsGroup": 101,
+              "seccompProfile": {
+                "type": "RuntimeDefault"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "apiVersion": "apps/v1",
+      "kind": "Deployment",
+      "metadata": {
+        "name": "orchard",
+        "namespace": "produce"
+      },
+      "spec": {
+        "replicas": 1,
+        "selector": {
+          "matchLabels": {
+            "app": "orchard"
+          }
+        },
+        "template": {
+          "metadata": {
+            "labels": {
+              "app": "orchard"
+            }
+          },
+          "spec": {
+            "containers": [
+              {
+                "name": "pear",
+                "image": "busybox:1.37.0",
+                "imagePullPolicy": "IfNotPresent",
+                "command": [
+                  "sh",
+                  "-c",
+                  "sleep 2147483647"
+                ]
+              },
+              {
+                "name": "plum",
+                "image": "alpine/curl:8.12.1",
+                "imagePullPolicy": "IfNotPresent",
+                "command": [
+                  "sh",
+                  "-c",
+                  "sleep 2147483647"
+                ]
+              },
+              {
+                "name": "cherry",
+                "image": "alpine:3.21.3",
+                "imagePullPolicy": "IfNotPresent",
+                "command": [
+                  "sh",
+                  "-c",
+                  "sleep 2147483647"
+                ]
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "apiVersion": "apps/v1",
+      "kind": "Deployment",
+      "metadata": {
+        "name": "portal",
+        "namespace": "secure-portal"
+      },
+      "spec": {
+        "replicas": 1,
+        "selector": {
+          "matchLabels": {
+            "app": "portal"
+          }
+        },
+        "template": {
+          "metadata": {
+            "labels": {
+              "app": "portal"
+            }
+          },
+          "spec": {
+            "containers": [
+              {
+                "name": "portal",
+                "image": "nginx:1.28-alpine",
+                "imagePullPolicy": "IfNotPresent"
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "apiVersion": "v1",
+      "kind": "Service",
+      "metadata": {
+        "name": "portal",
+        "namespace": "secure-portal"
+      },
+      "spec": {
+        "selector": {
+          "app": "portal"
+        },
+        "ports": [
+          {
+            "port": 80,
+            "targetPort": 80
+          }
+        ]
+      }
+    },
+    {
+      "apiVersion": "apps/v1",
+      "kind": "Deployment",
+      "metadata": {
+        "name": "north",
+        "namespace": "private-mesh"
+      },
+      "spec": {
+        "replicas": 1,
+        "selector": {
+          "matchLabels": {
+            "app": "north"
+          }
+        },
+        "template": {
+          "metadata": {
+            "labels": {
+              "app": "north"
+            }
+          },
+          "spec": {
+            "containers": [
+              {
+                "name": "north",
+                "image": "nginx:1.28-alpine",
+                "imagePullPolicy": "IfNotPresent"
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "apiVersion": "v1",
+      "kind": "Service",
+      "metadata": {
+        "name": "north",
+        "namespace": "private-mesh"
+      },
+      "spec": {
+        "selector": {
+          "app": "north"
+        },
+        "ports": [
+          {
+            "port": 80,
+            "targetPort": 80
+          }
+        ]
+      }
+    },
+    {
+      "apiVersion": "apps/v1",
+      "kind": "Deployment",
+      "metadata": {
+        "name": "south",
+        "namespace": "private-mesh"
+      },
+      "spec": {
+        "replicas": 1,
+        "selector": {
+          "matchLabels": {
+            "app": "south"
+          }
+        },
+        "template": {
+          "metadata": {
+            "labels": {
+              "app": "south"
+            }
+          },
+          "spec": {
+            "containers": [
+              {
+                "name": "south",
+                "image": "nginx:1.28-alpine",
+                "imagePullPolicy": "IfNotPresent"
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "apiVersion": "v1",
+      "kind": "Service",
+      "metadata": {
+        "name": "south",
+        "namespace": "private-mesh"
+      },
+      "spec": {
+        "selector": {
+          "app": "south"
+        },
+        "ports": [
+          {
+            "port": 80,
+            "targetPort": 80
+          }
+        ]
+      }
+    },
+    {
+      "apiVersion": "apps/v1",
+      "kind": "Deployment",
+      "metadata": {
+        "name": "editor-web",
+        "namespace": "editor"
+      },
+      "spec": {
+        "replicas": 1,
+        "selector": {
+          "matchLabels": {
+            "app": "editor-web"
+          }
+        },
+        "template": {
+          "metadata": {
+            "labels": {
+              "app": "editor-web"
+            }
+          },
+          "spec": {
+            "containers": [
+              {
+                "name": "editor-web",
+                "image": "busybox:1.37.0",
+                "imagePullPolicy": "IfNotPresent",
+                "command": [
+                  "sh",
+                  "-c",
+                  "sleep 2147483647"
+                ]
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "apiVersion": "v1",
+      "kind": "Pod",
+      "metadata": {
+        "name": "invoice-web",
+        "namespace": "default",
+        "labels": {
+          "app": "invoice-web"
+        }
+      },
+      "spec": {
+        "containers": [
+          {
+            "name": "invoice-web",
+            "image": "nginxinc/nginx-unprivileged:1.28-alpine",
+            "imagePullPolicy": "IfNotPresent",
+            "ports": [
+              {
+                "containerPort": 8080,
+                "protocol": "TCP"
+              }
+            ],
+            "securityContext": {
+              "allowPrivilegeEscalation": false,
+              "runAsNonRoot": true,
+              "runAsUser": 101,
+              "capabilities": {
+                "add": [
+                  "NET_RAW"
+                ]
+              }
+            }
+          }
+        ],
+        "securityContext": {
+          "seccompProfile": {
+            "type": "RuntimeDefault"
+          }
+        }
+      }
+    }
+  ]
+}

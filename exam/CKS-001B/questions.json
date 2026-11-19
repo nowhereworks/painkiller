@@ -1,0 +1,130 @@
+[
+  {
+    "id": "falco-miner",
+    "question_id": "CKS-001B-Q1",
+    "title": "Detect mining processes",
+    "category": "Monitoring, Logging and Runtime Security",
+    "points": 5,
+    "instructions": "On the controller, add a Falco rule to /etc/falco/falco_rules.local.yaml that detects execution of xmrig, minerd, or cpuminer. Set priority CRITICAL, output MINER_NOTICE: %evt.time,%container.name,%proc.name, and tags [container, crypto_mining, mitre_execution]. Keep Falco active and the default rules unchanged. The suspect workload is in namespace compute-watch."
+  },
+  {
+    "id": "deny-egress-ranges",
+    "question_id": "CKS-001B-Q2",
+    "title": "Exclude dangerous destinations",
+    "category": "Cluster Setup",
+    "points": 5,
+    "instructions": "In namespace outbound-guard, create NetworkPolicy exclude-ranges selecting all pods. Block egress to 198.18.20.0/24 and 198.18.30.0/24; allow DNS on UDP and TCP port 53 to the cluster DNS Service and allow all other egress. Do not isolate ingress. The DNS Service address is outside the excluded CIDRs."
+  },
+  {
+    "id": "nonroot-web",
+    "question_id": "CKS-001B-Q3",
+    "title": "Run a web Pod without privilege escalation",
+    "category": "Minimize Microservice Vulnerabilities",
+    "points": 10,
+    "instructions": "Secure Pod web-gate in namespace workload-identity. Use nginxinc/nginx-unprivileged:alpine, UID and GID 101, runAsNonRoot, and allowPrivilegeEscalation false. Declare container port 8080 and leave the Pod serving HTTP on that port. Recreate the Pod if necessary."
+  },
+  {
+    "id": "selective-ingress",
+    "question_id": "CKS-001B-Q4",
+    "title": "Limit frontend ingress",
+    "category": "Cluster Setup",
+    "points": 7,
+    "instructions": "In namespace storefront, create NetworkPolicy web-access selecting pods labeled app=shop-web. Allow TCP port 80 only from pods labeled app=shop-api in storefront and from any pod in namespace telemetry. Deny other ingress to the selected pods without isolating their egress."
+  },
+  {
+    "id": "rbac-escalation",
+    "question_id": "CKS-001B-Q5",
+    "title": "Remove RBAC escalation",
+    "category": "Cluster Hardening",
+    "points": 6,
+    "instructions": "ServiceAccount pipeline-agent in namespace delivery is bound cluster-wide to ClusterRole pipeline-agent-role. Remove its ability to create, update, or patch rolebindings and clusterrolebindings anywhere. Retain all its existing Pod, Service and ConfigMap permissions and add no permissions."
+  },
+  {
+    "id": "readonly-root",
+    "question_id": "CKS-001B-Q6",
+    "title": "Make the application root filesystem immutable",
+    "category": "Monitoring, Logging and Runtime Security",
+    "points": 8,
+    "instructions": "Harden all containers in Deployment report-web in namespace immutable-workloads with readOnlyRootFilesystem true. Preserve writable mounts at /tmp, /var/log, /var/cache/nginx and /var/run. Leave the nginx application healthy and serving HTTP."
+  },
+  {
+    "id": "distroless-dockerfile",
+    "question_id": "CKS-001B-Q7",
+    "title": "Reduce a build image footprint",
+    "category": "Supply Chain Security",
+    "points": 5,
+    "instructions": "Edit /opt/course/ledger/ledger.Dockerfile on the controller. Replace its Ubuntu base with gcr.io/distroless/base, eliminate package-manager and shell-dependent instructions, and copy only the supplied Go application binary. Run as nonroot (UID 65532) and use an exec-form ENTRYPOINT. Do not add lines. The binary listens on port 8080."
+  },
+  {
+    "id": "capabilities-scan",
+    "question_id": "CKS-001B-Q8",
+    "title": "Reduce Linux capabilities and scan",
+    "category": "Supply Chain Security",
+    "points": 9,
+    "instructions": "Secure the default namespace Pod invoice-web using its manifest /root/CKS/invoice-web.yaml on the controller: drop ALL capabilities and add back only NET_BIND_SERVICE. Leave nginx serving HTTP on port 8080. Use the installed kubesec to scan the corrected manifest and save its JSON report with a passing score to /root/CKS/invoice-kubesec.json. NET_BIND_SERVICE is assessed as requested even though port 8080 is not privileged."
+  },
+  {
+    "id": "psa-restricted",
+    "question_id": "CKS-001B-Q9",
+    "title": "Enforce Pod Security Standards",
+    "category": "Minimize Microservice Vulnerabilities",
+    "points": 10,
+    "instructions": "Configure namespace finance-ledger to enforce the restricted Pod Security Standard at version latest and warn at baseline. Leave its compliant Deployment running. Verify that a privileged Pod is rejected; do not leave an additional privileged Pod running."
+  },
+  {
+    "id": "seccomp-debug",
+    "question_id": "CKS-001B-Q10",
+    "title": "Block debugging syscalls",
+    "category": "System Hardening",
+    "points": 4,
+    "instructions": "On the controller create /var/lib/kubelet/seccomp/profiles/no-inspect.json with defaultAction SCMP_ACT_ALLOW and SCMP_ACT_ERRNO for ptrace and process_vm_readv. Configure existing Pod runtime-web in namespace runtime-shield to use this Localhost profile and remain healthy serving nginx. Recreate the Pod if necessary."
+  },
+  {
+    "id": "image-sbom",
+    "question_id": "CKS-001B-Q11",
+    "title": "Identify an image and generate its SBOM",
+    "category": "Supply Chain Security",
+    "points": 7,
+    "instructions": "Deployment orchard in namespace produce has containers pear, plum and cherry; exactly one image contains the curl package. Inspect the running containers and write that container name to ~/selected-produce.txt. Use installed bom with the matching image archive in /root/ImageTarballs to generate an SPDX JSON image SBOM at ~/selected-produce.spdx.json. Filenames replace image / and : characters with underscores."
+  },
+  {
+    "id": "tls-ingress",
+    "question_id": "CKS-001B-Q12",
+    "title": "Expose a web application with TLS",
+    "category": "Cluster Setup",
+    "points": 4,
+    "instructions": "In namespace secure-portal create Ingress portal-tls for host portal.training.example and path /, routing to the existing portal Service. Use the nginx IngressClass and existing Secret portal-cert. Set nginx.ingress.kubernetes.io/ssl-redirect to true and nginx.ingress.kubernetes.io/ssl-passthrough to false. Verify HTTPS through the ingress controller's HTTPS NodePort; HTTP must redirect to HTTPS. The certificate authority is /root/CKS/portal-ca.crt on the controller."
+  },
+  {
+    "id": "restricted-egress",
+    "question_id": "CKS-001B-Q13",
+    "title": "Permit only selected egress",
+    "category": "Cluster Setup",
+    "points": 7,
+    "instructions": "In namespace api-clients create NetworkPolicy allow-service-egress selecting all pods. Allow only DNS on TCP and UDP port 53, HTTPS on TCP port 443, and TCP port 9443 to 198.18.40.0/24 for api.training.example. Deny all other egress; do not isolate ingress."
+  },
+  {
+    "id": "istio-mtls",
+    "question_id": "CKS-001B-Q14",
+    "title": "Require mutual TLS",
+    "category": "Minimize Microservice Vulnerabilities",
+    "points": 7,
+    "instructions": "Istio and istioctl are installed. In namespace private-mesh create PeerAuthentication default with STRICT mTLS. Ensure both existing Deployments north and south have running istio-proxy sidecars and can communicate with each other."
+  },
+  {
+    "id": "tls-secret",
+    "question_id": "CKS-001B-Q15",
+    "title": "Mount a TLS Secret",
+    "category": "Minimize Microservice Vulnerabilities",
+    "points": 2,
+    "instructions": "Using /root/portal-client.crt and /root/portal-client.key on the controller, create TLS Secret editor-cert in namespace editor. Mount it as volume editor-tls at /etc/editor/tls in the existing Deployment editor-web. Leave the Deployment healthy."
+  },
+  {
+    "id": "etcd-cis",
+    "question_id": "CKS-001B-Q16",
+    "title": "Remediate etcd data-directory findings",
+    "category": "Cluster Setup",
+    "points": 4,
+    "instructions": "Use the installed kube-bench to inspect control-plane CIS findings. Identify the etcd data directory from the active static Pod configuration. Set its ownership recursively to etcd:etcd and directories to permissions 0700 or stricter. Keep files readable and writable by the etcd owner, remove group and other access, and leave etcd and the API healthy. Verify the benchmark's directory permission and ownership checks. Limit changes to that data directory."
+  }
+]

@@ -1,0 +1,85 @@
+{
+  "baseline": 0,
+  "mutations": [
+    {
+      "task": "falco-miner",
+      "remove": "sudo -n env KUBECONFIG=/etc/kubernetes/admin.conf python3 -B /opt/painkiller/cks001b/mutate.py 1",
+      "restore": "python3 -B /opt/painkiller/cks001b/answer.py 1"
+    },
+    {
+      "task": "deny-egress-ranges",
+      "remove": "sudo -n env KUBECONFIG=/etc/kubernetes/admin.conf python3 -B /opt/painkiller/cks001b/mutate.py 2",
+      "restore": "python3 -B /opt/painkiller/cks001b/answer.py 2"
+    },
+    {
+      "task": "nonroot-web",
+      "remove": "sudo -n env KUBECONFIG=/etc/kubernetes/admin.conf python3 -B /opt/painkiller/cks001b/mutate.py 3",
+      "restore": "python3 -B /opt/painkiller/cks001b/answer.py 3"
+    },
+    {
+      "task": "selective-ingress",
+      "remove": "sudo -n env KUBECONFIG=/etc/kubernetes/admin.conf python3 -B /opt/painkiller/cks001b/mutate.py 4",
+      "restore": "python3 -B /opt/painkiller/cks001b/answer.py 4"
+    },
+    {
+      "task": "rbac-escalation",
+      "remove": "sudo -n env KUBECONFIG=/etc/kubernetes/admin.conf python3 -B /opt/painkiller/cks001b/mutate.py 5",
+      "restore": "python3 -B /opt/painkiller/cks001b/answer.py 5"
+    },
+    {
+      "task": "readonly-root",
+      "remove": "sudo -n env KUBECONFIG=/etc/kubernetes/admin.conf python3 -B /opt/painkiller/cks001b/mutate.py 6",
+      "restore": "python3 -B /opt/painkiller/cks001b/answer.py 6"
+    },
+    {
+      "task": "distroless-dockerfile",
+      "remove": "sudo -n env KUBECONFIG=/etc/kubernetes/admin.conf python3 -B /opt/painkiller/cks001b/mutate.py 7",
+      "restore": "python3 -B /opt/painkiller/cks001b/answer.py 7"
+    },
+    {
+      "task": "capabilities-scan",
+      "remove": "sudo -n env KUBECONFIG=/etc/kubernetes/admin.conf python3 -B /opt/painkiller/cks001b/mutate.py 8",
+      "restore": "python3 -B /opt/painkiller/cks001b/answer.py 8"
+    },
+    {
+      "task": "psa-restricted",
+      "remove": "sudo -n env KUBECONFIG=/etc/kubernetes/admin.conf python3 -B /opt/painkiller/cks001b/mutate.py 9",
+      "restore": "python3 -B /opt/painkiller/cks001b/answer.py 9"
+    },
+    {
+      "task": "seccomp-debug",
+      "remove": "sudo -n env KUBECONFIG=/etc/kubernetes/admin.conf python3 -B /opt/painkiller/cks001b/mutate.py 10",
+      "restore": "python3 -B /opt/painkiller/cks001b/answer.py 10"
+    },
+    {
+      "task": "image-sbom",
+      "remove": "sudo -n env KUBECONFIG=/etc/kubernetes/admin.conf python3 -B /opt/painkiller/cks001b/mutate.py 11",
+      "restore": "python3 -B /opt/painkiller/cks001b/answer.py 11"
+    },
+    {
+      "task": "tls-ingress",
+      "remove": "sudo -n env KUBECONFIG=/etc/kubernetes/admin.conf python3 -B /opt/painkiller/cks001b/mutate.py 12",
+      "restore": "python3 -B /opt/painkiller/cks001b/answer.py 12"
+    },
+    {
+      "task": "restricted-egress",
+      "remove": "sudo -n env KUBECONFIG=/etc/kubernetes/admin.conf python3 -B /opt/painkiller/cks001b/mutate.py 13",
+      "restore": "python3 -B /opt/painkiller/cks001b/answer.py 13"
+    },
+    {
+      "task": "istio-mtls",
+      "remove": "sudo -n env KUBECONFIG=/etc/kubernetes/admin.conf python3 -B /opt/painkiller/cks001b/mutate.py 14",
+      "restore": "python3 -B /opt/painkiller/cks001b/answer.py 14"
+    },
+    {
+      "task": "tls-secret",
+      "remove": "sudo -n env KUBECONFIG=/etc/kubernetes/admin.conf python3 -B /opt/painkiller/cks001b/mutate.py 15",
+      "restore": "python3 -B /opt/painkiller/cks001b/answer.py 15"
+    },
+    {
+      "task": "etcd-cis",
+      "remove": "sudo -n env KUBECONFIG=/etc/kubernetes/admin.conf python3 -B /opt/painkiller/cks001b/mutate.py 16",
+      "restore": "python3 -B /opt/painkiller/cks001b/answer.py 16"
+    }
+  ]
+}
