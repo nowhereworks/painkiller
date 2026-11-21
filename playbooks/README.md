@@ -26,3 +26,9 @@ During provisioning, every lab node receives a managed `/etc/hosts` block and
 a dedicated SSH identity. Each node's public key is authorized on every node;
 private keys remain on their originating nodes. Hostname-scoped SSH configuration
 uses the lab account (`milkman` by default) and verifies the nodes' host keys.
+
+`workstation/` is the independent Ubuntu LTS/XFCE student desktop recipe for
+template `9150`, not part of Kubernetes provisioning or its checksum contract.
+Its own `SHA256SUMS` includes the playbook, launcher, DNS helper and unit files.
+Update that manifest when changing them. See
+[`docs/workstation-image.md`](../docs/workstation-image.md) for builds and safety.

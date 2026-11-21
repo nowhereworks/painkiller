@@ -189,3 +189,54 @@ For Learning verification rendering, run `node scripts/e2e/verification.js`
 (same prerequisites; mocked HTTP, no server or lab). It checks separate
 green/red/amber result blocks, explicit requirement labels, plain-text
 diagnostics, capture errors, and discarded responses after question navigation.
+
+## Workstation image validation
+
+Local, network-free checks:
+
+```sh
+shellcheck scripts/build-workstation-template.sh scripts/workstation/create-image.sh scripts/test-workstation-image.sh scripts/validate-workstation-image.sh playbooks/workstation/files/desktop-session.sh
+python3 -B scripts/workstation/test_image.py -v
+(cd playbooks/workstation && sha256sum --check --quiet SHA256SUMS)
+ansible-playbook --syntax-check -i localhost, playbooks/workstation/workstation.yml
+```
+
+The local Python suite stubs network/hypervisor commands. It checks invalid
+IDs/accounts, preflight failures, signed-download failures, checksum failures,
+occupied imports, the shared operation lock, and DNS conflict preservation.
+DNS readiness cases distinguish a completed successful oneshot from an
+unstarted, in-progress or failed invocation.
+These checks do not create or destroy VMs.
+
+After inspecting the actual host and confirming both IDs are free, run the
+dedicated wrapper (substitute the verified first ID):
+
+```sh
+WORKSTATION_TEST_START=3100 bash scripts/test-workstation-image.sh
+```
+
+It uses the common operation lock, refuses occupied IDs/non-workstation templates,
+retains failed guests and artifacts, and destroys its two owned clones on success.
+It checks actual Firefox/terminal windows, VNC resize/reconnect and bidirectional
+VNC/XFCE clipboard transfer, not the app's not-yet-implemented noVNC UI or cross-browser
+clipboard integration. Its cloud-init checker accepts only Proxmox's known
+deprecated string-valued `user` metadata; other boot warnings/errors fail.
+Image baking enables registration for future clones but does not register the
+temporary builder. For a diagnosed external DNS API outage only, explicitly
+set `WORKSTATION_TEST_SKIP_DNS=1` to validate the rest of the desktop image.
+Report live DNS registration as **skipped**, not passed, and rerun without the
+override after repair. The default clone validation still requires registration.
+
+Live validation requires an explicitly authorized workstation image build and
+two freshly verified-free IDs within `3000–3999`. Follow the ownership and
+locking discipline above and [workstation-image.md](workstation-image.md).
+Check the template's provenance/description before making linked clones.
+Use the existing `k8s-<ID>` lab hostname prefix, set memory and start; do not
+change clone NICs, cloud-init, machine-id or host keys. Wait for cloud-init via
+the owned guest agent, discover final DHCP addresses and pin SSH keys through
+that agent. Run `scripts/validate-workstation-image.sh` as the lab user in each
+clone; compare distinct addresses, hostnames and host keys. Test Firefox and
+terminal windows on the actual virtual display, VNC reconnect, resizing and
+clipboard before claiming desktop coverage. Preserve failures for diagnosis;
+on success destroy only the two verified-owned clones. Never run the Kubernetes
+provisioner against the workstation. No exam scoring/UI integration is covered.

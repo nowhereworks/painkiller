@@ -132,6 +132,7 @@ and answer snapshots are stored under `data/` and should be treated as sensitive
 - [Fresh-host initial setup](docs/initial-setup.md)
 - [Operations, configuration, image builds, and limitations](docs/operations.md)
 - [VM images and templates](docs/vm-images-and-templates.md)
+- [Standalone workstation image recipe (desktop UI integration pending)](docs/workstation-image.md)
 - [Exam structure and authoring](exam/README.md)
 - [Testing and lab safety](docs/testing.md)
 - [Project-owned playbooks](playbooks/README.md)

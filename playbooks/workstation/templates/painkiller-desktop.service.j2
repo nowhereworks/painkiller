@@ -1,0 +1,21 @@
+[Unit]
+Description=Painkiller persistent XFCE workstation (loopback VNC only)
+After=network.target snapd.socket
+
+[Service]
+Type=simple
+User={{ workstation_user }}
+PAMName=login
+Environment=HOME={{ workstation_home }}
+Environment=XDG_RUNTIME_DIR=/run/user/{{ workstation_uid }}
+Environment=XDG_DATA_DIRS=/usr/local/share:/usr/share:/var/lib/snapd/desktop
+Environment=PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/snap/bin
+WorkingDirectory={{ workstation_home }}
+ExecStart=/usr/local/bin/painkiller-desktop
+Restart=on-failure
+RestartSec=3
+KillMode=control-group
+TimeoutStopSec=15
+
+[Install]
+WantedBy=multi-user.target

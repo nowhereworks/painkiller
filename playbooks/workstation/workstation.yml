@@ -1,0 +1,145 @@
+---
+- name: Build the standalone student workstation image
+  hosts: all
+  become: true
+  gather_facts: true
+  vars:
+    workstation_user: milkman
+    workstation_dns_api: http://192.168.254.4:8888
+    workstation_dns_zone: nowhereworks.local
+    workstation_dns_route: 192.168.254.4
+  tasks:
+    - name: Require the selected latest LTS and a non-root lab account
+      ansible.builtin.assert:
+        that:
+          - ansible_facts.distribution == 'Ubuntu'
+          - ansible_facts.distribution_version == '26.04'
+          - workstation_user is match('^[a-z_][a-z0-9_-]*$')
+          - workstation_user != 'root'
+          - workstation_dns_zone is match('^[a-z0-9.-]+$')
+        fail_msg: This recipe requires Ubuntu 26.04 LTS and a non-root lab account
+
+    - name: Install the minimal XFCE desktop and virtual display
+      ansible.builtin.apt:
+        update_cache: true
+        install_recommends: false
+        name:
+          - xfce4
+          - xfce4-terminal
+          - mousepad
+          - onboard
+          - dbus-x11
+          - xauth
+          - x11-utils
+          - x11-xserver-utils
+          - xclip
+          - fonts-dejavu-core
+          - tigervnc-standalone-server
+          - tigervnc-common
+          - snapd
+          - curl
+          - python3
+          - qemu-guest-agent
+
+    - name: Enable the standard Firefox package delivery service
+      ansible.builtin.systemd_service:
+        name: snapd.socket
+        enabled: true
+        state: started
+
+    - name: Wait for snap initialization
+      ansible.builtin.command: snap wait system seed.loaded
+      changed_when: false
+      async: 600
+      poll: 5
+
+    - name: Check whether Firefox is already installed
+      ansible.builtin.command: snap list firefox
+      register: firefox_installed
+      changed_when: false
+      failed_when: firefox_installed.rc not in [0, 1]
+
+    - name: Install Firefox from the stable channel
+      ansible.builtin.command: snap install firefox --channel=latest/stable
+      when: firefox_installed.rc != 0
+      async: 900
+      poll: 5
+
+    - name: Read the account's home and UID
+      ansible.builtin.getent:
+        database: passwd
+        key: "{{ workstation_user }}"
+
+    - name: Record the desktop account
+      ansible.builtin.set_fact:
+        workstation_home: "{{ ansible_facts.getent_passwd[workstation_user][4] }}"
+        workstation_uid: "{{ ansible_facts.getent_passwd[workstation_user][1] }}"
+
+    - name: Create image metadata directory
+      ansible.builtin.file:
+        path: /opt/painkiller/workstation
+        state: directory
+        mode: "0755"
+
+    - name: Install persistent headless desktop launcher
+      ansible.builtin.copy:
+        src: desktop-session.sh
+        dest: /usr/local/bin/painkiller-desktop
+        mode: "0755"
+
+    - name: Install cloud-init readiness validator
+      ansible.builtin.copy:
+        src: check-cloud-init.py
+        dest: /usr/local/bin/painkiller-check-cloud-init
+        mode: "0755"
+
+    - name: Install the loopback-only desktop service
+      ansible.builtin.template:
+        src: painkiller-desktop.service.j2
+        dest: /etc/systemd/system/painkiller-desktop.service
+        mode: "0644"
+      register: desktop_unit
+
+    - name: Install safe DNS registration
+      ansible.builtin.copy:
+        src: register-dns.py
+        dest: /usr/local/sbin/painkiller-register-dns
+        mode: "0755"
+
+    - name: Configure the selected DNS registration service
+      ansible.builtin.copy:
+        dest: /etc/painkiller-dns.json
+        mode: "0644"
+        content: "{{ {'api': workstation_dns_api, 'zone': workstation_dns_zone, 'route': workstation_dns_route} | to_nice_json }}\n"
+
+    - name: Install DNS registration unit
+      ansible.builtin.copy:
+        src: painkiller-register-dns.service
+        dest: /etc/systemd/system/painkiller-register-dns.service
+        mode: "0644"
+
+    - name: Enable DNS registration for future clones without registering the builder
+      ansible.builtin.systemd_service:
+        name: painkiller-register-dns.service
+        daemon_reload: true
+        enabled: true
+
+    - name: Start the persistent desktop
+      ansible.builtin.systemd_service:
+        name: painkiller-desktop.service
+        daemon_reload: true
+        enabled: true
+        state: "{{ 'restarted' if desktop_unit.changed else 'started' }}"
+
+    - name: Wait for the virtual desktop
+      ansible.builtin.wait_for:
+        host: 127.0.0.1
+        port: 5901
+        timeout: 60
+
+    - name: Record exact installed package versions
+      ansible.builtin.shell: |
+        set -eu
+        dpkg-query -W -f='${Package}=${Version}\n' > /opt/painkiller/workstation/packages
+        snap list firefox > /opt/painkiller/workstation/firefox
+      changed_when: false

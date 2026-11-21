@@ -1,0 +1,13 @@
+[Unit]
+Description=Register the Painkiller workstation's DHCP hostname in lab DNS
+Wants=network-online.target
+After=network-online.target cloud-final.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/painkiller-register-dns
+Restart=on-failure
+RestartSec=60
+
+[Install]
+WantedBy=cloud-final.service

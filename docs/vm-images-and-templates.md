@@ -5,7 +5,7 @@ provisioning. Keep this document and the registry below current.
 
 ## Template hierarchy
 
-`9199` is the sole base template for all lab images. Its purpose is to provide
+`9199` is the sole base template for Kubernetes lab images. Its purpose is to provide
 the minimal common VM foundation: automatic DNS registration, baseline VM
 shape, SSH access and keys, DHCP, the guest agent, and other shared boot and
 access configuration. Keep exam-specific dependencies, fixtures, faults, and
@@ -24,6 +24,14 @@ Disposable lab VMs are not template levels. There may be multiple specialized
 templates, but each must be built directly from `9199`, never from another
 specialized template, even via a full clone. Do not convert a lab VM into a
 template. Record the source and build procedure so ancestry is verifiable.
+
+**Workstation exception:** the student desktop image defaults to `9150` and is
+built directly from Canonical's latest Ubuntu LTS cloud image, independently of
+`9199`. This is the only approved exception to the sole-base rule. Keep existing
+Kubernetes templates and consumers unchanged. Its dedicated recipe, checksum
+verification, configuration and validation are in [workstation-image.md](workstation-image.md).
+Track the latest LTS deliberately when rebuilding; never upgrade a published
+template in place or upgrade the OS during student lab preparation.
 
 ## Creating and using images
 
@@ -78,6 +86,7 @@ alter an image. Verify current allocations and consumers before acting.
 | --- | --- | --- |
 | `9010` | Current legacy-mode default; transitional, ancestry unverified | Legacy-mode consumers; specific exams not established |
 | `9100` | Current default prebaked Kubernetes image; ancestry unverified | Default for exams without an explicit lab template, including CKA-001; explicit CKA-003 default |
+| `9150` | Dedicated Ubuntu 26.04 LTS/XFCE workstation, built 2026-11-21 directly from the cloud image, independent of `9199`; builder and linked-clone desktop checks passed; live DNS readiness blocked by external API authentication | No exam consumers yet |
 | `9198` | Prebaked HA Kubernetes/Calico image; ancestry unverified | CKA-002 |
-| `9199` | Generic VM foundation and sole approved base; CKAD-001 provisions Kubernetes/Calico, OPA-001 provisions a single schedulable Kubernetes/Flannel controller; CKS-001 and CKS-001B each provision one schedulable Kubernetes/Calico controller with exam-owned security tools | Shared—all exams; direct consumers CKAD-001, OPA-001, CKS-001, CKS-001B |
+| `9199` | Generic VM foundation and sole approved Kubernetes base; CKAD-001 provisions Kubernetes/Calico, OPA-001 provisions a single schedulable Kubernetes/Flannel controller; CKS-001 and CKS-001B each provision one schedulable Kubernetes/Calico controller with exam-owned security tools | Shared—all Kubernetes exams; direct consumers CKAD-001, OPA-001, CKS-001, CKS-001B |
 | `9200` | Existing HA image; current consumer and ancestry unverified | Not established |
