@@ -86,7 +86,7 @@ alter an image. Verify current allocations and consumers before acting.
 | --- | --- | --- |
 | `9010` | Current legacy-mode default; transitional, ancestry unverified | Legacy-mode consumers; specific exams not established |
 | `9100` | Current default prebaked Kubernetes image; ancestry unverified | Default for exams without an explicit lab template, including CKA-001; explicit CKA-003 default |
-| `9150` | Dedicated Ubuntu 26.04 LTS/XFCE workstation, built 2026-11-21 directly from the cloud image, independent of `9199`; builder and linked-clone desktop checks passed; live DNS readiness blocked by external API authentication | No exam consumers yet |
+| `9150` | Dedicated Ubuntu 26.04 LTS/XFCE workstation, built 2026-11-21 directly from the cloud image, independent of `9199`; full linked-clone desktop and live DNS validation passed 2026-11-22 | No exam consumers yet |
 | `9198` | Prebaked HA Kubernetes/Calico image; ancestry unverified | CKA-002 |
 | `9199` | Generic VM foundation and sole approved Kubernetes base; CKAD-001 provisions Kubernetes/Calico, OPA-001 provisions a single schedulable Kubernetes/Flannel controller; CKS-001 and CKS-001B each provision one schedulable Kubernetes/Calico controller with exam-owned security tools | Shared—all Kubernetes exams; direct consumers CKAD-001, OPA-001, CKS-001, CKS-001B |
 | `9200` | Existing HA image; current consumer and ancestry unverified | Not established |

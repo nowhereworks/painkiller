@@ -163,7 +163,25 @@ Built on **2026-11-21**, on `prox-k12`, as stopped template `9150`:
   Live DNS registration was explicitly **skipped**, not passed.
 - Local checks passed: 16 Python safety regressions, ShellCheck, workstation asset
   checksums, Ansible syntax, `go test -race ./...` and `go vet ./...`.
-- Live DNS registration is not a build check. During validation the separate
+- Live DNS registration is not a build check. During initial validation the separate
   lab DNS API returned HTTP 502, `technitium auth error`. That service was not
-  changed. Require successful registration after it is repaired before claiming
-  full lab-network readiness.
+  changed by the image build. The API's configured token was subsequently
+  confirmed invalid; the operator replaced it before the successful revalidation
+  below.
+
+### Full DNS-enabled revalidation — 2026-11-22
+
+Ran `WORKSTATION_TEST_START=3100 WORKSTATION_TEST_SKIP_DNS=0 bash scripts/test-workstation-image.sh`
+against unchanged template `9150`, after verifying both IDs were free:
+
+- Both fresh linked clones passed cloud-init, live DNS registration, unique DHCP
+  addresses/hostnames/SSH keys, clean exam state and loopback-only VNC.
+- Actual Firefox/terminal rendering, VNC resize/reconnect and bidirectional
+  clipboard checks passed on both guests.
+- Independently read both A records through the DNS automation API and confirmed
+  each matched that clone's recorded DHCP address.
+- Both test VMs were destroyed successfully; `9150` remains a stopped template.
+- No DNS checks were skipped. Artifacts: `data/workstation-test.5TzuxHfb/`.
+
+The earlier external authentication blocker is resolved. This establishes
+workstation image readiness, not app/noVNC integration or exam scoring coverage.
